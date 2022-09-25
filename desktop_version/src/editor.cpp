@@ -1,270 +1,31 @@
-#if !defined(NO_CUSTOM_LEVELS)
+#if !defined(NO_CUSTOM_LEVELS) && !defined(NO_EDITOR)
 
-#include "editor.h"
+#define ED_DEFINITION
+#include "Editor.h"
 
-#include <physfs.h>
-#include <stdio.h>
 #include <string>
-#include <tinyxml2.h>
 #include <utf8/unchecked.h>
 
+#include "CustomLevels.h"
+#include "DeferCallbacks.h"
 #include "Entity.h"
 #include "Enums.h"
-#include "FileSystemUtils.h"
+#include "Game.h"
 #include "Graphics.h"
+#include "GraphicsUtil.h"
 #include "KeyPoll.h"
 #include "Map.h"
 #include "Music.h"
 #include "Script.h"
 #include "UtilityClass.h"
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-#ifndef _POSIX_SOURCE
-#define _POSIX_SOURCE
-#endif
-#include <inttypes.h>
-
-edlevelclass::edlevelclass()
+editorclass::editorclass(void)
 {
-    tileset=0;
-    tilecol=0;
-    warpdir=0;
-    platx1=0;
-    platy1=0;
-    platx2=320;
-    platy2=240;
-    platv=4;
-    enemyx1=0;
-    enemyy1=0;
-    enemyx2=320;
-    enemyy2=240;
-    enemytype=0;
-    directmode=0;
-}
-
-editorclass::editorclass()
-{
-    //We create a blank map
-    SDL_memset(contents, 0, sizeof(contents));
-
-    for (size_t i = 0; i < SDL_arraysize(vmult); i++)
-    {
-        vmult[i] = i * 40 * maxwidth;
-    }
-
     reset();
 }
 
-// comparison, not case sensitive.
-bool compare_nocase (std::string first, std::string second)
+void editorclass::reset(void)
 {
-    unsigned int i=0;
-    while ( (i<first.length()) && (i<second.length()) )
-    {
-        if (SDL_tolower(first[i])<SDL_tolower(second[i]))
-            return true;
-        else if (SDL_tolower(first[i])>SDL_tolower(second[i]))
-            return false;
-        ++i;
-    }
-    if (first.length()<second.length())
-        return true;
-    else
-        return false;
-}
-
-void editorclass::loadZips()
-{
-    directoryList = FILESYSTEM_getLevelDirFileNames();
-    bool needsReload = false;
-
-    for(size_t i = 0; i < directoryList.size(); i++)
-    {
-        if (endsWith(directoryList[i], ".zip")) {
-            PHYSFS_File* zip = PHYSFS_openRead(directoryList[i].c_str());
-            if (!PHYSFS_mountHandle(zip, directoryList[i].c_str(), "levels", 1)) {
-                printf("%s\n", PHYSFS_getErrorByCode(PHYSFS_getLastErrorCode()));
-            } else {
-                needsReload = true;
-            }
-        }
-    }
-
-    if (needsReload) directoryList = FILESYSTEM_getLevelDirFileNames();
-}
-
-void replace_all(std::string& str, const std::string& from, const std::string& to)
-{
-    if (from.empty())
-    {
-        return;
-    }
-
-    size_t start_pos = 0;
-
-    while ((start_pos = str.find(from, start_pos)) != std::string::npos)
-    {
-        str.replace(start_pos, from.length(), to);
-        start_pos += to.length(); //In case `to` contains `from`, like replacing 'x' with 'yx'
-    }
-}
-
-std::string find_tag(const std::string& buf, const std::string& start, const std::string& end)
-{
-    size_t tag = buf.find(start);
-
-    if (tag == std::string::npos)
-    {
-        //No start tag
-        return "";
-    }
-
-    size_t tag_start = tag + start.size();
-    size_t tag_close = buf.find(end, tag_start);
-
-    if (tag_close == std::string::npos)
-    {
-        //No close tag
-        return "";
-    }
-
-    size_t tag_len = tag_close - tag_start;
-    std::string value(buf.substr(tag_start, tag_len));
-
-    //Encode special XML entities
-    replace_all(value, "&quot;", "\"");
-    replace_all(value, "&amp;", "&");
-    replace_all(value, "&apos;", "'");
-    replace_all(value, "&lt;", "<");
-    replace_all(value, "&gt;", ">");
-
-    //Encode general XML entities
-    size_t start_pos = 0;
-    while ((start_pos = value.find("&#", start_pos)) != std::string::npos)
-    {
-        bool hex = value[start_pos + 2] == 'x';
-        size_t end = value.find(';', start_pos);
-        size_t real_start = start_pos + 2 + ((int) hex);
-        std::string number(value.substr(real_start, end - real_start));
-
-        if (!is_positive_num(number, hex))
-        {
-            return "";
-        }
-
-        uint32_t character = 0;
-        if (hex)
-        {
-            sscanf(number.c_str(), "%" SCNx32, &character);
-        }
-        else
-        {
-            sscanf(number.c_str(), "%" SCNu32, &character);
-        }
-        uint32_t utf32[] = {character, 0};
-        std::string utf8;
-        utf8::unchecked::utf32to8(utf32, utf32 + 1, std::back_inserter(utf8));
-        value.replace(start_pos, end - start_pos + 1, utf8);
-    }
-
-    return value;
-}
-
-#define TAG_FINDER(NAME, TAG) \
-std::string NAME(const std::string& buf) \
-{ \
-    return find_tag(buf, "<" TAG ">", "</" TAG ">"); \
-}
-
-TAG_FINDER(find_metadata, "MetaData"); //only for checking that it exists
-
-TAG_FINDER(find_creator, "Creator");
-TAG_FINDER(find_title, "Title");
-TAG_FINDER(find_desc1, "Desc1");
-TAG_FINDER(find_desc2, "Desc2");
-TAG_FINDER(find_desc3, "Desc3");
-TAG_FINDER(find_website, "website");
-
-#undef TAG_FINDER
-
-void editorclass::getDirectoryData()
-{
-
-    ListOfMetaData.clear();
-    directoryList.clear();
-
-    loadZips();
-
-    directoryList = FILESYSTEM_getLevelDirFileNames();
-
-    for(size_t i = 0; i < directoryList.size(); i++)
-    {
-        LevelMetaData temp;
-        if (getLevelMetaData( directoryList[i], temp))
-        {
-            ListOfMetaData.push_back(temp);
-        }
-    }
-
-    for(size_t i = 0; i < ListOfMetaData.size(); i++)
-    {
-        for(size_t k = 0; k < ListOfMetaData.size(); k++)
-        {
-            if(compare_nocase(ListOfMetaData[i].title, ListOfMetaData[k].title ))
-            {
-                std::swap(ListOfMetaData[i] , ListOfMetaData[k]);
-                std::swap(directoryList[i], directoryList[k]);
-            }
-        }
-    }
-
-}
-bool editorclass::getLevelMetaData(std::string& _path, LevelMetaData& _data )
-{
-    unsigned char *uMem = NULL;
-    FILESYSTEM_loadFileToMemory(_path.c_str(), &uMem, NULL, true);
-
-    if (uMem == NULL)
-    {
-        printf("Level %s not found :(\n", _path.c_str());
-        return false;
-    }
-
-    std::string buf((char*) uMem);
-
-    if (find_metadata(buf) == "")
-    {
-        printf("Couldn't load metadata for %s\n", _path.c_str());
-        return false;
-    }
-
-    _data.creator = find_creator(buf);
-    _data.title = find_title(buf);
-    _data.Desc1 = find_desc1(buf);
-    _data.Desc2 = find_desc2(buf);
-    _data.Desc3 = find_desc3(buf);
-    _data.website = find_website(buf);
-
-    _data.filename = _path;
-    return true;
-}
-
-void editorclass::reset()
-{
-    version=2; //New smaller format change is 2
-
-    mapwidth=5;
-    mapheight=5;
-
-    EditorData::GetInstance().title="Untitled Level";
-    EditorData::GetInstance().creator="Unknown";
-    Desc1="";
-    Desc2="";
-    Desc3="";
-    website="";
-
     roomnamehide=0;
     zmod=false;
     xmod=false;
@@ -280,7 +41,6 @@ void editorclass::reset()
     note="";
     notedelay=0;
     oldnotedelay=0;
-    textentry=false;
     deletekeyheld=false;
     textmod = TEXT_NONE;
 
@@ -319,44 +79,11 @@ void editorclass::reset()
     loadkey=false;
     updatetiles=true;
     changeroom=true;
-    levmusic=0;
 
     entframe=0;
     entframedelay=0;
 
-    edentity.clear();
-    levmusic=0;
-
-    for (int j = 0; j < maxheight; j++)
-    {
-        for (int i = 0; i < maxwidth; i++)
-        {
-            level[i+(j*maxwidth)].tileset=0;
-            level[i+(j*maxwidth)].tilecol=(i+j)%32;
-            level[i+(j*maxwidth)].roomname="";
-            level[i+(j*maxwidth)].warpdir=0;
-            level[i+(j*maxwidth)].platx1=0;
-            level[i+(j*maxwidth)].platy1=0;
-            level[i+(j*maxwidth)].platx2=320;
-            level[i+(j*maxwidth)].platy2=240;
-            level[i+(j*maxwidth)].platv=4;
-            level[i+(j*maxwidth)].enemyx1=0;
-            level[i+(j*maxwidth)].enemyy1=0;
-            level[i+(j*maxwidth)].enemyx2=320;
-            level[i+(j*maxwidth)].enemyy2=240;
-            level[i+(j*maxwidth)].enemytype=0;
-            level[i+(j*maxwidth)].directmode=0;
-            kludgewarpdir[i+(j*maxwidth)]=0;
-        }
-    }
-
-    for (int j = 0; j < 30 * maxheight; j++)
-    {
-        for (int i = 0; i < 40 * maxwidth; i++)
-        {
-            contents[i+(j*40*maxwidth)]=0;
-        }
-    }
+    SDL_zeroa(kludgewarpdir);
 
     hooklist.clear();
 
@@ -373,7 +100,6 @@ void editorclass::reset()
 
     hookmenupage=0;
     hookmenu=0;
-    script.customscripts.clear();
 
     returneditoralpha = 0;
     oldreturneditoralpha = 0;
@@ -381,10 +107,10 @@ void editorclass::reset()
     ghosts.clear();
     currentghosts = 0;
 
-    onewaycol_override = false;
+    loaded_filepath = "";
 }
 
-void editorclass::gethooks()
+void editorclass::gethooks(void)
 {
     //Scan through the script and create a hooks list based on it
     hooklist.clear();
@@ -396,7 +122,7 @@ void editorclass::gethooks()
     }
 }
 
-void editorclass::loadhookineditor(std::string t)
+void editorclass::loadhookineditor(const std::string& t)
 {
     //Find hook t in the scriptclass, then load it into the editor
     clearscriptbuffer();
@@ -419,7 +145,7 @@ void editorclass::loadhookineditor(std::string t)
     }
 }
 
-void editorclass::addhooktoscript(std::string t)
+void editorclass::addhooktoscript(const std::string& t)
 {
     //Adds hook+the scriptbuffer to the end of the scriptclass
     removehookfromscript(t);
@@ -429,29 +155,36 @@ void editorclass::addhooktoscript(std::string t)
     script.customscripts.push_back(script_);
 }
 
-void editorclass::removehookfromscript(std::string t)
+void editorclass::removehookfromscript(const std::string& t)
 {
-    //Find hook t in the scriptclass, then removes it (and any other code with it)
-    for (size_t i = 0; i < script.customscripts.size(); i++)
+    /* Find hook t in the scriptclass, then removes it (and any other code with it)
+     * When this loop reaches the end, it wraps to SIZE_MAX; SIZE_MAX + 1 is 0 */
+    size_t i;
+    for (i = script.customscripts.size() - 1; i + 1 > 0; --i)
     {
-        Script& script_ = script.customscripts[i];
-
-        if (script_.name == t)
+        if (script.customscripts[i].name == t)
         {
             script.customscripts.erase(script.customscripts.begin() + i);
-            break;
         }
     }
 }
 
-void editorclass::removehook(std::string t)
+void editorclass::removehook(const std::string& t)
 {
     //Check the hooklist for the hook t. If it's there, remove it from here and the script
+    size_t i;
     removehookfromscript(t);
-    hooklist.erase(std::remove(hooklist.begin(), hooklist.end(), t), hooklist.end());
+    /* When this loop reaches the end, it wraps to SIZE_MAX; SIZE_MAX + 1 is 0 */
+    for (i = hooklist.size() - 1; i + 1 > 0; --i)
+    {
+        if (hooklist[i] == t)
+        {
+            hooklist.erase(hooklist.begin() + i);
+        }
+    }
 }
 
-void editorclass::addhook(std::string t)
+void editorclass::addhook(const std::string& t)
 {
     //Add an empty function to the list in both editor and script
     removehook(t);
@@ -459,7 +192,7 @@ void editorclass::addhook(std::string t)
     addhooktoscript(t);
 }
 
-bool editorclass::checkhook(std::string t)
+bool editorclass::checkhook(const std::string& t)
 {
     //returns true if hook t already is in the list
     for(size_t i=0; i<hooklist.size(); i++)
@@ -470,7 +203,7 @@ bool editorclass::checkhook(std::string t)
 }
 
 
-void editorclass::clearscriptbuffer()
+void editorclass::clearscriptbuffer(void)
 {
     sb.clear();
 }
@@ -492,9 +225,9 @@ void editorclass::insertline(int t)
 
 void editorclass::getlin(const enum textmode mode, const std::string& prompt, std::string* ptr)
 {
-    ed.textmod = mode;
-    ed.textptr = ptr;
-    ed.textdesc = prompt;
+    textmod = mode;
+    textptr = ptr;
+    textdesc = prompt;
     key.enabletextentry();
     if (ptr)
     {
@@ -503,1673 +236,16 @@ void editorclass::getlin(const enum textmode mode, const std::string& prompt, st
     else
     {
         key.keybuffer = "";
-        ed.textptr = &(key.keybuffer);
+        textptr = &(key.keybuffer);
     }
 
-    ed.oldenttext = key.keybuffer;
-}
-
-const short* editorclass::loadlevel( int rxi, int ryi )
-{
-    //Set up our buffer array to be picked up by mapclass
-    rxi -= 100;
-    ryi -= 100;
-    if(rxi<0)rxi+=mapwidth;
-    if(ryi<0)ryi+=mapheight;
-    if(rxi>=mapwidth)rxi-=mapwidth;
-    if(ryi>=mapheight)ryi-=mapheight;
-
-    static short result[1200];
-
-    for (int j = 0; j < 30; j++)
-    {
-        for (int i = 0; i < 40; i++)
-        {
-            result[i + j*40] = contents[i+(rxi*40)+vmult[j+(ryi*30)]];
-        }
-    }
-
-    return result;
-}
-
-int editorclass::getlevelcol(int t)
-{
-    if(level[t].tileset==0)  //Space Station
-    {
-        return level[t].tilecol;
-    }
-    else if(level[t].tileset==1)   //Outside
-    {
-        return 32+level[t].tilecol;
-    }
-    else if(level[t].tileset==2)   //Lab
-    {
-        return 40+level[t].tilecol;
-    }
-    else if(level[t].tileset==3)   //Warp Zone
-    {
-        return 46+level[t].tilecol;
-    }
-    else if(level[t].tileset==4)   //Ship
-    {
-        return 52+level[t].tilecol;
-    }
-    return 0;
-}
-
-int editorclass::getenemycol(int t)
-{
-    switch(t)
-    {
-        //RED
-    case 3:
-    case 7:
-    case 12:
-    case 23:
-    case 28:
-    case 34:
-    case 42:
-    case 48:
-    case 58:
-        return 6;
-        break;
-        //GREEN
-    case 5:
-    case 9:
-    case 22:
-    case 25:
-    case 29:
-    case 31:
-    case 38:
-    case 46:
-    case 52:
-    case 53:
-        return 7;
-        break;
-        //BLUE
-    case 1:
-    case 6:
-    case 14:
-    case 27:
-    case 33:
-    case 44:
-    case 50:
-    case 57:
-        return 12;
-        break;
-        //YELLOW
-    case 4:
-    case 17:
-    case 24:
-    case 30:
-    case 37:
-    case 45:
-    case 51:
-    case 55:
-        return 9;
-        break;
-        //PURPLE
-    case 2:
-    case 11:
-    case 15:
-    case 19:
-    case 32:
-    case 36:
-    case 49:
-        return 20;
-        break;
-        //CYAN
-    case 8:
-    case 10:
-    case 13:
-    case 18:
-    case 26:
-    case 35:
-    case 41:
-    case 47:
-    case 54:
-        return 11;
-        break;
-        //PINK
-    case 16:
-    case 20:
-    case 39:
-    case 43:
-    case 56:
-        return 8;
-        break;
-        //ORANGE
-    case 21:
-    case 40:
-        return 17;
-        break;
-    default:
-        return 6;
-        break;
-    }
-    return 0;
-}
-
-int editorclass::getwarpbackground(int rx, int ry)
-{
-    int tmp=rx+(maxwidth*ry);
-    switch(level[tmp].tileset)
-    {
-    case 0: //Space Station
-        switch(level[tmp].tilecol)
-        {
-        case 0:
-            return 3;
-            break;
-        case 1:
-            return 2;
-            break;
-        case 2:
-            return 1;
-            break;
-        case 3:
-            return 4;
-            break;
-        case 4:
-            return 5;
-            break;
-        case 5:
-            return 3;
-            break;
-        case 6:
-            return 1;
-            break;
-        case 7:
-            return 0;
-            break;
-        case 8:
-            return 5;
-            break;
-        case 9:
-            return 0;
-            break;
-        case 10:
-            return 2;
-            break;
-        case 11:
-            return 1;
-            break;
-        case 12:
-            return 5;
-            break;
-        case 13:
-            return 0;
-            break;
-        case 14:
-            return 3;
-            break;
-        case 15:
-            return 2;
-            break;
-        case 16:
-            return 4;
-            break;
-        case 17:
-            return 0;
-            break;
-        case 18:
-            return 3;
-            break;
-        case 19:
-            return 1;
-            break;
-        case 20:
-            return 4;
-            break;
-        case 21:
-            return 5;
-            break;
-        case 22:
-            return 1;
-            break;
-        case 23:
-            return 4;
-            break;
-        case 24:
-            return 5;
-            break;
-        case 25:
-            return 0;
-            break;
-        case 26:
-            return 3;
-            break;
-        case 27:
-            return 1;
-            break;
-        case 28:
-            return 5;
-            break;
-        case 29:
-            return 4;
-            break;
-        case 30:
-            return 5;
-            break;
-        case 31:
-            return 2;
-            break;
-        default:
-            return 6;
-            break;
-        }
-        break;
-    case 1: //Outside
-        switch(level[tmp].tilecol)
-        {
-        case 0:
-            return 3;
-            break;
-        case 1:
-            return 1;
-            break;
-        case 2:
-            return 0;
-            break;
-        case 3:
-            return 2;
-            break;
-        case 4:
-            return 4;
-            break;
-        case 5:
-            return 5;
-            break;
-        case 6:
-            return 2;
-            break;
-        case 7:
-            return 4;
-            break;
-        default:
-            return 6;
-            break;
-        }
-        break;
-    case 2: //Lab
-        switch(level[tmp].tilecol)
-        {
-        case 0:
-            return 0;
-            break;
-        case 1:
-            return 1;
-            break;
-        case 2:
-            return 2;
-            break;
-        case 3:
-            return 3;
-            break;
-        case 4:
-            return 4;
-            break;
-        case 5:
-            return 5;
-            break;
-        case 6:
-            return 6;
-            break;
-        default:
-            return 6;
-            break;
-        }
-        break;
-    case 3: //Warp Zone
-        switch(level[tmp].tilecol)
-        {
-        case 0:
-            return 0;
-            break;
-        case 1:
-            return 1;
-            break;
-        case 2:
-            return 2;
-            break;
-        case 3:
-            return 3;
-            break;
-        case 4:
-            return 4;
-            break;
-        case 5:
-            return 5;
-            break;
-        case 6:
-            return 6;
-            break;
-        default:
-            return 6;
-            break;
-        }
-        break;
-    case 4: //Ship
-        switch(level[tmp].tilecol)
-        {
-        case 0:
-            return 5;
-            break;
-        case 1:
-            return 0;
-            break;
-        case 2:
-            return 4;
-            break;
-        case 3:
-            return 2;
-            break;
-        case 4:
-            return 3;
-            break;
-        case 5:
-            return 1;
-            break;
-        case 6:
-            return 6;
-            break;
-        default:
-            return 6;
-            break;
-        }
-        break;
-    case 5: //Tower
-        return 6;
-        break;
-    default:
-        return 6;
-        break;
-    }
-}
-
-int editorclass::getenemyframe(int t)
-{
-    switch(t)
-    {
-    case 0:
-        return 78;
-        break;
-    case 1:
-        return 88;
-        break;
-    case 2:
-        return 36;
-        break;
-    case 3:
-        return 164;
-        break;
-    case 4:
-        return 68;
-        break;
-    case 5:
-        return 48;
-        break;
-    case 6:
-        return 176;
-        break;
-    case 7:
-        return 168;
-        break;
-    case 8:
-        return 112;
-        break;
-    case 9:
-        return 114;
-        break;
-    default:
-        return 78;
-        break;
-    }
-    return 78;
+    oldenttext = key.keybuffer;
 }
 
 
-void editorclass::placetile( int x, int y, int t )
+static void addedentity( int xp, int yp, int tp, int p1 = 0, int p2 = 0, int p3 = 0, int p4 = 0, int p5 = 320, int p6 = 240)
 {
-    if(x>=0 && y>=0 && x<mapwidth*40 && y<mapheight*30)
-    {
-        contents[x+(levx*40)+vmult[y+(levy*30)]]=t;
-    }
-}
-
-void editorclass::placetilelocal( int x, int y, int t )
-{
-    if(x>=0 && y>=0 && x<40 && y<30)
-    {
-        contents[x+(levx*40)+vmult[y+(levy*30)]]=t;
-    }
-    updatetiles=true;
-}
-
-int editorclass::base( int x, int y )
-{
-    //Return the base tile for the given tileset and colour
-    int temp=x+(y*maxwidth);
-    if(level[temp].tileset==0)  //Space Station
-    {
-        if(level[temp].tilecol>=22)
-        {
-            return 483 + ((level[temp].tilecol-22)*3);
-        }
-        else if(level[temp].tilecol>=11)
-        {
-            return 283 + ((level[temp].tilecol-11)*3);
-        }
-        else
-        {
-            return 83 + (level[temp].tilecol*3);
-        }
-    }
-    else if(level[temp].tileset==1)   //Outside
-    {
-        return 480 + (level[temp].tilecol*3);
-    }
-    else if(level[temp].tileset==2)   //Lab
-    {
-        return 280 + (level[temp].tilecol*3);
-    }
-    else if(level[temp].tileset==3)   //Warp Zone/Intermission
-    {
-        return 80 + (level[temp].tilecol*3);
-    }
-    else if(level[temp].tileset==4)   //SHIP
-    {
-        return 101 + (level[temp].tilecol*3);
-    }
-    return 0;
-}
-
-int editorclass::backbase( int x, int y )
-{
-    //Return the base tile for the background of the given tileset and colour
-    int temp=x+(y*maxwidth);
-    if(level[temp].tileset==0)  //Space Station
-    {
-        //Pick depending on tilecol
-        switch(level[temp].tilecol)
-        {
-        case 0:
-        case 5:
-        case 26:
-            return 680; //Blue
-            break;
-        case 3:
-        case 16:
-        case 23:
-            return 683; //Yellow
-            break;
-        case 9:
-        case 12:
-        case 21:
-            return 686; //Greeny Cyan
-            break;
-        case 4:
-        case 8:
-        case 24:
-        case 28:
-        case 30:
-            return 689; //Green
-            break;
-        case 20:
-        case 29:
-            return 692; //Orange
-            break;
-        case 2:
-        case 6:
-        case 11:
-        case 22:
-        case 27:
-            return 695; //Red
-            break;
-        case 1:
-        case 10:
-        case 15:
-        case 19:
-        case 31:
-            return 698; //Pink
-            break;
-        case 14:
-        case 18:
-            return 701; //Dark Blue
-            break;
-        case 7:
-        case 13:
-        case 17:
-        case 25:
-            return 704; //Cyan
-            break;
-        default:
-            return 680;
-            break;
-        }
-
-    }
-    else if(level[temp].tileset==1)   //outside
-    {
-        return 680 + (level[temp].tilecol*3);
-    }
-    else if(level[temp].tileset==2)   //Lab
-    {
-        return 0;
-    }
-    else if(level[temp].tileset==3)   //Warp Zone/Intermission
-    {
-        return 120 + (level[temp].tilecol*3);
-    }
-    else if(level[temp].tileset==4)   //SHIP
-    {
-        return 741 + (level[temp].tilecol*3);
-    }
-    return 0;
-}
-
-int editorclass::at( int x, int y )
-{
-    if(x<0) return at(0,y);
-    if(y<0) return at(x,0);
-    if(x>=40) return at(39,y);
-    if(y>=30) return at(x,29);
-
-    if(x>=0 && y>=0 && x<40 && y<30)
-    {
-        return contents[x+(levx*40)+vmult[y+(levy*30)]];
-    }
-    return 0;
-}
-
-
-int editorclass::freewrap( int x, int y )
-{
-    if(x<0) return freewrap(x+(mapwidth*40),y);
-    if(y<0) return freewrap(x,y+(mapheight*30));
-    if(x>=(mapwidth*40)) return freewrap(x-(mapwidth*40),y);
-    if(y>=(mapheight*30)) return freewrap(x,y-(mapheight*30));
-
-    if(x>=0 && y>=0 && x<(mapwidth*40) && y<(mapheight*30))
-    {
-        if(contents[x+vmult[y]]==0)
-        {
-            return 0;
-        }
-        else
-        {
-            if(contents[x+vmult[y]]>=2 && contents[x+vmult[y]]<80)
-            {
-                return 0;
-            }
-            if(contents[x+vmult[y]]>=680)
-            {
-                return 0;
-            }
-        }
-    }
-    return 1;
-}
-
-int editorclass::backonlyfree( int x, int y )
-{
-    //Returns 1 if tile is a background tile, 0 otherwise
-    if(x<0) return backonlyfree(0,y);
-    if(y<0) return backonlyfree(x,0);
-    if(x>=40) return backonlyfree(39,y);
-    if(y>=30) return backonlyfree(x,29);
-
-    if(x>=0 && y>=0 && x<40 && y<30)
-    {
-        if(contents[x+(levx*40)+vmult[y+(levy*30)]]>=680)
-        {
-            return 1;
-        }
-    }
-    return 0;
-}
-
-int editorclass::backfree( int x, int y )
-{
-    //Returns 0 if tile is not a block or background tile, 1 otherwise
-    if(x<0) return backfree(0,y);
-    if(y<0) return backfree(x,0);
-    if(x>=40) return backfree(39,y);
-    if(y>=30) return backfree(x,29);
-
-    if(x>=0 && y>=0 && x<40 && y<30)
-    {
-        if(contents[x+(levx*40)+vmult[y+(levy*30)]]==0)
-        {
-            return 0;
-        }
-    }
-    return 1;
-}
-
-int editorclass::spikefree( int x, int y )
-{
-    //Returns 0 if tile is not a block or spike, 1 otherwise
-    if(x==-1) return free(0,y);
-    if(y==-1) return free(x,0);
-    if(x==40) return free(39,y);
-    if(y==30) return free(x,29);
-
-    if(x>=0 && y>=0 && x<40 && y<30)
-    {
-        if(contents[x+(levx*40)+vmult[y+(levy*30)]]==0)
-        {
-            return 0;
-        }
-        else
-        {
-            if(contents[x+(levx*40)+vmult[y+(levy*30)]]>=680)
-            {
-                return 0;
-            }
-        }
-    }
-    return 1;
-}
-
-int editorclass::free( int x, int y )
-{
-    //Returns 0 if tile is not a block, 1 otherwise
-    if(x==-1) return free(0,y);
-    if(y==-1) return free(x,0);
-    if(x==40) return free(39,y);
-    if(y==30) return free(x,29);
-
-    if(x>=0 && y>=0 && x<40 && y<30)
-    {
-        if(contents[x+(levx*40)+vmult[y+(levy*30)]]==0)
-        {
-            return 0;
-        }
-        else
-        {
-            if(contents[x+(levx*40)+vmult[y+(levy*30)]]>=2 && contents[x+(levx*40)+vmult[y+(levy*30)]]<80)
-            {
-                return 0;
-            }
-            if(contents[x+(levx*40)+vmult[y+(levy*30)]]>=680)
-            {
-                return 0;
-            }
-        }
-    }
-    return 1;
-}
-
-int editorclass::absfree( int x, int y )
-{
-    //Returns 0 if tile is not a block, 1 otherwise, abs on grid
-    if(x>=0 && y>=0 && x<mapwidth*40 && y<mapheight*30)
-    {
-        if(contents[x+vmult[y]]==0)
-        {
-            return 0;
-        }
-        else
-        {
-            if(contents[x+vmult[y]]>=2 && contents[x+vmult[y]]<80)
-            {
-                return 0;
-            }
-            if(contents[x+vmult[y]]>=680)
-            {
-                return 0;
-            }
-        }
-    }
-    return 1;
-}
-
-int editorclass::match( int x, int y )
-{
-    if(free(x-1,y)==0 && free(x,y-1)==0 && free(x+1,y)==0 && free(x,y+1)==0) return 0;
-
-    if(free(x-1,y)==0 && free(x,y-1)==0) return 10;
-    if(free(x+1,y)==0 && free(x,y-1)==0) return 11;
-    if(free(x-1,y)==0 && free(x,y+1)==0) return 12;
-    if(free(x+1,y)==0 && free(x,y+1)==0) return 13;
-
-    if(free(x,y-1)==0) return 1;
-    if(free(x-1,y)==0) return 2;
-    if(free(x,y+1)==0) return 3;
-    if(free(x+1,y)==0) return 4;
-    if(free(x-1,y-1)==0) return 5;
-    if(free(x+1,y-1)==0) return 6;
-    if(free(x-1,y+1)==0) return 7;
-    if(free(x+1,y+1)==0) return 8;
-
-    return 0;
-}
-
-int editorclass::warpzonematch( int x, int y )
-{
-    if(free(x-1,y)==0 && free(x,y-1)==0 && free(x+1,y)==0 && free(x,y+1)==0) return 0;
-
-    if(free(x-1,y)==0 && free(x,y-1)==0) return 10;
-    if(free(x+1,y)==0 && free(x,y-1)==0) return 11;
-    if(free(x-1,y)==0 && free(x,y+1)==0) return 12;
-    if(free(x+1,y)==0 && free(x,y+1)==0) return 13;
-
-    if(free(x,y-1)==0) return 1;
-    if(free(x-1,y)==0) return 2;
-    if(free(x,y+1)==0) return 3;
-    if(free(x+1,y)==0) return 4;
-    if(free(x-1,y-1)==0) return 5;
-    if(free(x+1,y-1)==0) return 6;
-    if(free(x-1,y+1)==0) return 7;
-    if(free(x+1,y+1)==0) return 8;
-
-    return 0;
-}
-
-int editorclass::outsidematch( int x, int y )
-{
-
-    if(backonlyfree(x-1,y)==0 && backonlyfree(x+1,y)==0) return 2;
-    if(backonlyfree(x,y-1)==0 && backonlyfree(x,y+1)==0) return 1;
-
-    return 0;
-}
-
-int editorclass::backmatch( int x, int y )
-{
-    //Returns the first position match for a border
-    // 5 1 6
-    // 2 X 4
-    // 7 3 8
-    if(backfree(x-1,y)==0 && backfree(x,y-1)==0 && backfree(x+1,y)==0 && backfree(x,y+1)==0) return 0;
-
-    if(backfree(x-1,y)==0 && backfree(x,y-1)==0) return 10;
-    if(backfree(x+1,y)==0 && backfree(x,y-1)==0) return 11;
-    if(backfree(x-1,y)==0 && backfree(x,y+1)==0) return 12;
-    if(backfree(x+1,y)==0 && backfree(x,y+1)==0) return 13;
-
-    if(backfree(x,y-1)==0) return 1;
-    if(backfree(x-1,y)==0) return 2;
-    if(backfree(x,y+1)==0) return 3;
-    if(backfree(x+1,y)==0) return 4;
-    if(backfree(x-1,y-1)==0) return 5;
-    if(backfree(x+1,y-1)==0) return 6;
-    if(backfree(x-1,y+1)==0) return 7;
-    if(backfree(x+1,y+1)==0) return 8;
-
-    return 0;
-}
-
-int editorclass::edgetile( int x, int y )
-{
-    switch(match(x,y))
-    {
-    case 14:
-        return 0;
-        break;
-    case 10:
-        return 80;
-        break;
-    case 11:
-        return 82;
-        break;
-    case 12:
-        return 160;
-        break;
-    case 13:
-        return 162;
-        break;
-    case 1:
-        return 81;
-        break;
-    case 2:
-        return 120;
-        break;
-    case 3:
-        return 161;
-        break;
-    case 4:
-        return 122;
-        break;
-    case 5:
-        return 42;
-        break;
-    case 6:
-        return 41;
-        break;
-    case 7:
-        return 2;
-        break;
-    case 8:
-        return 1;
-        break;
-    case 0:
-    default:
-        return 0;
-        break;
-    }
-    return 0;
-}
-
-int editorclass::warpzoneedgetile( int x, int y )
-{
-    switch(backmatch(x,y))
-    {
-    case 14:
-        return 0;
-        break;
-    case 10:
-        return 80;
-        break;
-    case 11:
-        return 82;
-        break;
-    case 12:
-        return 160;
-        break;
-    case 13:
-        return 162;
-        break;
-    case 1:
-        return 81;
-        break;
-    case 2:
-        return 120;
-        break;
-    case 3:
-        return 161;
-        break;
-    case 4:
-        return 122;
-        break;
-    case 5:
-        return 42;
-        break;
-    case 6:
-        return 41;
-        break;
-    case 7:
-        return 2;
-        break;
-    case 8:
-        return 1;
-        break;
-    case 0:
-    default:
-        return 0;
-        break;
-    }
-    return 0;
-}
-
-int editorclass::outsideedgetile( int x, int y )
-{
-    switch(outsidematch(x,y))
-    {
-    case 2:
-        return 0;
-        break;
-    case 1:
-        return 1;
-        break;
-    case 0:
-    default:
-        return 2;
-        break;
-    }
-    return 2;
-}
-
-
-int editorclass::backedgetile( int x, int y )
-{
-    switch(backmatch(x,y))
-    {
-    case 14:
-        return 0;
-        break;
-    case 10:
-        return 80;
-        break;
-    case 11:
-        return 82;
-        break;
-    case 12:
-        return 160;
-        break;
-    case 13:
-        return 162;
-        break;
-    case 1:
-        return 81;
-        break;
-    case 2:
-        return 120;
-        break;
-    case 3:
-        return 161;
-        break;
-    case 4:
-        return 122;
-        break;
-    case 5:
-        return 42;
-        break;
-    case 6:
-        return 41;
-        break;
-    case 7:
-        return 2;
-        break;
-    case 8:
-        return 1;
-        break;
-    case 0:
-    default:
-        return 0;
-        break;
-    }
-    return 0;
-}
-
-int editorclass::labspikedir( int x, int y, int t )
-{
-    // a slightly more tricky case
-    if(free(x,y+1)==1) return 63 + (t*2);
-    if(free(x,y-1)==1) return 64 + (t*2);
-    if(free(x-1,y)==1) return 51 + (t*2);
-    if(free(x+1,y)==1) return 52 + (t*2);
-    return 63 + (t*2);
-}
-
-int editorclass::spikedir( int x, int y )
-{
-    if(free(x,y+1)==1) return 8;
-    if(free(x,y-1)==1) return 9;
-    if(free(x-1,y)==1) return 49;
-    if(free(x+1,y)==1) return 50;
-    return 8;
-}
-
-void editorclass::findstartpoint()
-{
-    //Ok! Scan the room for the closest checkpoint
-    int testeditor=-1;
-    //First up; is there a start point on this screen?
-    for(size_t i=0; i<edentity.size(); i++)
-    {
-        //if() on screen
-        if(edentity[i].t==16 && testeditor==-1)
-        {
-            testeditor=i;
-        }
-    }
-
-    if(testeditor==-1)
-    {
-        game.edsavex = 160;
-        game.edsavey = 120;
-        game.edsaverx = 100;
-        game.edsavery = 100;
-        game.edsavegc = 0;
-        game.edsavey--;
-        game.edsavedir=1;
-    }
-    else
-    {
-        //Start point spawn
-        int tx=(edentity[testeditor].x-(edentity[testeditor].x%40))/40;
-        int ty=(edentity[testeditor].y-(edentity[testeditor].y%30))/30;
-        game.edsavex = ((edentity[testeditor].x%40)*8)-4;
-        game.edsavey = (edentity[testeditor].y%30)*8;
-        game.edsaverx = 100+tx;
-        game.edsavery = 100+ty;
-        game.edsavegc = 0;
-        game.edsavey--;
-        game.edsavedir=1-edentity[testeditor].p1;
-    }
-}
-
-int editorclass::findtrinket(int t)
-{
-    int ttrinket=0;
-    for(int i=0; i<(int)edentity.size(); i++)
-    {
-        if(i==t) return ttrinket;
-        if(edentity[i].t==9) ttrinket++;
-    }
-    return 0;
-}
-
-int editorclass::findcrewmate(int t)
-{
-    int ttrinket=0;
-    for(int i=0; i<(int)edentity.size(); i++)
-    {
-        if(i==t) return ttrinket;
-        if(edentity[i].t==15) ttrinket++;
-    }
-    return 0;
-}
-
-int editorclass::findwarptoken(int t)
-{
-    int ttrinket=0;
-    for(int i=0; i<(int)edentity.size(); i++)
-    {
-        if(i==t) return ttrinket;
-        if(edentity[i].t==13) ttrinket++;
-    }
-    return 0;
-}
-
-void editorclass::switch_tileset(const bool reversed /*= false*/)
-{
-    const char* tilesets[] = {"Space Station", "Outside", "Lab", "Warp Zone", "Ship"};
-    const size_t roomnum = levx + levy*maxwidth;
-    if (roomnum >= SDL_arraysize(level))
-    {
-        return;
-    }
-    edlevelclass& room = level[roomnum];
-
-    int tiles = room.tileset;
-
-    if (reversed)
-    {
-        tiles--;
-    }
-    else
-    {
-        tiles++;
-    }
-
-    const size_t modulus = SDL_arraysize(tilesets);
-    tiles = (tiles % modulus + modulus) % modulus;
-    room.tileset = tiles;
-
-    clamp_tilecol(levx, levy);
-
-    char buffer[64];
-    SDL_snprintf(buffer, sizeof(buffer), "Now using %s Tileset", tilesets[tiles]);
-
-    note = buffer;
-    notedelay = 45;
-    updatetiles = true;
-}
-
-void editorclass::switch_tilecol(const bool reversed /*= false*/)
-{
-    const size_t roomnum = levx + levy*maxwidth;
-    if (roomnum >= SDL_arraysize(level))
-    {
-        return;
-    }
-    edlevelclass& room = level[roomnum];
-
-    if (reversed)
-    {
-        room.tilecol--;
-    }
-    else
-    {
-        room.tilecol++;
-    }
-
-    clamp_tilecol(levx, levy, true);
-
-    notedelay = 45;
-    note = "Tileset Colour Changed";
-    updatetiles = true;
-}
-
-void editorclass::clamp_tilecol(const int rx, const int ry, const bool wrap /*= false*/)
-{
-    const size_t roomnum = rx + ry*maxwidth;
-    if (roomnum >= SDL_arraysize(level))
-    {
-        return;
-    }
-    edlevelclass& room = level[rx + ry*maxwidth];
-
-    const int tileset = room.tileset;
-    int tilecol = room.tilecol;
-
-    int mincol = -1;
-    int maxcol = 5;
-
-    // Only Space Station allows tileset -1
-    if (tileset != 0)
-    {
-        mincol = 0;
-    }
-
-    switch (tileset)
-    {
-    case 0:
-        maxcol = 31;
-        break;
-    case 1:
-        maxcol = 7;
-        break;
-    case 3:
-        maxcol = 6;
-        break;
-    case 5:
-        maxcol = 29;
-        break;
-    }
-
-    // If wrap is true, wrap-around, otherwise just cap
-    if (tilecol > maxcol)
-    {
-        tilecol = (wrap ? mincol : maxcol);
-    }
-    if (tilecol < mincol)
-    {
-        tilecol = (wrap ? maxcol : mincol);
-    }
-
-    room.tilecol = tilecol;
-}
-
-void editorclass::switch_enemy(const bool reversed /*= false*/)
-{
-    const size_t roomnum = levx + levy*maxwidth;
-    if (roomnum >= SDL_arraysize(level))
-    {
-        return;
-    }
-    edlevelclass& room = level[roomnum];
-
-    int enemy = room.enemytype;
-
-    if (reversed)
-    {
-        enemy--;
-    }
-    else
-    {
-        enemy++;
-    }
-
-    const int modulus = 10;
-    enemy = (enemy % modulus + modulus) % modulus;
-    room.enemytype = enemy;
-
-    note = "Enemy Type Changed";
-    notedelay = 45;
-}
-
-bool editorclass::load(std::string& _path)
-{
-    reset();
-
-    static const char *levelDir = "levels/";
-    if (_path.compare(0, strlen(levelDir), levelDir) != 0)
-    {
-        _path = levelDir + _path;
-    }
-
-    FILESYSTEM_unmountassets();
-    if (game.playassets != "")
-    {
-        FILESYSTEM_mountassets(game.playassets.c_str());
-    }
-    else
-    {
-        FILESYSTEM_mountassets(_path.c_str());
-    }
-
-    tinyxml2::XMLDocument doc;
-    if (!FILESYSTEM_loadTiXml2Document(_path.c_str(), doc))
-    {
-        printf("No level %s to load :(\n", _path.c_str());
-        return false;
-    }
-
-
-    tinyxml2::XMLHandle hDoc(&doc);
-    tinyxml2::XMLElement* pElem;
-    tinyxml2::XMLHandle hRoot(NULL);
-    version = 0;
-
-    {
-        pElem=hDoc.FirstChildElement().ToElement();
-        // should always have a valid root but handle gracefully if it does
-        if (!pElem)
-        {
-            printf("No valid root! Corrupt level file?\n");
-        }
-
-        pElem->QueryIntAttribute("version", &version);
-        // save this for later
-        hRoot=tinyxml2::XMLHandle(pElem);
-    }
-
-    for( pElem = hRoot.FirstChildElement( "Data" ).FirstChild().ToElement(); pElem; pElem=pElem->NextSiblingElement())
-    {
-        std::string pKey(pElem->Value());
-        const char* pText = pElem->GetText() ;
-        if(pText == NULL)
-        {
-            pText = "";
-        }
-
-        if (pKey == "MetaData")
-        {
-
-            for( tinyxml2::XMLElement* subElem = pElem->FirstChildElement(); subElem; subElem= subElem->NextSiblingElement())
-            {
-                std::string pKey(subElem->Value());
-                const char* pText = subElem->GetText() ;
-                if(pText == NULL)
-                {
-                    pText = "";
-                }
-
-                if(pKey == "Creator")
-                {
-                    EditorData::GetInstance().creator = pText;
-                }
-
-                if(pKey == "Title")
-                {
-                    EditorData::GetInstance().title = pText;
-                }
-
-                if(pKey == "Desc1")
-                {
-                    Desc1 = pText;
-                }
-
-                if(pKey == "Desc2")
-                {
-                    Desc2 = pText;
-                }
-
-                if(pKey == "Desc3")
-                {
-                    Desc3 = pText;
-                }
-
-                if(pKey == "website")
-                {
-                    website = pText;
-                }
-
-                if(pKey == "onewaycol_override")
-                {
-                    onewaycol_override = help.Int(pText);
-                }
-            }
-        }
-
-        if (pKey == "mapwidth")
-        {
-            mapwidth = help.Int(pText);
-        }
-        if (pKey == "mapheight")
-        {
-            mapheight = help.Int(pText);
-        }
-        if (pKey == "levmusic")
-        {
-            levmusic = help.Int(pText);
-        }
-
-
-        if (pKey == "contents")
-        {
-            std::string TextString = (pText);
-            if(TextString.length())
-            {
-                std::vector<std::string> values = split(TextString,',');
-                SDL_memset(contents, 0, sizeof(contents));
-                int x =0;
-                int y =0;
-                for(size_t i = 0; i < values.size(); i++)
-                {
-                    contents[x + (maxwidth*40*y)] = help.Int(values[i].c_str());
-                    x++;
-                    if(x == mapwidth*40)
-                    {
-                        x=0;
-                        y++;
-                    }
-
-                }
-            }
-        }
-
-        /*else if(version==1){
-          if (pKey == "contents")
-          {
-            std::string TextString = (pText);
-            if(TextString.length())
-            {
-              std::vector<std::string> values = split(TextString,',');
-              contents.clear();
-              for(int i = 0; i < values.size(); i++)
-              {
-                contents.push_back(help.Int(values[i].c_str()));
-              }
-            }
-          }
-        //}
-        */
-
-
-        if (pKey == "edEntities")
-        {
-            for( tinyxml2::XMLElement* edEntityEl = pElem->FirstChildElement(); edEntityEl; edEntityEl=edEntityEl->NextSiblingElement())
-            {
-                edentities entity;
-
-                std::string pKey(edEntityEl->Value());
-                if (edEntityEl->GetText() != NULL)
-                {
-                    std::string text(edEntityEl->GetText());
-
-                    // And now we come to the part where we have to deal with
-                    // the terrible decisions of the past.
-                    //
-                    // For some reason, the closing tag of edentities generated
-                    // by 2.2 and below has not only been put on a separate
-                    // line, but also indented to match with the opening tag as
-                    // well. Like this:
-                    //
-                    //    <edentity ...>contents
-                    //    </edentity>
-                    //
-                    // Instead of doing <edentity ...>contents</edentity>.
-                    //
-                    // This is COMPLETELY terrible. This requires the XML to be
-                    // parsed in an extremely specific and quirky way, which
-                    // TinyXML-1 just happened to do.
-                    //
-                    // TinyXML-2 by default interprets the newline and the next
-                    // indentation of whitespace literally, so you end up with
-                    // tag contents that has a linefeed plus a bunch of extra
-                    // spaces. You can't fix this by setting the whitespace
-                    // mode to COLLAPSE_WHITESPACE, that does way more than
-                    // TinyXML-1 ever did - it removes the leading whitespace
-                    // from things like <edentity ...> this</edentity>, and
-                    // collapses XML-encoded whitespace like <edentity ...>
-                    // &#32; &#32;this</edentity>, which TinyXML-1 never did.
-                    //
-                    // Best solution here is to specifically hardcode removing
-                    // the linefeed + the extremely specific amount of
-                    // whitespace at the end of the contents.
-
-                    if (endsWith(text, "\n            ")) // linefeed + exactly 12 spaces
-                    {
-                        // 12 spaces + 1 linefeed = 13 chars
-                        text = text.substr(0, text.length()-13);
-                    }
-
-                    entity.scriptname = text;
-                }
-                edEntityEl->QueryIntAttribute("x", &entity.x);
-                edEntityEl->QueryIntAttribute("y", &entity.y);
-                edEntityEl->QueryIntAttribute("t", &entity.t);
-
-                edEntityEl->QueryIntAttribute("p1", &entity.p1);
-                edEntityEl->QueryIntAttribute("p2", &entity.p2);
-                edEntityEl->QueryIntAttribute("p3", &entity.p3);
-                edEntityEl->QueryIntAttribute("p4", &entity.p4);
-                edEntityEl->QueryIntAttribute("p5", &entity.p5);
-                edEntityEl->QueryIntAttribute("p6", &entity.p6);
-
-                edentity.push_back(entity);
-            }
-        }
-
-        if (pKey == "levelMetaData")
-        {
-            int i = 0;
-            for( tinyxml2::XMLElement* edLevelClassElement = pElem->FirstChildElement(); edLevelClassElement; edLevelClassElement=edLevelClassElement->NextSiblingElement())
-            {
-                std::string pKey(edLevelClassElement->Value());
-                if(edLevelClassElement->GetText() != NULL)
-                {
-                    level[i].roomname = std::string(edLevelClassElement->GetText()) ;
-                }
-
-                edLevelClassElement->QueryIntAttribute("tileset", &level[i].tileset);
-                edLevelClassElement->QueryIntAttribute("tilecol", &level[i].tilecol);
-                edLevelClassElement->QueryIntAttribute("platx1", &level[i].platx1);
-                edLevelClassElement->QueryIntAttribute("platy1", &level[i].platy1);
-                edLevelClassElement->QueryIntAttribute("platx2", &level[i].platx2);
-                edLevelClassElement->QueryIntAttribute("platy2", &level[i].platy2);
-                edLevelClassElement->QueryIntAttribute("platv", &level[i].platv);
-                edLevelClassElement->QueryIntAttribute("enemyx1", &level[i].enemyx1);
-                edLevelClassElement->QueryIntAttribute("enemyy1", &level[i].enemyy1);
-                edLevelClassElement->QueryIntAttribute("enemyx2", &level[i].enemyx2);
-                edLevelClassElement->QueryIntAttribute("enemyy2", &level[i].enemyy2);
-                edLevelClassElement->QueryIntAttribute("enemytype", &level[i].enemytype);
-                edLevelClassElement->QueryIntAttribute("directmode", &level[i].directmode);
-
-                edLevelClassElement->QueryIntAttribute("warpdir", &level[i].warpdir);
-
-                i++;
-
-            }
-        }
-
-        if (pKey == "script")
-        {
-            std::string TextString = (pText);
-            if(TextString.length())
-            {
-                std::vector<std::string> values = split(TextString,'|');
-                script.clearcustom();
-                Script script_;
-                bool headerfound = false;
-                for(size_t i = 0; i < values.size(); i++)
-                {
-                    std::string& line = values[i];
-
-                    //Comparing line[line.length()-1] directly to a string literal is UB
-                    //Workaround: assign line[line.length()-1] to a string first
-                    std::string temp;
-                    if(line.length())
-                    {
-                        temp = line[line.length()-1];
-                    }
-                    if(temp == ":")
-                    {
-                        if(headerfound)
-                        {
-                            //Add the script if we have a preceding header
-                            script.customscripts.push_back(script_);
-                        }
-                        script_.name = line.substr(0, line.length()-1);
-                        script_.contents.clear();
-                        headerfound = true;
-                        continue;
-                    }
-
-                    if(headerfound)
-                    {
-                        script_.contents.push_back(line);
-                    }
-                }
-                //Add the last script
-                if(headerfound)
-                {
-                    //Add the script if we have a preceding header
-                    script.customscripts.push_back(script_);
-                }
-
-            }
-        }
-
-    }
-
-    gethooks();
-    version=2;
-
-    return true;
-}
-
-bool editorclass::save(std::string& _path)
-{
-    tinyxml2::XMLDocument doc;
-    tinyxml2::XMLElement* msg;
-    tinyxml2::XMLDeclaration* decl = doc.NewDeclaration();
-    doc.LinkEndChild( decl );
-
-    tinyxml2::XMLElement * root = doc.NewElement( "MapData" );
-    root->SetAttribute("version",version);
-    doc.LinkEndChild( root );
-
-    tinyxml2::XMLComment * comment = doc.NewComment(" Save file " );
-    root->LinkEndChild( comment );
-
-    tinyxml2::XMLElement * data = doc.NewElement( "Data" );
-    root->LinkEndChild( data );
-
-    msg = doc.NewElement( "MetaData" );
-
-    //getUser
-    tinyxml2::XMLElement* meta = doc.NewElement( "Creator" );
-    meta->LinkEndChild( doc.NewText( EditorData::GetInstance().creator.c_str() ));
-    msg->LinkEndChild( meta );
-
-    meta = doc.NewElement( "Title" );
-    meta->LinkEndChild( doc.NewText( EditorData::GetInstance().title.c_str() ));
-    msg->LinkEndChild( meta );
-
-    meta = doc.NewElement( "Created" );
-    meta->LinkEndChild( doc.NewText( help.String(version).c_str() ));
-    msg->LinkEndChild( meta );
-
-    meta = doc.NewElement( "Modified" );
-    meta->LinkEndChild( doc.NewText( EditorData::GetInstance().modifier.c_str() ) );
-    msg->LinkEndChild( meta );
-
-    meta = doc.NewElement( "Modifiers" );
-    meta->LinkEndChild( doc.NewText( help.String(version).c_str() ));
-    msg->LinkEndChild( meta );
-
-    meta = doc.NewElement( "Desc1" );
-    meta->LinkEndChild( doc.NewText( Desc1.c_str() ));
-    msg->LinkEndChild( meta );
-
-    meta = doc.NewElement( "Desc2" );
-    meta->LinkEndChild( doc.NewText( Desc2.c_str() ));
-    msg->LinkEndChild( meta );
-
-    meta = doc.NewElement( "Desc3" );
-    meta->LinkEndChild( doc.NewText( Desc3.c_str() ));
-    msg->LinkEndChild( meta );
-
-    meta = doc.NewElement( "website" );
-    meta->LinkEndChild( doc.NewText( website.c_str() ));
-    msg->LinkEndChild( meta );
-
-    if (onewaycol_override)
-    {
-        meta = doc.NewElement( "onewaycol_override" );
-        meta->LinkEndChild( doc.NewText( help.String(onewaycol_override).c_str() ));
-        msg->LinkEndChild( meta );
-    }
-
-    data->LinkEndChild( msg );
-
-    msg = doc.NewElement( "mapwidth" );
-    msg->LinkEndChild( doc.NewText( help.String(mapwidth).c_str() ));
-    data->LinkEndChild( msg );
-
-    msg = doc.NewElement( "mapheight" );
-    msg->LinkEndChild( doc.NewText( help.String(mapheight).c_str() ));
-    data->LinkEndChild( msg );
-
-    msg = doc.NewElement( "levmusic" );
-    msg->LinkEndChild( doc.NewText( help.String(levmusic).c_str() ));
-    data->LinkEndChild( msg );
-
-    //New save format
-    std::string contentsString="";
-    for(int y = 0; y < mapheight*30; y++ )
-    {
-        for(int x = 0; x < mapwidth*40; x++ )
-        {
-            contentsString += help.String(contents[x + (maxwidth*40*y)]) + ",";
-        }
-    }
-    msg = doc.NewElement( "contents" );
-    msg->LinkEndChild( doc.NewText( contentsString.c_str() ));
-    data->LinkEndChild( msg );
-
-
-    msg = doc.NewElement( "edEntities" );
-    for(size_t i = 0; i < edentity.size(); i++)
-    {
-        tinyxml2::XMLElement *edentityElement = doc.NewElement( "edentity" );
-        edentityElement->SetAttribute( "x", edentity[i].x);
-        edentityElement->SetAttribute(  "y", edentity[i].y);
-        edentityElement->SetAttribute(  "t", edentity[i].t);
-        edentityElement->SetAttribute(  "p1", edentity[i].p1);
-        edentityElement->SetAttribute(  "p2", edentity[i].p2);
-        edentityElement->SetAttribute(  "p3", edentity[i].p3);
-        edentityElement->SetAttribute( "p4", edentity[i].p4);
-        edentityElement->SetAttribute( "p5", edentity[i].p5);
-        edentityElement->SetAttribute(  "p6", edentity[i].p6);
-        edentityElement->LinkEndChild( doc.NewText( edentity[i].scriptname.c_str() )) ;
-        msg->LinkEndChild( edentityElement );
-    }
-
-    data->LinkEndChild( msg );
-
-    msg = doc.NewElement( "levelMetaData" );
-    for(int i = 0; i < 400; i++)
-    {
-        tinyxml2::XMLElement *edlevelclassElement = doc.NewElement( "edLevelClass" );
-        edlevelclassElement->SetAttribute( "tileset", level[i].tileset);
-        edlevelclassElement->SetAttribute(  "tilecol", level[i].tilecol);
-        edlevelclassElement->SetAttribute(  "platx1", level[i].platx1);
-        edlevelclassElement->SetAttribute(  "platy1", level[i].platy1);
-        edlevelclassElement->SetAttribute(  "platx2", level[i].platx2);
-        edlevelclassElement->SetAttribute( "platy2", level[i].platy2);
-        edlevelclassElement->SetAttribute( "platv", level[i].platv);
-        edlevelclassElement->SetAttribute(  "enemyx1", level[i].enemyx1);
-        edlevelclassElement->SetAttribute(  "enemyy1", level[i].enemyy1);
-        edlevelclassElement->SetAttribute(  "enemyx2", level[i].enemyx2);
-        edlevelclassElement->SetAttribute(  "enemyy2", level[i].enemyy2);
-        edlevelclassElement->SetAttribute(  "enemytype", level[i].enemytype);
-        edlevelclassElement->SetAttribute(  "directmode", level[i].directmode);
-        edlevelclassElement->SetAttribute(  "warpdir", level[i].warpdir);
-
-        edlevelclassElement->LinkEndChild( doc.NewText( level[i].roomname.c_str() )) ;
-        msg->LinkEndChild( edlevelclassElement );
-    }
-    data->LinkEndChild( msg );
-
-    std::string scriptString;
-    for(size_t i = 0; i < script.customscripts.size(); i++)
-    {
-        Script& script_ = script.customscripts[i];
-
-        scriptString += script_.name + ":|";
-        for (size_t i = 0; i < script_.contents.size(); i++)
-        {
-            scriptString += script_.contents[i] + "|";
-        }
-    }
-    msg = doc.NewElement( "script" );
-    msg->LinkEndChild( doc.NewText( scriptString.c_str() ));
-    data->LinkEndChild( msg );
-
-    return FILESYSTEM_saveTiXml2Document(("levels/" + _path).c_str(), doc);
-}
-
-
-void addedentity( int xp, int yp, int tp, int p1/*=0*/, int p2/*=0*/, int p3/*=0*/, int p4/*=0*/, int p5/*=320*/, int p6/*=240*/)
-{
-    edentities entity;
+    CustomEntity entity;
 
     entity.x=xp;
     entity.y=yp;
@@ -2182,33 +258,24 @@ void addedentity( int xp, int yp, int tp, int p1/*=0*/, int p2/*=0*/, int p3/*=0
     entity.p6=p6;
     entity.scriptname="";
 
-    edentity.push_back(entity);
+    customentities.push_back(entity);
 }
 
-void removeedentity( int t )
+static void removeedentity( int t )
 {
-    edentity.erase(edentity.begin() + t);
+    customentities.erase(customentities.begin() + t);
 }
 
-int edentat( int xp, int yp )
+static int edentat( int xp, int yp )
 {
-    for(size_t i=0; i<edentity.size(); i++)
+    for(size_t i=0; i<customentities.size(); i++)
     {
-        if(edentity[i].x==xp && edentity[i].y==yp) return i;
+        if(customentities[i].x==xp && customentities[i].y==yp) return i;
     }
     return -1;
 }
 
-bool edentclear( int xp, int yp )
-{
-    for(size_t i=0; i<edentity.size(); i++)
-    {
-        if(edentity[i].x==xp && edentity[i].y==yp) return false;
-    }
-    return true;
-}
-
-void fillbox( int x, int y, int x2, int y2, int c )
+static void fillbox( int x, int y, int x2, int y2, int c )
 {
     FillRect(graphics.backBuffer, x, y, x2-x, 1, c);
     FillRect(graphics.backBuffer, x, y2-1, x2-x, 1, c);
@@ -2216,7 +283,7 @@ void fillbox( int x, int y, int x2, int y2, int c )
     FillRect(graphics.backBuffer, x2-1, y, 1, y2-y, c);
 }
 
-void fillboxabs( int x, int y, int x2, int y2, int c )
+static void fillboxabs( int x, int y, int x2, int y2, int c )
 {
     FillRect(graphics.backBuffer, x, y, x2, 1, c);
     FillRect(graphics.backBuffer, x, y+y2-1, x2, 1, c);
@@ -2225,128 +292,9 @@ void fillboxabs( int x, int y, int x2, int y2, int c )
 }
 
 
-void editorclass::generatecustomminimap()
+static void editormenurender(int tr, int tg, int tb)
 {
-    map.customwidth=mapwidth;
-    map.customheight=mapheight;
-
-    map.customzoom=1;
-    if(map.customwidth<=10 && map.customheight<=10) map.customzoom=2;
-    if(map.customwidth<=5 && map.customheight<=5) map.customzoom=4;
-
-    //Set minimap offsets
-    if(map.customzoom==4)
-    {
-        map.custommmxoff=24*(5-map.customwidth);
-        map.custommmxsize=240-(map.custommmxoff*2);
-
-        map.custommmyoff=18*(5-map.customheight);
-        map.custommmysize=180-(map.custommmyoff*2);
-    }
-    else if(map.customzoom==2)
-    {
-        map.custommmxoff=12*(10-map.customwidth);
-        map.custommmxsize=240-(map.custommmxoff*2);
-
-        map.custommmyoff=9*(10-map.customheight);
-        map.custommmysize=180-(map.custommmyoff*2);
-    }
-    else
-    {
-        map.custommmxoff=6*(20-map.customwidth);
-        map.custommmxsize=240-(map.custommmxoff*2);
-
-        map.custommmyoff=int(4.5*(20-map.customheight));
-        map.custommmysize=180-(map.custommmyoff*2);
-    }
-
-    FillRect(graphics.images[12], graphics.getRGB(0,0,0));
-
-    int tm=0;
-    int temp=0;
-    //Scan over the map size
-    if(ed.mapheight<=5 && ed.mapwidth<=5)
-    {
-        //4x map
-        for(int j2=0; j2<ed.mapheight; j2++)
-        {
-            for(int i2=0; i2<ed.mapwidth; i2++)
-            {
-                //Ok, now scan over each square
-                tm=196;
-                if(ed.level[i2 + (j2*ed.maxwidth)].tileset==1) tm=96;
-
-                for(int j=0; j<36; j++)
-                {
-                    for(int i=0; i<48; i++)
-                    {
-                        temp=ed.absfree(int(i*0.83) + (i2*40),int(j*0.83)+(j2*30));
-                        if(temp>=1)
-                        {
-                            //Fill in this pixel
-                            FillRect(graphics.images[12], (i2*48)+i, (j2*36)+j, 1, 1, graphics.getRGB(tm, tm, tm));
-                        }
-                    }
-                }
-            }
-        }
-    }
-    else if(ed.mapheight<=10 && ed.mapwidth<=10)
-    {
-        //2x map
-        for(int j2=0; j2<ed.mapheight; j2++)
-        {
-            for(int i2=0; i2<ed.mapwidth; i2++)
-            {
-                //Ok, now scan over each square
-                tm=196;
-                if(ed.level[i2 + (j2*ed.maxwidth)].tileset==1) tm=96;
-
-                for(int j=0; j<18; j++)
-                {
-                    for(int i=0; i<24; i++)
-                    {
-                        temp=ed.absfree(int(i*1.6) + (i2*40),int(j*1.6)+(j2*30));
-                        if(temp>=1)
-                        {
-                            //Fill in this pixel
-                            FillRect(graphics.images[12], (i2*24)+i, (j2*18)+j, 1, 1, graphics.getRGB(tm, tm, tm));
-                        }
-                    }
-                }
-            }
-        }
-    }
-    else
-    {
-        for(int j2=0; j2<ed.mapheight; j2++)
-        {
-            for(int i2=0; i2<ed.mapwidth; i2++)
-            {
-                //Ok, now scan over each square
-                tm=196;
-                if(ed.level[i2 + (j2*ed.maxwidth)].tileset==1) tm=96;
-
-                for(int j=0; j<9; j++)
-                {
-                    for(int i=0; i<12; i++)
-                    {
-                        temp=ed.absfree(3+(i*3) + (i2*40),(j*3)+(j2*30));
-                        if(temp>=1)
-                        {
-                            //Fill in this pixel
-                            FillRect(graphics.images[12], (i2*12)+i, (j2*9)+j, 1, 1, graphics.getRGB(tm, tm, tm));
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-#if !defined(NO_EDITOR)
-void editormenurender(int tr, int tg, int tb)
-{
+    extern editorclass ed;
     switch (game.currentmenuname)
     {
     case Menu::ed_settings:
@@ -2373,7 +321,7 @@ void editormenurender(int tr, int tg, int tb)
         }
         else
         {
-            graphics.bigprint( -1, 35, EditorData::GetInstance().title, tr, tg, tb, true);
+            graphics.bigprint( -1, 35, cl.title, tr, tg, tb, true);
         }
         if(ed.creatormod)
         {
@@ -2388,7 +336,7 @@ void editormenurender(int tr, int tg, int tb)
         }
         else
         {
-            graphics.Print( -1, 60, "by " + EditorData::GetInstance().creator, tr, tg, tb, true);
+            graphics.Print( -1, 60, "by " + cl.creator, tr, tg, tb, true);
         }
         if(ed.websitemod)
         {
@@ -2403,7 +351,7 @@ void editormenurender(int tr, int tg, int tb)
         }
         else
         {
-            graphics.Print( -1, 70, ed.website, tr, tg, tb, true);
+            graphics.Print( -1, 70, cl.website, tr, tg, tb, true);
         }
         if(ed.desc1mod)
         {
@@ -2418,7 +366,7 @@ void editormenurender(int tr, int tg, int tb)
         }
         else
         {
-            graphics.Print( -1, 90, ed.Desc1, tr, tg, tb, true);
+            graphics.Print( -1, 90, cl.Desc1, tr, tg, tb, true);
         }
         if(ed.desc2mod)
         {
@@ -2433,7 +381,7 @@ void editormenurender(int tr, int tg, int tb)
         }
         else
         {
-            graphics.Print( -1, 100, ed.Desc2, tr, tg, tb, true);
+            graphics.Print( -1, 100, cl.Desc2, tr, tg, tb, true);
         }
         if(ed.desc3mod)
         {
@@ -2448,7 +396,7 @@ void editormenurender(int tr, int tg, int tb)
         }
         else
         {
-            graphics.Print( -1, 110, ed.Desc3, tr, tg, tb, true);
+            graphics.Print( -1, 110, cl.Desc3, tr, tg, tb, true);
         }
         break;
     case Menu::ed_music:
@@ -2457,7 +405,7 @@ void editormenurender(int tr, int tg, int tb)
 
         graphics.Print( -1, 85, "Current map music:", tr, tg, tb, true);
         std::string songname;
-        switch(ed.levmusic)
+        switch(cl.levmusic)
         {
         case 0:
             songname = "No background music";
@@ -2523,16 +471,14 @@ void editormenurender(int tr, int tg, int tb)
     }
 }
 
-void editorrender()
+void editorrender(void)
 {
-    if (game.shouldreturntoeditor)
-    {
-        graphics.backgrounddrawn = false;
-    }
+    extern editorclass ed;
+    const RoomProperty* const room = cl.getroomprop(ed.levx, ed.levy);
 
     //Draw grid
 
-    FillRect(graphics.backBuffer, 0, 0, 320,240, graphics.getRGB(0,0,0));
+    ClearSurface(graphics.backBuffer);
     for(int j=0; j<30; j++)
     {
         for(int i=0; i<40; i++)
@@ -2556,18 +502,18 @@ void editorrender()
     //Or draw background
     if(!ed.settingsmod)
     {
-        switch(ed.level[ed.levx+(ed.levy*ed.maxwidth)].warpdir)
+        switch(room->warpdir)
         {
         case 1:
-            graphics.rcol=ed.getwarpbackground(ed.levx, ed.levy);
+            graphics.rcol=cl.getwarpbackground(ed.levx, ed.levy);
             graphics.drawbackground(3);
             break;
         case 2:
-            graphics.rcol=ed.getwarpbackground(ed.levx, ed.levy);
+            graphics.rcol=cl.getwarpbackground(ed.levx, ed.levy);
             graphics.drawbackground(4);
             break;
         case 3:
-            graphics.rcol=ed.getwarpbackground(ed.levx, ed.levy);
+            graphics.rcol=cl.getwarpbackground(ed.levx, ed.levy);
             graphics.drawbackground(5);
             break;
         default:
@@ -2577,13 +523,13 @@ void editorrender()
 
     //Draw map, in function
     int temp;
-    if(ed.level[ed.levx+(ed.maxwidth*ed.levy)].tileset==0 || ed.level[ed.levx+(ed.maxwidth*ed.levy)].tileset==10)
+    if(room->tileset==0 || room->tileset==10)
     {
         for (int j = 0; j < 30; j++)
         {
             for (int i = 0; i < 40; i++)
             {
-                temp=ed.contents[i + (ed.levx*40) + ed.vmult[j+(ed.levy*30)]];
+                temp=cl.gettile(ed.levx, ed.levy, i, j);
                 if(temp>0) graphics.drawtile(i*8,j*8,temp);
             }
         }
@@ -2594,7 +540,7 @@ void editorrender()
         {
             for (int i = 0; i < 40; i++)
             {
-                temp=ed.contents[i + (ed.levx*40) + ed.vmult[j+(ed.levy*30)]];
+                temp=cl.gettile(ed.levx, ed.levy, i, j);
                 if(temp>0) graphics.drawtile2(i*8,j*8,temp);
             }
         }
@@ -2608,12 +554,12 @@ void editorrender()
         //left edge
         if(ed.freewrap((ed.levx*40)-1,j+(ed.levy*30))==1)
         {
-            FillRect(graphics.backBuffer, 0,j*8, 2,8, graphics.getRGB(255,255,255-help.glow));
+            FillRect(graphics.backBuffer, 0,j*8, 2,8, graphics.getRGB(255 - help.glow, 255, 255));
         }
         //right edge
         if(ed.freewrap((ed.levx*40)+40,j+(ed.levy*30))==1)
         {
-            FillRect(graphics.backBuffer, 318,j*8, 2,8, graphics.getRGB(255,255,255-help.glow));
+            FillRect(graphics.backBuffer, 318,j*8, 2,8, graphics.getRGB(255 - help.glow, 255, 255));
         }
     }
 
@@ -2621,12 +567,12 @@ void editorrender()
     {
         if(ed.freewrap((ed.levx*40)+i,(ed.levy*30)-1)==1)
         {
-            FillRect(graphics.backBuffer, i*8,0, 8,2, graphics.getRGB(255,255,255-help.glow));
+            FillRect(graphics.backBuffer, i*8,0, 8,2, graphics.getRGB(255 - help.glow, 255, 255));
         }
 
         if(ed.freewrap((ed.levx*40)+i,30+(ed.levy*30))==1)
         {
-            FillRect(graphics.backBuffer, i*8,238, 8,2, graphics.getRGB(255,255,255-help.glow));
+            FillRect(graphics.backBuffer, i*8,238, 8,2, graphics.getRGB(255 - help.glow, 255, 255));
         }
     }
 
@@ -2635,302 +581,284 @@ void editorrender()
 
     int temp2=edentat(ed.tilex+ (ed.levx*40),ed.tiley+ (ed.levy*30));
 
-    // Draw entities backward to remain accurate with ingame
-    for (int i = edentity.size() - 1; i >= 0; i--)
-    {
-        //if() on screen
-        int tx=(edentity[i].x-(edentity[i].x%40))/40;
-        int ty=(edentity[i].y-(edentity[i].y%30))/30;
+    // Special case for drawing gray entities
+    bool custom_gray = room->tileset == 3 && room->tilecol == 6;
+    colourTransform gray_ct;
+    gray_ct.colour = 0xFFFFFFFF;
 
+    // Draw entities backward to remain accurate with ingame
+    for (int i = customentities.size() - 1; i >= 0; i--)
+    {
         point tpoint;
         SDL_Rect drawRect;
 
-        if(tx==ed.levx && ty==ed.levy)
+        //if() on screen
+        if(customentities[i].x / 40 == ed.levx && customentities[i].y / 30 == ed.levy)
         {
-            switch(edentity[i].t)
+            switch(customentities[i].t)
             {
             case 1: //Entities
-                graphics.drawsprite((edentity[i].x*8)- (ed.levx*40*8),(edentity[i].y*8)- (ed.levy*30*8),ed.getenemyframe(ed.level[ed.levx+(ed.levy*ed.maxwidth)].enemytype),ed.entcolreal);
-                if(edentity[i].p1==0) graphics.Print((edentity[i].x*8)- (ed.levx*40*8)+4,(edentity[i].y*8)- (ed.levy*30*8)+4, "V", 255, 255, 255 - help.glow, false);
-                if(edentity[i].p1==1) graphics.Print((edentity[i].x*8)- (ed.levx*40*8)+4,(edentity[i].y*8)- (ed.levy*30*8)+4, "^", 255, 255, 255 - help.glow, false);
-                if(edentity[i].p1==2) graphics.Print((edentity[i].x*8)- (ed.levx*40*8)+4,(edentity[i].y*8)- (ed.levy*30*8)+4, "<", 255, 255, 255 - help.glow, false);
-                if(edentity[i].p1==3) graphics.Print((edentity[i].x*8)- (ed.levx*40*8)+4,(edentity[i].y*8)- (ed.levy*30*8)+4, ">", 255, 255, 255 - help.glow, false);
-                fillboxabs((edentity[i].x*8)- (ed.levx*40*8),(edentity[i].y*8)- (ed.levy*30*8),16,16,graphics.getBGR(255,164,255));
+                if (custom_gray) {
+                    graphics.setcol(18);
+                    ed.entcolreal = graphics.ct.colour;
+                }
+                graphics.drawsprite((customentities[i].x*8)- (ed.levx*40*8),(customentities[i].y*8)- (ed.levy*30*8),ed.getenemyframe(room->enemytype),ed.entcolreal);
+                if(customentities[i].p1==0) graphics.Print((customentities[i].x*8)- (ed.levx*40*8)+4,(customentities[i].y*8)- (ed.levy*30*8)+4, "V", 255, 255, 255 - help.glow, false);
+                if(customentities[i].p1==1) graphics.Print((customentities[i].x*8)- (ed.levx*40*8)+4,(customentities[i].y*8)- (ed.levy*30*8)+4, "^", 255, 255, 255 - help.glow, false);
+                if(customentities[i].p1==2) graphics.Print((customentities[i].x*8)- (ed.levx*40*8)+4,(customentities[i].y*8)- (ed.levy*30*8)+4, "<", 255, 255, 255 - help.glow, false);
+                if(customentities[i].p1==3) graphics.Print((customentities[i].x*8)- (ed.levx*40*8)+4,(customentities[i].y*8)- (ed.levy*30*8)+4, ">", 255, 255, 255 - help.glow, false);
+                fillboxabs((customentities[i].x*8)- (ed.levx*40*8),(customentities[i].y*8)- (ed.levy*30*8),16,16,graphics.getRGB(255,164,255));
                 break;
             case 2: //Threadmills & platforms
-                tpoint.x = (edentity[i].x*8)- (ed.levx*40*8);
-                tpoint.y = (edentity[i].y*8)- (ed.levy*30*8);
+                if (!INBOUNDS_VEC(obj.customplatformtile, graphics.entcolours))
+                {
+                    continue;
+                }
+                tpoint.x = (customentities[i].x*8)- (ed.levx*40*8);
+                tpoint.y = (customentities[i].y*8)- (ed.levy*30*8);
                 drawRect = graphics.tiles_rect;
                 drawRect.x += tpoint.x;
                 drawRect.y += tpoint.y;
-                BlitSurfaceStandard(graphics.entcolours[obj.customplatformtile],NULL, graphics.backBuffer, &drawRect);
-                drawRect.x += 8;
-                BlitSurfaceStandard(graphics.entcolours[obj.customplatformtile],NULL, graphics.backBuffer, &drawRect);
-                drawRect.x += 8;
-                BlitSurfaceStandard(graphics.entcolours[obj.customplatformtile],NULL, graphics.backBuffer, &drawRect);
-                drawRect.x += 8;
-                BlitSurfaceStandard(graphics.entcolours[obj.customplatformtile],NULL,graphics.backBuffer, &drawRect);
-
-                if(edentity[i].p1<=4)
-                {
-                    if(edentity[i].p1==0) graphics.Print((edentity[i].x*8)- (ed.levx*40*8)+12,(edentity[i].y*8)- (ed.levy*30*8), "V", 255 - help.glow, 255 - help.glow, 255 - help.glow, false);
-                    if(edentity[i].p1==1) graphics.Print((edentity[i].x*8)- (ed.levx*40*8)+12,(edentity[i].y*8)- (ed.levy*30*8), "^", 255 - help.glow, 255 - help.glow, 255 - help.glow, false);
-                    if(edentity[i].p1==2) graphics.Print((edentity[i].x*8)- (ed.levx*40*8)+12,(edentity[i].y*8)- (ed.levy*30*8), "<", 255 - help.glow, 255 - help.glow, 255 - help.glow, false);
-                    if(edentity[i].p1==3) graphics.Print((edentity[i].x*8)- (ed.levx*40*8)+12,(edentity[i].y*8)- (ed.levy*30*8), ">", 255 - help.glow, 255 - help.glow, 255 - help.glow, false);
-                    fillboxabs((edentity[i].x*8)- (ed.levx*40*8),(edentity[i].y*8)- (ed.levy*30*8),32,8,graphics.getBGR(255,255,255));
+                for (int j = 0; j < 4; j++) {
+                    if (custom_gray) BlitSurfaceTinted(graphics.entcolours[obj.customplatformtile],NULL, graphics.backBuffer, &drawRect, gray_ct);
+                    else BlitSurfaceStandard(graphics.entcolours[obj.customplatformtile],NULL, graphics.backBuffer, &drawRect);
+                    drawRect.x += 8;
                 }
 
-                if(edentity[i].p1==5)
+                if(customentities[i].p1<=4)
                 {
-                    graphics.Print((edentity[i].x*8)- (ed.levx*40*8),(edentity[i].y*8)- (ed.levy*30*8), ">>>>", 255 - help.glow, 255 - help.glow, 255 - help.glow, false);
-                    fillboxabs((edentity[i].x*8)- (ed.levx*40*8),(edentity[i].y*8)- (ed.levy*30*8),32,8,graphics.getBGR(255,255,255));
-                }
-                else if(edentity[i].p1==6)
-                {
-                    graphics.Print((edentity[i].x*8)- (ed.levx*40*8),(edentity[i].y*8)- (ed.levy*30*8), "<<<<", 255 - help.glow, 255 - help.glow, 255 - help.glow, false);
-                    fillboxabs((edentity[i].x*8)- (ed.levx*40*8),(edentity[i].y*8)- (ed.levy*30*8),32,8,graphics.getBGR(255,255,255));
+                    if(customentities[i].p1==0) graphics.Print((customentities[i].x*8)- (ed.levx*40*8)+12,(customentities[i].y*8)- (ed.levy*30*8), "V", 255 - help.glow, 255 - help.glow, 255 - help.glow, false);
+                    if(customentities[i].p1==1) graphics.Print((customentities[i].x*8)- (ed.levx*40*8)+12,(customentities[i].y*8)- (ed.levy*30*8), "^", 255 - help.glow, 255 - help.glow, 255 - help.glow, false);
+                    if(customentities[i].p1==2) graphics.Print((customentities[i].x*8)- (ed.levx*40*8)+12,(customentities[i].y*8)- (ed.levy*30*8), "<", 255 - help.glow, 255 - help.glow, 255 - help.glow, false);
+                    if(customentities[i].p1==3) graphics.Print((customentities[i].x*8)- (ed.levx*40*8)+12,(customentities[i].y*8)- (ed.levy*30*8), ">", 255 - help.glow, 255 - help.glow, 255 - help.glow, false);
+                    fillboxabs((customentities[i].x*8)- (ed.levx*40*8),(customentities[i].y*8)- (ed.levy*30*8),32,8,graphics.getRGB(255,255,255));
                 }
 
-                if(edentity[i].p1>=7)
+                if(customentities[i].p1==5)
                 {
-                    tpoint.x = (edentity[i].x*8)- (ed.levx*40*8)+32;
-                    tpoint.y = (edentity[i].y*8)- (ed.levy*30*8);
+                    graphics.Print((customentities[i].x*8)- (ed.levx*40*8),(customentities[i].y*8)- (ed.levy*30*8), ">>>>", 255 - help.glow, 255 - help.glow, 255 - help.glow, false);
+                    fillboxabs((customentities[i].x*8)- (ed.levx*40*8),(customentities[i].y*8)- (ed.levy*30*8),32,8,graphics.getRGB(255,255,255));
+                }
+                else if(customentities[i].p1==6)
+                {
+                    graphics.Print((customentities[i].x*8)- (ed.levx*40*8),(customentities[i].y*8)- (ed.levy*30*8), "<<<<", 255 - help.glow, 255 - help.glow, 255 - help.glow, false);
+                    fillboxabs((customentities[i].x*8)- (ed.levx*40*8),(customentities[i].y*8)- (ed.levy*30*8),32,8,graphics.getRGB(255,255,255));
+                }
+
+                if(customentities[i].p1>=7)
+                {
+                    tpoint.x = (customentities[i].x*8)- (ed.levx*40*8)+32;
+                    tpoint.y = (customentities[i].y*8)- (ed.levy*30*8);
                     drawRect = graphics.tiles_rect;
                     drawRect.x += tpoint.x;
                     drawRect.y += tpoint.y;
-                    BlitSurfaceStandard(graphics.entcolours[obj.customplatformtile],NULL, graphics.backBuffer, &drawRect);
-                    drawRect.x += 8;
-                    BlitSurfaceStandard(graphics.entcolours[obj.customplatformtile],NULL, graphics.backBuffer, &drawRect);
-                    drawRect.x += 8;
-                    BlitSurfaceStandard(graphics.entcolours[obj.customplatformtile],NULL, graphics.backBuffer, &drawRect);
-                    drawRect.x += 8;
-                    BlitSurfaceStandard(graphics.entcolours[obj.customplatformtile],NULL,graphics.backBuffer, &drawRect);
-
+                    for (int j = 0; j < 4; j++) {
+                        if (custom_gray) BlitSurfaceTinted(graphics.entcolours[obj.customplatformtile],NULL, graphics.backBuffer, &drawRect, gray_ct);
+                        else BlitSurfaceStandard(graphics.entcolours[obj.customplatformtile],NULL, graphics.backBuffer, &drawRect);
+                        drawRect.x += 8;
+                    }
                 }
 
-                if(edentity[i].p1==7)
+                if(customentities[i].p1==7)
                 {
-                    graphics.Print((edentity[i].x*8)- (ed.levx*40*8)+4,(edentity[i].y*8)- (ed.levy*30*8), "> > > > ", 255 - help.glow, 255 - help.glow, 255 - help.glow, false);
-                    fillboxabs((edentity[i].x*8)- (ed.levx*40*8),(edentity[i].y*8)- (ed.levy*30*8),64,8,graphics.getBGR(255,255,255));
+                    graphics.Print((customentities[i].x*8)- (ed.levx*40*8)+4,(customentities[i].y*8)- (ed.levy*30*8), "> > > > ", 255 - help.glow, 255 - help.glow, 255 - help.glow, false);
+                    fillboxabs((customentities[i].x*8)- (ed.levx*40*8),(customentities[i].y*8)- (ed.levy*30*8),64,8,graphics.getRGB(255,255,255));
                 }
-                else if(edentity[i].p1==8)
+                else if(customentities[i].p1==8)
                 {
-                    graphics.Print((edentity[i].x*8)- (ed.levx*40*8)+4,(edentity[i].y*8)- (ed.levy*30*8), "< < < < ", 255 - help.glow, 255 - help.glow, 255 - help.glow, false);
-                    fillboxabs((edentity[i].x*8)- (ed.levx*40*8),(edentity[i].y*8)- (ed.levy*30*8),64,8,graphics.getBGR(255,255,255));
+                    graphics.Print((customentities[i].x*8)- (ed.levx*40*8)+4,(customentities[i].y*8)- (ed.levy*30*8), "< < < < ", 255 - help.glow, 255 - help.glow, 255 - help.glow, false);
+                    fillboxabs((customentities[i].x*8)- (ed.levx*40*8),(customentities[i].y*8)- (ed.levy*30*8),64,8,graphics.getRGB(255,255,255));
                 }
                 break;
             case 3: //Disappearing Platform
-                tpoint.x = (edentity[i].x*8)- (ed.levx*40*8);
-                tpoint.y = (edentity[i].y*8)- (ed.levy*30*8);
+                if (!INBOUNDS_VEC(obj.customplatformtile, graphics.entcolours))
+                {
+                    continue;
+                }
+                tpoint.x = (customentities[i].x*8)- (ed.levx*40*8);
+                tpoint.y = (customentities[i].y*8)- (ed.levy*30*8);
                 drawRect = graphics.tiles_rect;
                 drawRect.x += tpoint.x;
                 drawRect.y += tpoint.y;
-                BlitSurfaceStandard(graphics.entcolours[obj.customplatformtile],NULL, graphics.backBuffer, &drawRect);
-                drawRect.x += 8;
-                BlitSurfaceStandard(graphics.entcolours[obj.customplatformtile],NULL, graphics.backBuffer, &drawRect);
-                drawRect.x += 8;
-                BlitSurfaceStandard(graphics.entcolours[obj.customplatformtile],NULL, graphics.backBuffer, &drawRect);
-                drawRect.x += 8;
-                BlitSurfaceStandard(graphics.entcolours[obj.customplatformtile],NULL,graphics.backBuffer, &drawRect);
+                for (int j = 0; j < 4; j++) {
+                    if (custom_gray) BlitSurfaceTinted(graphics.entcolours[obj.customplatformtile],NULL, graphics.backBuffer, &drawRect, gray_ct);
+                    else BlitSurfaceStandard(graphics.entcolours[obj.customplatformtile],NULL, graphics.backBuffer, &drawRect);
+                    drawRect.x += 8;
+                }
 
-                graphics.Print((edentity[i].x*8)- (ed.levx*40*8),(edentity[i].y*8)- (ed.levy*30*8), "////", 255 - help.glow, 255 - help.glow, 255 - help.glow, false);
-                fillboxabs((edentity[i].x*8)- (ed.levx*40*8),(edentity[i].y*8)- (ed.levy*30*8),32,8,graphics.getBGR(255,255,255));
+                graphics.Print((customentities[i].x*8)- (ed.levx*40*8),(customentities[i].y*8)- (ed.levy*30*8), "////", 255 - help.glow, 255 - help.glow, 255 - help.glow, false);
+                fillboxabs((customentities[i].x*8)- (ed.levx*40*8),(customentities[i].y*8)- (ed.levy*30*8),32,8,graphics.getRGB(255,255,255));
                 break;
             case 9: //Shiny Trinket
-                graphics.drawsprite((edentity[i].x*8)- (ed.levx*40*8),(edentity[i].y*8)- (ed.levy*30*8),22,196,196,196);
-                fillboxabs((edentity[i].x*8)- (ed.levx*40*8),(edentity[i].y*8)- (ed.levy*30*8),16,16,graphics.getRGB(164,164,255));
+                graphics.drawsprite((customentities[i].x*8)- (ed.levx*40*8),(customentities[i].y*8)- (ed.levy*30*8),22,196,196,196);
+                fillboxabs((customentities[i].x*8)- (ed.levx*40*8),(customentities[i].y*8)- (ed.levy*30*8),16,16,graphics.getRGB(255, 164, 164));
                 break;
             case 10: //Checkpoints
-                if(edentity[i].p1==0)  //From roof
-                {
-                    graphics.drawsprite((edentity[i].x*8)- (ed.levx*40*8),(edentity[i].y*8)- (ed.levy*30*8),20,196,196,196);
-                }
-                else if(edentity[i].p1==1)   //From floor
-                {
-                    graphics.drawsprite((edentity[i].x*8)- (ed.levx*40*8),(edentity[i].y*8)- (ed.levy*30*8),21,196,196,196);
-                }
-                fillboxabs((edentity[i].x*8)- (ed.levx*40*8),(edentity[i].y*8)- (ed.levy*30*8),16,16,graphics.getRGB(164,164,255));
+                graphics.drawsprite((customentities[i].x*8)- (ed.levx*40*8),(customentities[i].y*8)- (ed.levy*30*8),20 + customentities[i].p1,196,196,196);
+                fillboxabs((customentities[i].x*8)- (ed.levx*40*8),(customentities[i].y*8)- (ed.levy*30*8),16,16,graphics.getRGB(255, 164, 164));
                 break;
             case 11: //Gravity lines
-                if(edentity[i].p1==0)  //Horizontal
+                if(customentities[i].p1==0)  //Horizontal
                 {
-                    int tx=edentity[i].x-(ed.levx*40);
-                    int tx2=edentity[i].x-(ed.levx*40);
-                    int ty=edentity[i].y-(ed.levy*30);
-                    if (edentity[i].p4 != 1)
-                    {
-                        // Unlocked
-                        while(ed.spikefree(tx,ty)==0) tx--;
-                        while(ed.spikefree(tx2,ty)==0) tx2++;
-                        tx++;
-                        edentity[i].p2=tx;
-                        edentity[i].p3=(tx2-tx)*8;
-                    }
-                    else
-                    {
-                        // Locked
-                        tx = edentity[i].p2;
-                        tx2 = tx + edentity[i].p3/8;
-                    }
+                    int tx = customentities[i].p2;
+                    int tx2 = tx + customentities[i].p3/8;
+                    int ty = customentities[i].y % 30;
                     FillRect(graphics.backBuffer, (tx*8),(ty*8)+4, (tx2-tx)*8,1, graphics.getRGB(194,194,194));
-                    fillboxabs((edentity[i].x*8)- (ed.levx*40*8),(edentity[i].y*8)- (ed.levy*30*8),8,8,graphics.getRGB(164,255,164));
+                    fillboxabs((customentities[i].x*8)- (ed.levx*40*8),(customentities[i].y*8)- (ed.levy*30*8),8,8,graphics.getRGB(164,255,164));
                 }
                 else  //Vertical
                 {
-                    int tx=edentity[i].x-(ed.levx*40);
-                    int ty=edentity[i].y-(ed.levy*30);
-                    int ty2=edentity[i].y-(ed.levy*30);
-                    if (edentity[i].p4 != 1)
-                    {
-                        // Unlocked
-                        while(ed.spikefree(tx,ty)==0) ty--;
-                        while(ed.spikefree(tx,ty2)==0) ty2++;
-                        ty++;
-                        edentity[i].p2=ty;
-                        edentity[i].p3=(ty2-ty)*8;
-                    }
-                    else
-                    {
-                        // Locked
-                        ty = edentity[i].p2;
-                        ty2 = ty + edentity[i].p3/8;
-                    }
+                    int tx = customentities[i].x % 40;
+                    int ty = customentities[i].p2;
+                    int ty2 = ty + customentities[i].p3/8;
                     FillRect(graphics.backBuffer, (tx*8)+3,(ty*8), 1,(ty2-ty)*8, graphics.getRGB(194,194,194));
-                    fillboxabs((edentity[i].x*8)- (ed.levx*40*8),(edentity[i].y*8)- (ed.levy*30*8),8,8,graphics.getRGB(164,255,164));
+                    fillboxabs((customentities[i].x*8)- (ed.levx*40*8),(customentities[i].y*8)- (ed.levy*30*8),8,8,graphics.getRGB(164,255,164));
                 }
                 break;
             case 13://Warp tokens
-                graphics.drawsprite((edentity[i].x*8)- (ed.levx*40*8),(edentity[i].y*8)- (ed.levy*30*8),18+(ed.entframe%2),196,196,196);
-                fillboxabs((edentity[i].x*8)- (ed.levx*40*8),(edentity[i].y*8)- (ed.levy*30*8),16,16,graphics.getRGB(164,164,255));
+                graphics.drawsprite((customentities[i].x*8)- (ed.levx*40*8),(customentities[i].y*8)- (ed.levy*30*8),18+(ed.entframe%2),196,196,196);
+                fillboxabs((customentities[i].x*8)- (ed.levx*40*8),(customentities[i].y*8)- (ed.levy*30*8),16,16,graphics.getRGB(255, 164, 164));
                 if(temp2==i)
                 {
-                    graphics.bprint((edentity[i].x*8)- (ed.levx*40*8),(edentity[i].y*8)- (ed.levy*30*8)-8,
-                                "("+help.String(((edentity[i].p1-int(edentity[i].p1%40))/40)+1)+","+help.String(((edentity[i].p2-int(edentity[i].p2%30))/30)+1)+")",210,210,255);
+                    graphics.bprint((customentities[i].x*8)- (ed.levx*40*8),(customentities[i].y*8)- (ed.levy*30*8)-8,
+                                "("+help.String(customentities[i].p1/40 + 1)+","+help.String(customentities[i].p2/30 + 1)+")",210,210,255);
                 }
                 else
                 {
-                    graphics.bprint((edentity[i].x*8)- (ed.levx*40*8),(edentity[i].y*8)- (ed.levy*30*8)-8,help.String(ed.findwarptoken(i)),210,210,255);
+                    graphics.bprint((customentities[i].x*8)- (ed.levx*40*8),(customentities[i].y*8)- (ed.levy*30*8)-8,help.String(cl.findwarptoken(i)),210,210,255);
                 }
                 break;
             case 15: //Crewmates
-                graphics.drawsprite((edentity[i].x*8)- (ed.levx*40*8)-4,(edentity[i].y*8)- (ed.levy*30*8),144,graphics.crewcolourreal(edentity[i].p1));
-                fillboxabs((edentity[i].x*8)- (ed.levx*40*8),(edentity[i].y*8)- (ed.levy*30*8),16,24,graphics.getRGB(164,164,164));
+                graphics.drawsprite((customentities[i].x*8)- (ed.levx*40*8)-4,(customentities[i].y*8)- (ed.levy*30*8),144,graphics.crewcolourreal(customentities[i].p1));
+                fillboxabs((customentities[i].x*8)- (ed.levx*40*8),(customentities[i].y*8)- (ed.levy*30*8),16,24,graphics.getRGB(164,164,164));
                 break;
             case 16: //Start
-                if(edentity[i].p1==0)  //Left
+                if(customentities[i].p1==0)  //Left
                 {
-                    graphics.drawsprite((edentity[i].x*8)- (ed.levx*40*8)-4,(edentity[i].y*8)- (ed.levy*30*8),0,graphics.col_crewcyan);
+                    graphics.drawsprite((customentities[i].x*8)- (ed.levx*40*8)-4,(customentities[i].y*8)- (ed.levy*30*8),0,graphics.col_crewcyan);
                 }
-                else if(edentity[i].p1==1)
+                else if(customentities[i].p1==1)
                 {
-                    graphics.drawsprite((edentity[i].x*8)- (ed.levx*40*8)-4,(edentity[i].y*8)- (ed.levy*30*8),3,graphics.col_crewcyan);
+                    graphics.drawsprite((customentities[i].x*8)- (ed.levx*40*8)-4,(customentities[i].y*8)- (ed.levy*30*8),3,graphics.col_crewcyan);
                 }
-                fillboxabs((edentity[i].x*8)- (ed.levx*40*8),(edentity[i].y*8)- (ed.levy*30*8),16,24,graphics.getRGB(164,255,255));
+                fillboxabs((customentities[i].x*8)- (ed.levx*40*8),(customentities[i].y*8)- (ed.levy*30*8),16,24,graphics.getRGB(255, 255, 164));
                 if(ed.entframe<2)
                 {
-                    graphics.bprint((edentity[i].x*8)- (ed.levx*40*8)-12,(edentity[i].y*8)- (ed.levy*30*8)-8,"START",255,255,255);
+                    graphics.bprint((customentities[i].x*8)- (ed.levx*40*8)-12,(customentities[i].y*8)- (ed.levy*30*8)-8,"START",255,255,255);
                 }
                 else
                 {
-                    graphics.bprint((edentity[i].x*8)- (ed.levx*40*8)-12,(edentity[i].y*8)- (ed.levy*30*8)-8,"START",196,196,196);
+                    graphics.bprint((customentities[i].x*8)- (ed.levx*40*8)-12,(customentities[i].y*8)- (ed.levy*30*8)-8,"START",196,196,196);
                 }
                 break;
             case 17: //Roomtext
-                if(edentity[i].scriptname.length()<1)
+                if(customentities[i].scriptname.length()<1)
                 {
-                    fillboxabs((edentity[i].x*8)- (ed.levx*40*8),(edentity[i].y*8)- (ed.levy*30*8),8,8,graphics.getRGB(96,96,96));
+                    fillboxabs((customentities[i].x*8)- (ed.levx*40*8),(customentities[i].y*8)- (ed.levy*30*8),8,8,graphics.getRGB(96,96,96));
                 }
                 else
                 {
-                    int length = utf8::unchecked::distance(edentity[i].scriptname.begin(), edentity[i].scriptname.end());
-                    fillboxabs((edentity[i].x*8)- (ed.levx*40*8),(edentity[i].y*8)- (ed.levy*30*8),length*8,8,graphics.getRGB(96,96,96));
+                    int length = utf8::unchecked::distance(customentities[i].scriptname.begin(), customentities[i].scriptname.end());
+                    fillboxabs((customentities[i].x*8)- (ed.levx*40*8),(customentities[i].y*8)- (ed.levy*30*8),length*8,8,graphics.getRGB(96,96,96));
                 }
-                graphics.Print((edentity[i].x*8)- (ed.levx*40*8),(edentity[i].y*8)- (ed.levy*30*8), edentity[i].scriptname, 196, 196, 255 - help.glow);
+                graphics.Print((customentities[i].x*8)- (ed.levx*40*8),(customentities[i].y*8)- (ed.levy*30*8), customentities[i].scriptname, 196, 196, 255 - help.glow);
                 break;
             case 18: //Terminals
-                graphics.drawsprite((edentity[i].x*8)- (ed.levx*40*8),(edentity[i].y*8)- (ed.levy*30*8)+8,17,96,96,96);
-                fillboxabs((edentity[i].x*8)- (ed.levx*40*8),(edentity[i].y*8)- (ed.levy*30*8),16,24,graphics.getRGB(164,164,164));
+            {
+                int usethistile = customentities[i].p1;
+                int usethisy = (customentities[i].y % 30) * 8;
+                // Not a boolean: just swapping 0 and 1, leaving the rest alone
+                if (usethistile == 0)
+                {
+                    usethistile = 1; // Unflipped
+                }
+                else if (usethistile == 1)
+                {
+                    usethistile = 0; // Flipped;
+                    usethisy -= 8;
+                }
+                graphics.drawsprite((customentities[i].x*8)- (ed.levx*40*8), usethisy + 8, usethistile + 16, 96,96,96);
+                fillboxabs((customentities[i].x*8)- (ed.levx*40*8),(customentities[i].y*8)- (ed.levy*30*8),16,24,graphics.getRGB(164,164,164));
                 if(temp2==i)
                 {
-                    graphics.bprint((edentity[i].x*8)- (ed.levx*40*8),(edentity[i].y*8)- (ed.levy*30*8)-8,edentity[i].scriptname,210,210,255);
+                    graphics.bprint((customentities[i].x*8)- (ed.levx*40*8),(customentities[i].y*8)- (ed.levy*30*8)-8,customentities[i].scriptname,210,210,255);
                 }
                 break;
+            }
             case 19: //Script Triggers
-                fillboxabs((edentity[i].x*8)- (ed.levx*40*8),(edentity[i].y*8)- (ed.levy*30*8),edentity[i].p1*8,edentity[i].p2*8,graphics.getRGB(255,164,255));
-                fillboxabs((edentity[i].x*8)- (ed.levx*40*8),(edentity[i].y*8)- (ed.levy*30*8),8,8,graphics.getRGB(255,255,255));
+                fillboxabs((customentities[i].x*8)- (ed.levx*40*8),(customentities[i].y*8)- (ed.levy*30*8),customentities[i].p1*8,customentities[i].p2*8,graphics.getRGB(255,164,255));
+                fillboxabs((customentities[i].x*8)- (ed.levx*40*8),(customentities[i].y*8)- (ed.levy*30*8),8,8,graphics.getRGB(255,255,255));
                 if(temp2==i)
                 {
-                    graphics.bprint((edentity[i].x*8)- (ed.levx*40*8),(edentity[i].y*8)- (ed.levy*30*8)-8,edentity[i].scriptname,210,210,255);
+                    graphics.bprint((customentities[i].x*8)- (ed.levx*40*8),(customentities[i].y*8)- (ed.levy*30*8)-8,customentities[i].scriptname,210,210,255);
                 }
                 break;
             case 50: //Warp lines
-                if(edentity[i].p1>=2)  //Horizontal
+                if(customentities[i].p1>=2)  //Horizontal
                 {
-                    int tx=edentity[i].x-(ed.levx*40);
-                    int tx2=edentity[i].x-(ed.levx*40);
-                    int ty=edentity[i].y-(ed.levy*30);
-                    if (edentity[i].p4 != 1)
+                    int tx=customentities[i].x-(ed.levx*40);
+                    int tx2=customentities[i].x-(ed.levx*40);
+                    int ty=customentities[i].y-(ed.levy*30);
+                    if (customentities[i].p4 != 1)
                     {
                         // Unlocked
                         while(ed.free(tx,ty)==0) tx--;
                         while(ed.free(tx2,ty)==0) tx2++;
                         tx++;
-                        edentity[i].p2=tx;
-                        edentity[i].p3=(tx2-tx)*8;
+                        customentities[i].p2=tx;
+                        customentities[i].p3=(tx2-tx)*8;
                     }
                     else
                     {
                         // Locked
-                        tx = edentity[i].p2;
-                        tx2 = tx + edentity[i].p3/8;
+                        tx = customentities[i].p2;
+                        tx2 = tx + customentities[i].p3/8;
                     }
-                    fillboxabs((tx*8),(ty*8)+1, (tx2-tx)*8,6, graphics.getRGB(255,255,194));
-                    fillboxabs((edentity[i].x*8)- (ed.levx*40*8),(edentity[i].y*8)- (ed.levy*30*8),8,8,graphics.getRGB(255,255,164));
+                    fillboxabs((tx*8),(ty*8)+1, (tx2-tx)*8,6, graphics.getRGB(194, 255, 255));
+                    fillboxabs((customentities[i].x*8)- (ed.levx*40*8),(customentities[i].y*8)- (ed.levy*30*8),8,8,graphics.getRGB(164, 255, 255));
                 }
                 else  //Vertical
                 {
-                    int tx=edentity[i].x-(ed.levx*40);
-                    int ty=edentity[i].y-(ed.levy*30);
-                    int ty2=edentity[i].y-(ed.levy*30);
-                    if (edentity[i].p4 != 1)
+                    int tx=customentities[i].x-(ed.levx*40);
+                    int ty=customentities[i].y-(ed.levy*30);
+                    int ty2=customentities[i].y-(ed.levy*30);
+                    if (customentities[i].p4 != 1)
                     {
                         // Unlocked
                         while(ed.free(tx,ty)==0) ty--;
                         while(ed.free(tx,ty2)==0) ty2++;
                         ty++;
-                        edentity[i].p2=ty;
-                        edentity[i].p3=(ty2-ty)*8;
+                        customentities[i].p2=ty;
+                        customentities[i].p3=(ty2-ty)*8;
                     }
                     else
                     {
                         // Locked
-                        ty = edentity[i].p2;
-                        ty2 = ty + edentity[i].p3/8;
+                        ty = customentities[i].p2;
+                        ty2 = ty + customentities[i].p3/8;
                     }
-                    fillboxabs((tx*8)+1,(ty*8), 6,(ty2-ty)*8, graphics.getRGB(255,255,194));
-                    fillboxabs((edentity[i].x*8)- (ed.levx*40*8),(edentity[i].y*8)- (ed.levy*30*8),8,8,graphics.getRGB(255,255,164));
+                    fillboxabs((tx*8)+1,(ty*8), 6,(ty2-ty)*8, graphics.getRGB(194, 255, 255));
+                    fillboxabs((customentities[i].x*8)- (ed.levx*40*8),(customentities[i].y*8)- (ed.levy*30*8),8,8,graphics.getRGB(164, 255, 255));
                 }
                 break;
             }
         }
 
         //Need to also check warp point destinations
-        if(edentity[i].t==13 && ed.warpent!=i)
+        if(customentities[i].t==13 && ed.warpent!=i)
         {
-            tx=(edentity[i].p1-(edentity[i].p1%40))/40;
-            ty=(edentity[i].p2-(edentity[i].p2%30))/30;
-            if(tx==ed.levx && ty==ed.levy)
+            if (customentities[i].p1 / 40 == ed.levx && customentities[i].p2 / 30 == ed.levy)
             {
-                graphics.drawsprite((edentity[i].p1*8)- (ed.levx*40*8),(edentity[i].p2*8)- (ed.levy*30*8),18+(ed.entframe%2),64,64,64);
-                fillboxabs((edentity[i].p1*8)- (ed.levx*40*8),(edentity[i].p2*8)- (ed.levy*30*8),16,16,graphics.getRGB(64,64,96));
-                if(ed.tilex+(ed.levx*40)==edentity[i].p1 && ed.tiley+(ed.levy*30)==edentity[i].p2)
+                graphics.drawsprite((customentities[i].p1*8)- (ed.levx*40*8),(customentities[i].p2*8)- (ed.levy*30*8),18+(ed.entframe%2),64,64,64);
+                fillboxabs((customentities[i].p1*8)- (ed.levx*40*8),(customentities[i].p2*8)- (ed.levy*30*8),16,16,graphics.getRGB(96, 64, 64));
+                if(ed.tilex+(ed.levx*40)==customentities[i].p1 && ed.tiley+(ed.levy*30)==customentities[i].p2)
                 {
-                    graphics.bprint((edentity[i].p1*8)- (ed.levx*40*8),(edentity[i].p2*8)- (ed.levy*30*8)-8,
-                                "("+help.String(((edentity[i].x-int(edentity[i].x%40))/40)+1)+","+help.String(((edentity[i].y-int(edentity[i].y%30))/30)+1)+")",190,190,225);
+                    graphics.bprint((customentities[i].p1*8)- (ed.levx*40*8),(customentities[i].p2*8)- (ed.levy*30*8)-8,
+                                "("+help.String(customentities[i].x/40 + 1)+","+help.String(customentities[i].y/30 + 1)+")",190,190,225);
                 }
                 else
                 {
-                    graphics.bprint((edentity[i].p1*8)- (ed.levx*40*8),(edentity[i].p2*8)- (ed.levy*30*8)-8,help.String(ed.findwarptoken(i)),190,190,225);
+                    graphics.bprint((customentities[i].p1*8)- (ed.levx*40*8),(customentities[i].p2*8)- (ed.levy*30*8)-8,help.String(cl.findwarptoken(i)),190,190,225);
                 }
             }
         }
@@ -2940,53 +868,52 @@ void editorrender()
     {
         if(ed.boundarymod==1)
         {
-            fillboxabs(ed.tilex*8, ed.tiley*8, 8,8,graphics.getRGB(255-(help.glow/2),191+(help.glow),210+(help.glow/2)));
-            fillboxabs((ed.tilex*8)+2, (ed.tiley*8)+2, 4,4,graphics.getRGB(128-(help.glow/4),100+(help.glow/2),105+(help.glow/4)));
+            fillboxabs(ed.tilex*8, ed.tiley*8, 8,8,graphics.getRGB(210 + help.glow/2, 191 + help.glow, 255 - help.glow/2));
+            fillboxabs((ed.tilex*8)+2, (ed.tiley*8)+2, 4,4,graphics.getRGB(105 + help.glow/4, 100 + help.glow/2, 128 - help.glow/4));
         }
         else if(ed.boundarymod==2)
         {
             if((ed.tilex*8)+8<=ed.boundx1 || (ed.tiley*8)+8<=ed.boundy1)
             {
-                fillboxabs(ed.boundx1, ed.boundy1, 8, 8,graphics.getRGB(255-(help.glow/2),191+(help.glow),210+(help.glow/2)));
-                fillboxabs(ed.boundx1+2, ed.boundy1+2, 4, 4,graphics.getRGB(128-(help.glow/4),100+(help.glow/2),105+(help.glow/4)));
+                fillboxabs(ed.boundx1, ed.boundy1, 8, 8,graphics.getRGB(210 + help.glow/2, 191 + help.glow, 255 - help.glow/2));
+                fillboxabs(ed.boundx1+2, ed.boundy1+2, 4, 4,graphics.getRGB(105 + help.glow/4, 100 + help.glow/2, 128 - help.glow/4));
             }
             else
             {
-                fillboxabs(ed.boundx1, ed.boundy1, (ed.tilex*8)+8-ed.boundx1,(ed.tiley*8)+8-ed.boundy1,graphics.getRGB(255-(help.glow/2),191+(help.glow),210+(help.glow/2)));
-                fillboxabs(ed.boundx1+2, ed.boundy1+2, (ed.tilex*8)+8-ed.boundx1-4,(ed.tiley*8)+8-ed.boundy1-4,graphics.getRGB(128-(help.glow/4),100+(help.glow/2),105+(help.glow/4)));
+                fillboxabs(ed.boundx1, ed.boundy1, (ed.tilex*8)+8-ed.boundx1,(ed.tiley*8)+8-ed.boundy1,graphics.getRGB(210 + help.glow/2, 191 + help.glow, 255 - help.glow/2));
+                fillboxabs(ed.boundx1+2, ed.boundy1+2, (ed.tilex*8)+8-ed.boundx1-4,(ed.tiley*8)+8-ed.boundy1-4,graphics.getRGB(105 + help.glow/4, 100 + help.glow/2, 128 - help.glow/4));
             }
         }
     }
     else
     {
         //Draw boundaries
-        int tmp=ed.levx+(ed.levy*ed.maxwidth);
-        if(ed.level[tmp].enemyx1!=0 && ed.level[tmp].enemyy1!=0
-                && ed.level[tmp].enemyx2!=320 && ed.level[tmp].enemyy2!=240)
+        if(room->enemyx1!=0 || room->enemyy1!=0
+                || room->enemyx2!=320 || room->enemyy2!=240)
         {
-            fillboxabs( ed.level[tmp].enemyx1, ed.level[tmp].enemyy1,
-                       ed.level[tmp].enemyx2-ed.level[tmp].enemyx1,
-                       ed.level[tmp].enemyy2-ed.level[tmp].enemyy1,
-                       graphics.getBGR(255-(help.glow/2),64,64));
+            fillboxabs( room->enemyx1, room->enemyy1,
+                       room->enemyx2-room->enemyx1,
+                       room->enemyy2-room->enemyy1,
+                       graphics.getRGB(255-(help.glow/2),64,64));
         }
 
-        if(ed.level[tmp].platx1!=0 && ed.level[tmp].platy1!=0
-                && ed.level[tmp].platx2!=320 && ed.level[tmp].platy2!=240)
+        if(room->platx1!=0 || room->platy1!=0
+                || room->platx2!=320 || room->platy2!=240)
         {
-            fillboxabs( ed.level[tmp].platx1, ed.level[tmp].platy1,
-                       ed.level[tmp].platx2-ed.level[tmp].platx1,
-                       ed.level[tmp].platy2-ed.level[tmp].platy1,
-                       graphics.getBGR(64,64,255-(help.glow/2)));
+            fillboxabs( room->platx1, room->platy1,
+                       room->platx2-room->platx1,
+                       room->platy2-room->platy1,
+                       graphics.getRGB(64,64,255-(help.glow/2)));
         }
     }
 
     //Draw ghosts (spooky!)
     if (game.ghostsenabled) {
-        SDL_FillRect(graphics.ghostbuffer, NULL, SDL_MapRGBA(graphics.ghostbuffer->format, 0, 0, 0, 0));
+        ClearSurface(graphics.ghostbuffer);
         for (int i = 0; i < (int)ed.ghosts.size(); i++) {
             if (i <= ed.currentghosts) { // We don't want all of them to show up at once :)
                 if (ed.ghosts[i].rx != ed.levx || ed.ghosts[i].ry != ed.levy
-                || !INBOUNDS(ed.ghosts[i].frame, graphics.sprites))
+                || !INBOUNDS_VEC(ed.ghosts[i].frame, graphics.sprites))
                     continue;
                 point tpoint;
                 tpoint.x = ed.ghosts[i].x;
@@ -3002,7 +929,7 @@ void editorrender()
                 BlitSurfaceColoured(graphics.sprites[ed.ghosts[i].frame],NULL, graphics.ghostbuffer, &drawRect, graphics.ct);
             }
         }
-        SDL_BlitSurface(graphics.ghostbuffer, NULL, graphics.backBuffer, &graphics.bg_rect);
+        SDL_BlitSurface(graphics.ghostbuffer, NULL, graphics.backBuffer, NULL);
     }
 
     //Draw Cursor
@@ -3014,23 +941,23 @@ void editorrender()
     case 9:
     case 10:
     case 12: //Single point
-        fillboxabs((ed.tilex*8),(ed.tiley*8),8,8, graphics.getRGB(200,32,32));
+        fillboxabs((ed.tilex*8),(ed.tiley*8),8,8, graphics.getRGB(32, 32, 200));
         break;
     case 3:
     case 4:
     case 8:
     case 13://2x2
-        fillboxabs((ed.tilex*8),(ed.tiley*8),16,16, graphics.getRGB(200,32,32));
+        fillboxabs((ed.tilex*8),(ed.tiley*8),16,16, graphics.getRGB(32, 32, 200));
         break;
     case 5:
     case 6:
     case 7://Platform
-        fillboxabs((ed.tilex*8),(ed.tiley*8),32,8, graphics.getRGB(200,32,32));
+        fillboxabs((ed.tilex*8),(ed.tiley*8),32,8, graphics.getRGB(32, 32, 200));
         break;
     case 14: //X if not on edge
         if(ed.tilex==0 || ed.tilex==39 || ed.tiley==0 || ed.tiley==29)
         {
-            fillboxabs((ed.tilex*8),(ed.tiley*8),8,8, graphics.getRGB(200,32,32));
+            fillboxabs((ed.tilex*8),(ed.tiley*8),8,8, graphics.getRGB(32, 32, 200));
         }
         else
         {
@@ -3040,7 +967,7 @@ void editorrender()
     case 11:
     case 15:
     case 16: //2x3
-        fillboxabs((ed.tilex*8),(ed.tiley*8),16,24, graphics.getRGB(200,32,32));
+        fillboxabs((ed.tilex*8),(ed.tiley*8),16,24, graphics.getRGB(32, 32, 200));
         break;
     }
 
@@ -3048,43 +975,42 @@ void editorrender()
     {
         if(ed.bmod && ed.drawmode<2)
         {
-            fillboxabs((ed.tilex*8),0,8,240,graphics.getRGB(200,32,32));
+            fillboxabs((ed.tilex*8),0,8,240,graphics.getRGB(32, 32, 200));
         }
         else if(ed.hmod && ed.drawmode<2)
         {
-            fillboxabs(0,(ed.tiley*8),320,8,graphics.getRGB(200,32,32));
+            fillboxabs(0,(ed.tiley*8),320,8,graphics.getRGB(32, 32, 200));
         }
         else if(ed.vmod && ed.drawmode<2)
         {
-            fillboxabs((ed.tilex*8)-32,(ed.tiley*8)-32,24+48,24+48, graphics.getRGB(200,32,32));
+            fillboxabs((ed.tilex*8)-32,(ed.tiley*8)-32,24+48,24+48, graphics.getRGB(32, 32, 200));
         }
         else if(ed.cmod && ed.drawmode<2)
         {
-            fillboxabs((ed.tilex*8)-24,(ed.tiley*8)-24,24+32,24+32, graphics.getRGB(200,32,32));
+            fillboxabs((ed.tilex*8)-24,(ed.tiley*8)-24,24+32,24+32, graphics.getRGB(32, 32, 200));
         }
         else if(ed.xmod && ed.drawmode<2)
         {
-            fillboxabs((ed.tilex*8)-16,(ed.tiley*8)-16,24+16,24+16, graphics.getRGB(200,32,32));
+            fillboxabs((ed.tilex*8)-16,(ed.tiley*8)-16,24+16,24+16, graphics.getRGB(32, 32, 200));
         }
         else if(ed.zmod && ed.drawmode<2)
         {
-            fillboxabs((ed.tilex*8)-8,(ed.tiley*8)-8,24,24, graphics.getRGB(200,32,32));
+            fillboxabs((ed.tilex*8)-8,(ed.tiley*8)-8,24,24, graphics.getRGB(32, 32, 200));
         }
 
 
     }
 
     //If in directmode, show current directmode tile
-    if(ed.level[ed.levx+(ed.levy*ed.maxwidth)].directmode==1)
+    if(room->directmode==1)
     {
         //Tile box for direct mode
         int t2=0;
         if(ed.dmtileeditor>0)
         {
-            ed.dmtileeditor--;
             if(ed.dmtileeditor<=4)
             {
-                t2=(4-ed.dmtileeditor)*12;
+                t2=graphics.lerp((4-ed.dmtileeditor+1)*12, (4-ed.dmtileeditor)*12);
             }
 
             //Draw five lines of the editor
@@ -3092,30 +1018,34 @@ void editorrender()
             temp-=80;
             FillRect(graphics.backBuffer, 0,-t2,320,40, graphics.getRGB(0,0,0));
             FillRect(graphics.backBuffer, 0,-t2+40,320,2, graphics.getRGB(255,255,255));
-            if(ed.level[ed.levx+(ed.levy*ed.maxwidth)].tileset==0)
+            if(room->tileset==0)
             {
+                const int numtiles = (((int) graphics.tiles.size()) / 40) * 40;
+
                 for(int i=0; i<40; i++)
                 {
-                    graphics.drawtile(i*8,0-t2,(temp+1200+i)%1200);
-                    graphics.drawtile(i*8,8-t2,(temp+1200+40+i)%1200);
-                    graphics.drawtile(i*8,16-t2,(temp+1200+80+i)%1200);
-                    graphics.drawtile(i*8,24-t2,(temp+1200+120+i)%1200);
-                    graphics.drawtile(i*8,32-t2,(temp+1200+160+i)%1200);
+                    graphics.drawtile(i*8,0-t2,(temp+numtiles+i)%numtiles);
+                    graphics.drawtile(i*8,8-t2,(temp+numtiles+40+i)%numtiles);
+                    graphics.drawtile(i*8,16-t2,(temp+numtiles+80+i)%numtiles);
+                    graphics.drawtile(i*8,24-t2,(temp+numtiles+120+i)%numtiles);
+                    graphics.drawtile(i*8,32-t2,(temp+numtiles+160+i)%numtiles);
                 }
             }
             else
             {
+                const int numtiles = (((int) graphics.tiles2.size()) / 40) * 40;
+
                 for(int i=0; i<40; i++)
                 {
-                    graphics.drawtile2(i*8,0-t2,(temp+1200+i)%1200);
-                    graphics.drawtile2(i*8,8-t2,(temp+1200+40+i)%1200);
-                    graphics.drawtile2(i*8,16-t2,(temp+1200+80+i)%1200);
-                    graphics.drawtile2(i*8,24-t2,(temp+1200+120+i)%1200);
-                    graphics.drawtile2(i*8,32-t2,(temp+1200+160+i)%1200);
+                    graphics.drawtile2(i*8,0-t2,(temp+numtiles+i)%numtiles);
+                    graphics.drawtile2(i*8,8-t2,(temp+numtiles+40+i)%numtiles);
+                    graphics.drawtile2(i*8,16-t2,(temp+numtiles+80+i)%numtiles);
+                    graphics.drawtile2(i*8,24-t2,(temp+numtiles+120+i)%numtiles);
+                    graphics.drawtile2(i*8,32-t2,(temp+numtiles+160+i)%numtiles);
                 }
             }
             //Highlight our little block
-            fillboxabs(((ed.dmtile%40)*8)-2,16-t2-2,12,12,graphics.getRGB(196, 196, 255 - help.glow));
+            fillboxabs(((ed.dmtile%40)*8)-2,16-t2-2,12,12,graphics.getRGB(255 - help.glow, 196, 196));
             fillboxabs(((ed.dmtile%40)*8)-1,16-t2-1,10,10,graphics.getRGB(0,0,0));
         }
 
@@ -3123,10 +1053,10 @@ void editorrender()
         {
             graphics.bprint(2, 45-t2, "Tile:", 196, 196, 255 - help.glow, false);
             graphics.bprint(58, 45-t2, help.String(ed.dmtile), 196, 196, 255 - help.glow, false);
-            FillRect(graphics.backBuffer, 44,44-t2,10,10, graphics.getRGB(196, 196, 255 - help.glow));
+            FillRect(graphics.backBuffer, 44,44-t2,10,10, graphics.getRGB(255 - help.glow, 196, 196));
             FillRect(graphics.backBuffer, 45,45-t2,8,8, graphics.getRGB(0,0,0));
 
-            if(ed.level[ed.levx+(ed.levy*ed.maxwidth)].tileset==0)
+            if(room->tileset==0)
             {
                 graphics.drawtile(45,45-t2,ed.dmtile);
             }
@@ -3139,10 +1069,10 @@ void editorrender()
         {
             graphics.bprint(2, 12, "Tile:", 196, 196, 255 - help.glow, false);
             graphics.bprint(58, 12, help.String(ed.dmtile), 196, 196, 255 - help.glow, false);
-            FillRect(graphics.backBuffer, 44,11,10,10, graphics.getRGB(196, 196, 255 - help.glow));
+            FillRect(graphics.backBuffer, 44,11,10,10, graphics.getRGB(255 - help.glow, 196, 196));
             FillRect(graphics.backBuffer, 45,12,8,8, graphics.getRGB(0,0,0));
 
-            if(ed.level[ed.levx+(ed.levy*ed.maxwidth)].tileset==0)
+            if(room->tileset==0)
             {
                 graphics.drawtile(45,12,ed.dmtile);
             }
@@ -3209,8 +1139,8 @@ void editorrender()
     else if(ed.scripteditmod)
     {
         //Elaborate C64 BASIC menu goes here!
-        FillRect(graphics.backBuffer, 0,0,320,240, graphics.getBGR(123, 111, 218));
-        FillRect(graphics.backBuffer, 14,16,292,208, graphics.getRGB(162,48,61));
+        FillRect(graphics.backBuffer, 0,0,320,240, graphics.getRGB(123, 111, 218));
+        FillRect(graphics.backBuffer, 14,16,292,208, graphics.getRGB(61, 48, 162));
         switch(ed.scripthelppage)
         {
         case 0:
@@ -3248,7 +1178,7 @@ void editorrender()
             break;
         case 1:
             //Current scriptname
-            FillRect(graphics.backBuffer, 14,226,292,12, graphics.getRGB(162,48,61));
+            FillRect(graphics.backBuffer, 14,226,292,12, graphics.getRGB(61, 48, 162));
             graphics.Print(16,228,"CURRENT SCRIPT: " + ed.sbscript, 123, 111, 218, true);
             //Draw text
             for(int i=0; i<25; i++)
@@ -3270,16 +1200,16 @@ void editorrender()
     {
         if(!game.colourblindmode)
         {
-            graphics.drawtowerbackground();
+            graphics.drawtowerbackground(graphics.titlebg);
         }
         else
         {
-            FillRect(graphics.backBuffer, 0, 0, 320, 240, 0x00000000);
+            ClearSurface(graphics.backBuffer);
         }
 
-        int tr = map.r - (help.glow / 4) - int(fRandom() * 4);
-        int tg = map.g - (help.glow / 4) - int(fRandom() * 4);
-        int tb = map.b - (help.glow / 4) - int(fRandom() * 4);
+        int tr = graphics.titlebg.r - (help.glow / 4) - int(fRandom() * 4);
+        int tg = graphics.titlebg.g - (help.glow / 4) - int(fRandom() * 4);
+        int tb = graphics.titlebg.b - (help.glow / 4) - int(fRandom() * 4);
         if (tr < 0) tr = 0;
         if(tr>255) tr=255;
         if (tg < 0) tg = 0;
@@ -3370,22 +1300,15 @@ void editorrender()
                 tx+=tg;
                 FillRect(graphics.backBuffer, tx+2,ty+8,12,1,graphics.getRGB(255,255,255));
 
-                for(int i=0; i<9; i++)
+                for (int i = 0; i < 10; i++)
                 {
                     fillboxabs(4+(i*tg), 209,20,20,graphics.getRGB(96,96,96));
-                    graphics.Print(22+(i*tg)-4, 225-4,help.String(i+1),164,164,164,false);
+                    const int col = i == ed.drawmode ? 255 : 164;
+                    const std::string glyph = i == 9 ? "0" : help.String(i + 1);
+                    graphics.Print(22 + i*tg - 4, 225 - 4, glyph, col, col, col, false);
                 }
-
-                if(ed.drawmode==9)graphics.Print(22+(ed.drawmode*tg)-4, 225-4,"0",255,255,255,false);
-
-                fillboxabs(4+(9*tg), 209,20,20,graphics.getRGB(96,96,96));
-                graphics.Print(22+(9*tg)-4, 225-4, "0",164,164,164,false);
 
                 fillboxabs(4+(ed.drawmode*tg), 209,20,20,graphics.getRGB(200,200,200));
-                if(ed.drawmode<9)
-                {
-                    graphics.Print(22+(ed.drawmode*tg)-4, 225-4,help.String(ed.drawmode+1),255,255,255,false);
-                }
 
                 graphics.Print(4, 232, "1/2", 196, 196, 255 - help.glow, false);
             }
@@ -3420,28 +1343,15 @@ void editorrender()
                 tx+=tg;
                 graphics.drawsprite(tx,ty,184,graphics.col_crewcyan);
 
-                if(ed.drawmode==10)graphics.Print(22+((ed.drawmode-10)*tg)-4, 225-4,"R",255,255,255,false);
-                if(ed.drawmode==11)graphics.Print(22+((ed.drawmode-10)*tg)-4, 225-4,"T",255,255,255,false);
-                if(ed.drawmode==12)graphics.Print(22+((ed.drawmode-10)*tg)-4, 225-4,"Y",255,255,255,false);
-                if(ed.drawmode==13)graphics.Print(22+((ed.drawmode-10)*tg)-4, 225-4,"U",255,255,255,false);
-                if(ed.drawmode==14)graphics.Print(22+((ed.drawmode-10)*tg)-4, 225-4,"I",255,255,255,false);
-                if(ed.drawmode==15)graphics.Print(22+((ed.drawmode-10)*tg)-4, 225-4,"O",255,255,255,false);
-                if(ed.drawmode==16)graphics.Print(22+((ed.drawmode-10)*tg)-4, 225-4,"P",255,255,255,false);
+                for (int i = 0; i < 7; i++)
+                {
+                    fillboxabs(4 +  i*tg, 209, 20, 20, graphics.getRGB(96, 96, 96));
+                    const int col = i + 10 == ed.drawmode ? 255 : 164;
+                    static const char glyphs[] = "RTYUIOP";
+                    graphics.Print(22 + i*tg - 4, 225 - 4, std::string(1, glyphs[i]), col, col, col, false);
+                }
 
-                fillboxabs(4+(0*tg), 209,20,20,graphics.getRGB(96,96,96));
-                graphics.Print(22+(0*tg)-4, 225-4, "R",164,164,164,false);
-                fillboxabs(4+(1*tg), 209,20,20,graphics.getRGB(96,96,96));
-                graphics.Print(22+(1*tg)-4, 225-4, "T",164,164,164,false);
-                fillboxabs(4+(2*tg), 209,20,20,graphics.getRGB(96,96,96));
-                graphics.Print(22+(2*tg)-4, 225-4, "Y",164,164,164,false);
-                fillboxabs(4+(3*tg), 209,20,20,graphics.getRGB(96,96,96));
-                graphics.Print(22+(3*tg)-4, 225-4, "U",164,164,164,false);
-                fillboxabs(4+(4*tg), 209,20,20,graphics.getRGB(96,96,96));
-                graphics.Print(22+(4*tg)-4, 225-4, "I",164,164,164,false);
-                fillboxabs(4+(5*tg), 209,20,20,graphics.getRGB(96,96,96));
-                graphics.Print(22+(5*tg)-4, 225-4, "O",164,164,164,false);
-                fillboxabs(4+(6*tg), 209,20,20,graphics.getRGB(96,96,96));
-                graphics.Print(22+(6*tg)-4, 225-4, "P",164,164,164,false);
+                fillboxabs(4 + (ed.drawmode - 10) * tg, 209, 20, 20, graphics.getRGB(200, 200, 200));
 
                 graphics.Print(4, 232, "2/2", 196, 196, 255 - help.glow, false);
             }
@@ -3514,16 +1424,8 @@ void editorrender()
         {
             //FillRect(graphics.backBuffer, 0,230,72,240, graphics.RGB(32,32,32));
             //FillRect(graphics.backBuffer, 0,231,71,240, graphics.RGB(0,0,0));
-            if(ed.level[ed.levx+(ed.maxwidth*ed.levy)].roomname!="")
+            if(room->roomname!="")
             {
-                if(ed.tiley<28)
-                {
-                    if(ed.roomnamehide>0) ed.roomnamehide--;
-                }
-                else
-                {
-                    if(ed.roomnamehide<12) ed.roomnamehide++;
-                }
                 if (graphics.translucentroomname)
                 {
                     graphics.footerrect.y = 230+ed.roomnamehide;
@@ -3533,7 +1435,7 @@ void editorrender()
                 {
                     FillRect(graphics.backBuffer, 0,230+ed.roomnamehide,320,10, graphics.getRGB(0,0,0));
                 }
-                graphics.bprint(5,231+ed.roomnamehide,ed.level[ed.levx+(ed.maxwidth*ed.levy)].roomname, 196, 196, 255 - help.glow, true);
+                graphics.bprint(5,231+ed.roomnamehide,room->roomname, 196, 196, 255 - help.glow, true);
                 graphics.bprint(4, 222, "SPACE ^  SHIFT ^", 196, 196, 255 - help.glow, false);
                 graphics.bprint(268,222, "("+help.String(ed.levx+1)+","+help.String(ed.levy+1)+")",196, 196, 255 - help.glow, false);
             }
@@ -3546,14 +1448,15 @@ void editorrender()
 
         if(ed.shiftmenu)
         {
-            fillboxabs(0, 127,161+8,140,graphics.getRGB(64,64,64));
-            FillRect(graphics.backBuffer, 0,128,160+8,140, graphics.getRGB(0,0,0));
-            graphics.Print(4, 130, "F1: Change Tileset",164,164,164,false);
-            graphics.Print(4, 140, "F2: Change Colour",164,164,164,false);
-            graphics.Print(4, 150, "F3: Change Enemies",164,164,164,false);
-            graphics.Print(4, 160, "F4: Enemy Bounds",164,164,164,false);
-            graphics.Print(4, 170, "F5: Platform Bounds",164,164,164,false);
+            fillboxabs(0, 117,171+8,140,graphics.getRGB(64,64,64));
+            FillRect(graphics.backBuffer, 0,118,170+8,140, graphics.getRGB(0,0,0));
+            graphics.Print(4, 120, "F1: Change Tileset",164,164,164,false);
+            graphics.Print(4, 130, "F2: Change Colour",164,164,164,false);
+            graphics.Print(4, 140, "F3: Change Enemies",164,164,164,false);
+            graphics.Print(4, 150, "F4: Enemy Bounds",164,164,164,false);
+            graphics.Print(4, 160, "F5: Platform Bounds",164,164,164,false);
 
+            graphics.Print(4, 180, "F9: Reload Resources",164,164,164,false);
             graphics.Print(4, 190, "F10: Direct Mode",164,164,164,false);
 
             graphics.Print(4, 210, "W: Change Warp Dir",164,164,164,false);
@@ -3639,38 +1542,17 @@ void editorrender()
     graphics.render();
 }
 
-void editorlogic()
+void editorrenderfixed(void)
 {
-    //Misc
-    help.updateglow();
+    extern editorclass ed;
+    const RoomProperty* const room = cl.getroomprop(ed.levx, ed.levy);
     graphics.updatetitlecolours();
 
-    game.customcol=ed.getlevelcol(ed.levx+(ed.levy*ed.maxwidth))+1;
-    ed.entcol=ed.getenemycol(game.customcol);
+    game.customcol=cl.getlevelcol(room->tileset, room->tilecol)+1;
+    ed.entcol=cl.getenemycol(game.customcol);
 
     graphics.setcol(ed.entcol);
     ed.entcolreal = graphics.ct.colour;
-
-    if (game.shouldreturntoeditor)
-    {
-        game.shouldreturntoeditor = false;
-    }
-
-    map.bypos -= 2;
-    map.bscroll = -2;
-
-    ed.entframedelay--;
-    if(ed.entframedelay<=0)
-    {
-        ed.entframe=(ed.entframe+1)%4;
-        ed.entframedelay=8;
-    }
-
-    ed.oldnotedelay = ed.notedelay;
-    if(ed.notedelay>0)
-    {
-        ed.notedelay--;
-    }
 
     if (game.ghostsenabled)
     {
@@ -3697,18 +1579,18 @@ void editorlogic()
 
     if (!ed.settingsmod)
     {
-        switch(ed.level[ed.levx+(ed.levy*ed.maxwidth)].warpdir)
+        switch(room->warpdir)
         {
         case 1:
-            graphics.rcol=ed.getwarpbackground(ed.levx, ed.levy);
+            graphics.rcol=cl.getwarpbackground(ed.levx, ed.levy);
             graphics.updatebackground(3);
             break;
         case 2:
-            graphics.rcol=ed.getwarpbackground(ed.levx, ed.levy);
+            graphics.rcol=cl.getwarpbackground(ed.levx, ed.levy);
             graphics.updatebackground(4);
             break;
         case 3:
-            graphics.rcol=ed.getwarpbackground(ed.levx, ed.levy);
+            graphics.rcol=cl.getwarpbackground(ed.levx, ed.levy);
             graphics.updatebackground(5);
             break;
         default:
@@ -3717,65 +1599,179 @@ void editorlogic()
     }
     else if (!game.colourblindmode)
     {
-        graphics.updatetowerbackground();
+        graphics.updatetowerbackground(graphics.titlebg);
+    }
+
+    /* Correct gravity lines */
+    for (size_t i = 0; i < customentities.size(); ++i)
+    {
+        if (customentities[i].x / 40 != ed.levx
+        || customentities[i].y / 30 != ed.levy
+        || customentities[i].t != 11
+        /* Is the gravity line locked? */
+        || customentities[i].p4 == 1)
+        {
+            continue;
+        }
+
+        if (customentities[i].p1 == 0)
+        {
+            /* Horizontal */
+            int tx = customentities[i].x % 40;
+            int tx2 = tx;
+            int ty = customentities[i].y % 30;
+            while (!ed.spikefree(tx, ty))
+            {
+                --tx;
+            }
+            while (!ed.spikefree(tx2, ty))
+            {
+                ++tx2;
+            }
+            ++tx;
+            customentities[i].p2 = tx;
+            customentities[i].p3 = (tx2 - tx) * 8;
+        }
+        else
+        {
+            /* Vertical */
+            int tx = customentities[i].x % 40;
+            int ty = customentities[i].y % 30;
+            int ty2 = ty;
+            /* Unlocked */
+            while (!ed.spikefree(tx, ty))
+            {
+                --ty;
+            }
+            while (!ed.spikefree(tx, ty2))
+            {
+                ++ty2;
+            }
+            ++ty;
+            customentities[i].p2 = ty;
+            customentities[i].p3 = (ty2 - ty) * 8;
+        }
+    }
+
+    if (cl.getroomprop(ed.levx, ed.levy)->directmode == 1)
+    {
+        if (ed.dmtileeditor > 0)
+        {
+            ed.dmtileeditor--;
+        }
+    }
+    else
+    {
+        ed.dmtileeditor = 0;
+    }
+
+    if (cl.getroomprop(ed.levx, ed.levy)->roomname != "")
+    {
+        if (ed.tiley < 28)
+        {
+            if (ed.roomnamehide > 0)
+            {
+                ed.roomnamehide--;
+            }
+        }
+        else
+        {
+            if (ed.roomnamehide < 12)
+            {
+                ed.roomnamehide++;
+            }
+        }
+    }
+    else
+    {
+        if (ed.tiley < 28)
+        {
+            ed.roomnamehide = 0;
+        }
+        else
+        {
+            ed.roomnamehide = 12;
+        }
+    }
+}
+
+void editorlogic(void)
+{
+    extern editorclass ed;
+    //Misc
+    help.updateglow();
+
+    graphics.titlebg.bypos -= 2;
+    graphics.titlebg.bscroll = -2;
+
+    ed.entframedelay--;
+    if(ed.entframedelay<=0)
+    {
+        ed.entframe=(ed.entframe+1)%4;
+        ed.entframedelay=8;
+    }
+
+    ed.oldnotedelay = ed.notedelay;
+    if(ed.notedelay>0)
+    {
+        ed.notedelay--;
     }
 
     if (graphics.fademode == 1)
     {
         //Return to game
+        graphics.titlebg.colstate = 10;
         map.nexttowercolour();
-        map.colstate = 10;
-        game.gamestate = TITLEMODE;
-        script.hardreset();
-        graphics.fademode = 4;
-        music.haltdasmusik();
-        FILESYSTEM_unmountassets(); // should be before music.play(6)
-        music.play(6);
-        map.nexttowercolour();
+        game.quittomenu();
+        music.play(6); //should be before game.quittomenu()
         ed.settingsmod=false;
-        graphics.backgrounddrawn=false;
-        game.returntomenu(Menu::playerworlds);
     }
 }
 
-
-void editormenuactionpress()
+static void creategameoptions(void)
 {
+    game.createmenu(Menu::options);
+}
+
+static void nextbgcolor(void)
+{
+    map.nexttowercolour();
+}
+
+static void editormenuactionpress(void)
+{
+    extern editorclass ed;
     switch (game.currentmenuname)
     {
     case Menu::ed_desc:
         switch (game.currentmenuoption)
         {
         case 0:
-            ed.textentry=true;
             ed.titlemod=true;
             key.enabletextentry();
-            key.keybuffer=EditorData::GetInstance().title;
+            key.keybuffer=cl.title;
             break;
         case 1:
-            ed.textentry=true;
             ed.creatormod=true;
             key.enabletextentry();
-            key.keybuffer=EditorData::GetInstance().creator;
+            key.keybuffer=cl.creator;
             break;
         case 2:
-            ed.textentry=true;
             ed.desc1mod=true;
             key.enabletextentry();
-            key.keybuffer=ed.Desc1;
+            key.keybuffer=cl.Desc1;
             break;
         case 3:
-            ed.textentry=true;
             ed.websitemod=true;
             key.enabletextentry();
-            key.keybuffer=ed.website;
+            key.keybuffer=cl.website;
             break;
         case 4:
-            music.playef(11);
             game.returnmenu();
             map.nexttowercolour();
             break;
         }
+        music.playef(11);
         break;
     case Menu::ed_settings:
         switch (game.currentmenuoption)
@@ -3791,7 +1787,6 @@ void editormenuactionpress()
             music.playef(11);
             ed.scripteditmod=true;
             ed.clearscriptbuffer();
-            key.enabletextentry();
             key.keybuffer="";
             ed.hookmenupage=0;
             ed.hookmenu=0;
@@ -3804,7 +1799,7 @@ void editormenuactionpress()
             music.playef(11);
             game.createmenu(Menu::ed_music);
             map.nexttowercolour();
-            if(ed.levmusic>0) music.play(ed.levmusic);
+            if(cl.levmusic>0) music.play(cl.levmusic);
             break;
         case 3:
             music.playef(11);
@@ -3832,6 +1827,16 @@ void editormenuactionpress()
             graphics.backgrounddrawn=false;
             break;
         case 6:
+            /* Game options */
+            music.playef(11);
+            game.gamestate = TITLEMODE;
+            game.ingame_titlemode = true;
+            game.ingame_editormode = true;
+
+            DEFER_CALLBACK(creategameoptions);
+            DEFER_CALLBACK(nextbgcolor);
+            break;
+        default:
             music.playef(11);
             game.createmenu(Menu::ed_quit);
             map.nexttowercolour();
@@ -3842,11 +1847,20 @@ void editormenuactionpress()
         switch (game.currentmenuoption)
         {
         case 0:
-            ed.levmusic++;
-            if(ed.levmusic==16) ed.levmusic=0;
-            if(ed.levmusic>0)
+        case 1:
+            switch (game.currentmenuoption)
             {
-                music.play(ed.levmusic);
+            case 0:
+                cl.levmusic++;
+                break;
+            case 1:
+                cl.levmusic--;
+                break;
+            }
+            cl.levmusic = (cl.levmusic % 16 + 16) % 16;
+            if(cl.levmusic>0)
+            {
+                music.play(cl.levmusic);
             }
             else
             {
@@ -3854,7 +1868,7 @@ void editormenuactionpress()
             }
             music.playef(11);
             break;
-        case 1:
+        case 2:
             music.playef(11);
             music.fadeout();
             game.returnmenu();
@@ -3896,13 +1910,18 @@ void editormenuactionpress()
     }
 }
 
-void editorinput()
+void editorinput(void)
 {
+    extern editorclass ed;
+    if (graphics.fademode == 3 /* fading out */)
+    {
+        return;
+    }
     game.mx = (float) key.mx;
     game.my = (float) key.my;
     ed.tilex=(game.mx - (game.mx%8))/8;
     ed.tiley=(game.my - (game.my%8))/8;
-    if (game.stretchMode == 1) {
+    if (graphics.screenbuffer->stretchMode == 1) {
         // In this mode specifically, we have to fix the mouse coordinates
         int winwidth, winheight;
         graphics.screenbuffer->GetWindowSize(&winwidth, &winheight);
@@ -3919,6 +1938,7 @@ void editorinput()
     game.press_right = false;
     game.press_action = false;
     game.press_map = false;
+    game.press_interact = false;
 
     if (key.isDown(KEYBOARD_LEFT) || key.isDown(KEYBOARD_a) || key.controllerWantsLeft(false))
     {
@@ -3961,16 +1981,16 @@ void editorinput()
             ed.shiftmenu = false;
             ed.shiftkey = false;
         }
-        else if (ed.textentry)
+        else if (key.textentry())
         {
             key.disabletextentry();
-            ed.textentry=false;
             ed.titlemod=false;
             ed.desc1mod=false;
             ed.desc2mod=false;
             ed.desc3mod=false;
             ed.websitemod=false;
             ed.creatormod=false;
+            music.playef(11);
 
             ed.shiftmenu=false;
             ed.shiftkey=false;
@@ -3982,18 +2002,45 @@ void editorinput()
         else
         {
 
-            ed.settingsmod=!ed.settingsmod;
+            music.playef(11);
+            if (ed.settingsmod)
+            {
+                if (ed.scripteditmod)
+                {
+                    ed.scripteditmod = false;
+                }
+                else if (ed.settingsmod)
+                {
+                    if (game.currentmenuname == Menu::ed_settings)
+                    {
+                        ed.settingsmod = false;
+                    }
+                    else
+                    {
+                        game.returnmenu();
+                        map.nexttowercolour();
+                    }
+                }
+            }
+            else
+            {
+                ed.settingsmod = true;
+            }
             graphics.backgrounddrawn=false;
 
             if (ed.settingsmod)
             {
-                bool edsettings_in_stack = false;
-                for (size_t i = 0; i < game.menustack.size(); i++)
+                bool edsettings_in_stack = game.currentmenuname == Menu::ed_settings;
+                if (!edsettings_in_stack)
                 {
-                    if (game.menustack[i].name == Menu::ed_settings)
+                    size_t i;
+                    for (i = 0; i < game.menustack.size(); ++i)
                     {
-                        edsettings_in_stack = true;
-                        break;
+                        if (game.menustack[i].name == Menu::ed_settings)
+                        {
+                            edsettings_in_stack = true;
+                            break;
+                        }
                     }
                 }
                 if (edsettings_in_stack)
@@ -4076,6 +2123,7 @@ void editorinput()
                 {
                     game.mapheld=true;
                     ed.scripthelppage=1;
+                    key.enabletextentry();
                     key.keybuffer="";
                     ed.sbscript=ed.hooklist[(ed.hooklist.size()-1)-ed.hookmenu];
                     ed.loadhookineditor(ed.sbscript);
@@ -4089,12 +2137,7 @@ void editorinput()
                     }
                     key.keybuffer=ed.sb[ed.pagey+ed.sby];
                     ed.sbx = utf8::unchecked::distance(ed.sb[ed.pagey+ed.sby].begin(), ed.sb[ed.pagey+ed.sby].end());
-                }
-
-                if (key.isDown(27))
-                {
-                    ed.scripteditmod=false;
-                    ed.settingsmod=false;
+                    music.playef(11);
                 }
             }
         }
@@ -4172,6 +2215,16 @@ void editorinput()
                 ed.keydelay=6;
             }
 
+            /* Remove all pipes, they are the line separator in the XML
+             * When this loop reaches the end, it wraps to SIZE_MAX; SIZE_MAX + 1 is 0 */
+            {size_t i; for (i = key.keybuffer.length() - 1; i + 1 > 0; --i)
+            {
+                if (key.keybuffer[i] == '|')
+                {
+                    key.keybuffer.erase(key.keybuffer.begin() + i);
+                }
+            }}
+
             ed.sb[ed.pagey+ed.sby]=key.keybuffer;
             ed.sbx = utf8::unchecked::distance(ed.sb[ed.pagey+ed.sby].begin(), ed.sb[ed.pagey+ed.sby].end());
 
@@ -4226,22 +2279,41 @@ void editorinput()
             {
             case TEXT_GOTOROOM:
             {
-                std::vector<std::string> coords = split(key.keybuffer, ',');
-                if (coords.size() != 2)
+                char coord_x[16];
+                char coord_y[16];
+
+                const char* comma = SDL_strchr(key.keybuffer.c_str(), ',');
+
+                bool valid_input = comma != NULL;
+
+                if (valid_input)
+                {
+                    SDL_strlcpy(
+                        coord_x,
+                        key.keybuffer.c_str(),
+                        VVV_min(comma - key.keybuffer.c_str() + 1, sizeof(coord_x))
+                    );
+                    SDL_strlcpy(coord_y, &comma[1], sizeof(coord_y));
+
+                    valid_input = is_number(coord_x) && is_number(coord_y);
+                }
+
+                if (!valid_input)
                 {
                     ed.note = "[ ERROR: Invalid format ]";
                     ed.notedelay = 45;
                     break;
                 }
-                ed.levx = clamp(help.Int(coords[0].c_str()) - 1, 0, ed.mapwidth - 1);
-                ed.levy = clamp(help.Int(coords[1].c_str()) - 1, 0, ed.mapheight - 1);
+
+                ed.levx = clamp(help.Int(coord_x) - 1, 0, cl.mapwidth - 1);
+                ed.levy = clamp(help.Int(coord_y) - 1, 0, cl.mapheight - 1);
                 graphics.backgrounddrawn = false;
                 break;
             }
             case TEXT_LOAD:
             {
                 std::string loadstring = ed.filename + ".vvvvvv";
-                if (ed.load(loadstring))
+                if (cl.load(loadstring))
                 {
                     // don't use filename, it has the full path
                     char buffer[64];
@@ -4258,7 +2330,7 @@ void editorinput()
             case TEXT_SAVE:
             {
                 std::string savestring = ed.filename + ".vvvvvv";
-                if (ed.save(savestring))
+                if (cl.save(savestring))
                 {
                     char buffer[64];
                     SDL_snprintf(buffer, sizeof(buffer), "[ Saved map: %s.vvvvvv ]", ed.filename.c_str());
@@ -4293,31 +2365,31 @@ void editorinput()
             ed.textmod = TEXT_NONE;
         }
     }
-    else if (ed.textentry)
+    else if (key.textentry())
     {
         if(ed.titlemod)
         {
-            EditorData::GetInstance().title=key.keybuffer;
+            cl.title=key.keybuffer;
         }
         else if(ed.creatormod)
         {
-            EditorData::GetInstance().creator=key.keybuffer;
+            cl.creator=key.keybuffer;
         }
         else if(ed.websitemod)
         {
-            ed.website=key.keybuffer;
+            cl.website=key.keybuffer;
         }
         else if(ed.desc1mod)
         {
-            ed.Desc1=key.keybuffer;
+            cl.Desc1=key.keybuffer;
         }
         else if(ed.desc2mod)
         {
-            ed.Desc2=key.keybuffer;
+            cl.Desc2=key.keybuffer;
         }
         else if(ed.desc3mod)
         {
-            ed.Desc3=key.keybuffer;
+            cl.Desc3=key.keybuffer;
         }
 
         if(!game.press_map && !key.isDown(27)) game.mapheld=false;
@@ -4328,53 +2400,51 @@ void editorinput()
                 game.mapheld=true;
                 if(ed.titlemod)
                 {
-                    EditorData::GetInstance().title=key.keybuffer;
+                    cl.title=key.keybuffer;
                     ed.titlemod=false;
                 }
                 else if(ed.creatormod)
                 {
-                    EditorData::GetInstance().creator=key.keybuffer;
+                    cl.creator=key.keybuffer;
                     ed.creatormod=false;
                 }
                 else if(ed.websitemod)
                 {
-                    ed.website=key.keybuffer;
+                    cl.website=key.keybuffer;
                     ed.websitemod=false;
                 }
                 else if(ed.desc1mod)
                 {
-                    ed.Desc1=key.keybuffer;
+                    cl.Desc1=key.keybuffer;
                 }
                 else if(ed.desc2mod)
                 {
-                    ed.Desc2=key.keybuffer;
+                    cl.Desc2=key.keybuffer;
                 }
                 else if(ed.desc3mod)
                 {
-                    ed.Desc3=key.keybuffer;
+                    cl.Desc3=key.keybuffer;
                     ed.desc3mod=false;
                 }
                 key.disabletextentry();
-                ed.textentry=false;
 
                 if(ed.desc1mod)
                 {
                     ed.desc1mod=false;
 
-                    ed.textentry=true;
                     ed.desc2mod=true;
                     key.enabletextentry();
-                    key.keybuffer=ed.Desc2;
+                    key.keybuffer=cl.Desc2;
                 }
                 else if(ed.desc2mod)
                 {
                     ed.desc2mod=false;
 
-                    ed.textentry=true;
                     ed.desc3mod=true;
                     key.enabletextentry();
-                    key.keybuffer=ed.Desc3;
+                    key.keybuffer=cl.Desc3;
                 }
+                music.playef(11);
             }
         }
     }
@@ -4420,32 +2490,41 @@ void editorinput()
         else if (key.keymap[SDLK_LCTRL] || key.keymap[SDLK_RCTRL])
         {
             // Ctrl modifiers
+            int numtiles;
+            if (cl.getroomprop(ed.levx, ed.levy)->tileset == 0)
+            {
+                numtiles = (((int) graphics.tiles.size()) / 40) * 40;
+            }
+            else
+            {
+                numtiles = (((int) graphics.tiles2.size()) / 40) * 40;
+            }
             ed.dmtileeditor=10;
             if(left_pressed)
             {
                 ed.dmtile--;
                 ed.keydelay=3;
-                if(ed.dmtile<0) ed.dmtile+=1200;
+                if(ed.dmtile<0) ed.dmtile+=numtiles;
             }
             else if(right_pressed)
             {
                 ed.dmtile++;
                 ed.keydelay=3;
 
-                if(ed.dmtile>=1200) ed.dmtile-=1200;
+                if(ed.dmtile>=numtiles) ed.dmtile-=numtiles;
             }
             if(up_pressed)
             {
                 ed.dmtile-=40;
                 ed.keydelay=3;
-                if(ed.dmtile<0) ed.dmtile+=1200;
+                if(ed.dmtile<0) ed.dmtile+=numtiles;
             }
             else if(down_pressed)
             {
                 ed.dmtile+=40;
                 ed.keydelay=3;
 
-                if(ed.dmtile>=1200) ed.dmtile-=1200;
+                if(ed.dmtile>=numtiles) ed.dmtile-=numtiles;
             }
         }
         else if (key.keymap[SDLK_LSHIFT] || key.keymap[SDLK_RSHIFT])
@@ -4468,32 +2547,38 @@ void editorinput()
                 ed.switch_enemy(true);
                 ed.keydelay=6;
             }
+            if (key.keymap[SDLK_w])
+            {
+                ed.switch_warpdir(true);
+                graphics.backgrounddrawn = false;
+                ed.keydelay = 6;
+            }
 
             if (up_pressed || down_pressed || left_pressed || right_pressed)
             {
                 ed.keydelay=6;
                 if(up_pressed)
                 {
-                    ed.mapheight--;
+                    cl.mapheight--;
                 }
                 else if(down_pressed)
                 {
-                    ed.mapheight++;
+                    cl.mapheight++;
                 }
                 else if(left_pressed)
                 {
-                    ed.mapwidth--;
+                    cl.mapwidth--;
                 }
                 else if(right_pressed)
                 {
-                    ed.mapwidth++;
+                    cl.mapwidth++;
                 }
 
-                if(ed.mapwidth<1) ed.mapwidth=1;
-                if(ed.mapheight<1) ed.mapheight=1;
-                if(ed.mapwidth>=ed.maxwidth) ed.mapwidth=ed.maxwidth;
-                if(ed.mapheight>=ed.maxheight) ed.mapheight=ed.maxheight;
-                ed.note = "Mapsize is now [" + help.String(ed.mapwidth) + "," + help.String(ed.mapheight) + "]";
+                if(cl.mapwidth<1) cl.mapwidth=1;
+                if(cl.mapheight<1) cl.mapheight=1;
+                if(cl.mapwidth>=cl.maxwidth) cl.mapwidth=cl.maxwidth;
+                if(cl.mapheight>=cl.maxheight) cl.mapheight=cl.maxheight;
+                ed.note = "Mapsize is now [" + help.String(cl.mapwidth) + "," + help.String(cl.mapheight) + "]";
                 ed.notedelay=45;
             }
 
@@ -4516,19 +2601,19 @@ void editorinput()
             ed.shiftkey=false;
             if(key.keymap[SDLK_F1])
             {
-                ed.switch_tileset();
+                ed.switch_tileset(false);
                 graphics.backgrounddrawn = false;
                 ed.keydelay = 6;
             }
             if(key.keymap[SDLK_F2])
             {
-                ed.switch_tilecol();
+                ed.switch_tilecol(false);
                 graphics.backgrounddrawn = false;
                 ed.keydelay = 6;
             }
             if(key.keymap[SDLK_F3])
             {
-                ed.switch_enemy();
+                ed.switch_enemy(false);
                 ed.keydelay=6;
             }
             if(key.keymap[SDLK_F4])
@@ -4545,14 +2630,20 @@ void editorinput()
             }
             if(key.keymap[SDLK_F10])
             {
-                if(ed.level[ed.levx+(ed.levy*ed.maxwidth)].directmode==1)
+                if(cl.getroomprop(ed.levx, ed.levy)->directmode==1)
                 {
-                    ed.level[ed.levx+(ed.levy*ed.maxwidth)].directmode=0;
+                    cl.setroomdirectmode(ed.levx, ed.levy, 0);
                     ed.note="Direct Mode Disabled";
+                    /* Kludge fix for rainbow BG here... */
+                    if (cl.getroomprop(ed.levx, ed.levy)->tileset == 2
+                    && cl.getroomprop(ed.levx, ed.levy)->tilecol == 6)
+                    {
+                        cl.setroomtilecol(ed.levx, ed.levy, 0);
+                    }
                 }
                 else
                 {
-                    ed.level[ed.levx+(ed.levy*ed.maxwidth)].directmode=1;
+                    cl.setroomdirectmode(ed.levx, ed.levy, 1);
                     ed.note="Direct Mode Enabled";
                 }
                 graphics.backgrounddrawn=false;
@@ -4581,58 +2672,14 @@ void editorinput()
 
             if(key.keymap[SDLK_w])
             {
-                int j=0, tx=0, ty=0;
-                for(size_t i=0; i<edentity.size(); i++)
-                {
-                    if(edentity[i].t==50)
-                    {
-                        tx=(edentity[i].p1-(edentity[i].p1%40))/40;
-                        ty=(edentity[i].p2-(edentity[i].p2%30))/30;
-                        if(tx==ed.levx && ty==ed.levy)
-                        {
-                            j++;
-                        }
-                    }
-                }
-                if(j>0)
-                {
-                    ed.note="ERROR: Cannot have both warp types";
-                    ed.notedelay=45;
-                }
-                else
-                {
-                    ed.level[ed.levx+(ed.levy*ed.maxwidth)].warpdir=(ed.level[ed.levx+(ed.levy*ed.maxwidth)].warpdir+1)%4;
-                    if(ed.level[ed.levx+(ed.levy*ed.maxwidth)].warpdir==0)
-                    {
-                        ed.note="Room warping disabled";
-                        ed.notedelay=45;
-                        graphics.backgrounddrawn=false;
-                    }
-                    else if(ed.level[ed.levx+(ed.levy*ed.maxwidth)].warpdir==1)
-                    {
-                        ed.note="Room warps horizontally";
-                        ed.notedelay=45;
-                        graphics.backgrounddrawn=false;
-                    }
-                    else if(ed.level[ed.levx+(ed.levy*ed.maxwidth)].warpdir==2)
-                    {
-                        ed.note="Room warps vertically";
-                        ed.notedelay=45;
-                        graphics.backgrounddrawn=false;
-                    }
-                    else if(ed.level[ed.levx+(ed.levy*ed.maxwidth)].warpdir==3)
-                    {
-                        ed.note="Room warps in all directions";
-                        ed.notedelay=45;
-                        graphics.backgrounddrawn=false;
-                    }
-                }
-                ed.keydelay=6;
+                ed.switch_warpdir(false);
+                graphics.backgrounddrawn = false;
+                ed.keydelay = 6;
             }
             if(key.keymap[SDLK_e])
             {
                 ed.keydelay = 6;
-                ed.getlin(TEXT_ROOMNAME, "Enter new room name:", &(ed.level[ed.levx+(ed.levy*ed.maxwidth)].roomname));
+                ed.getlin(TEXT_ROOMNAME, "Enter new room name:", const_cast<std::string*>(&(cl.getroomprop(ed.levx, ed.levy)->roomname)));
                 game.mapheld=true;
             }
             if (key.keymap[SDLK_g])
@@ -4668,13 +2715,13 @@ void editorinput()
                     int testeditor=-1;
                     int startpoint=0;
                     //First up; is there a start point on this screen?
-                    for(size_t i=0; i<edentity.size(); i++)
+                    for(size_t i=0; i<customentities.size(); i++)
                     {
                         //if() on screen
-                        if(edentity[i].t==16 && testeditor==-1)
+                        if(customentities[i].t==16 && testeditor==-1)
                         {
-                            int tx=(edentity[i].x-(edentity[i].x%40))/40;
-                            int ty=(edentity[i].y-(edentity[i].y%30))/30;
+                            int tx=customentities[i].x/40;
+                            int ty=customentities[i].y/30;
                             if(tx==ed.levx && ty==ed.levy)
                             {
                                 testeditor=i;
@@ -4685,13 +2732,13 @@ void editorinput()
                     if(testeditor==-1)
                     {
                         //Ok, settle for a check point
-                        for(size_t i=0; i<edentity.size(); i++)
+                        for(size_t i=0; i<customentities.size(); i++)
                         {
                             //if() on screen
-                            if(edentity[i].t==10 && testeditor==-1)
+                            if(customentities[i].t==10 && testeditor==-1)
                             {
-                                int tx=(edentity[i].x-(edentity[i].x%40))/40;
-                                int ty=(edentity[i].y-(edentity[i].y%30))/30;
+                                int tx=customentities[i].x/40;
+                                int ty=customentities[i].y/30;
                                 if(tx==ed.levx && ty==ed.levy)
                                 {
                                     testeditor=i;
@@ -4711,28 +2758,36 @@ void editorinput()
                         if(startpoint==0)
                         {
                             //Checkpoint spawn
-                            int tx=(edentity[testeditor].x-(edentity[testeditor].x%40))/40;
-                            int ty=(edentity[testeditor].y-(edentity[testeditor].y%30))/30;
-                            game.edsavex = (edentity[testeditor].x%40)*8 - 4;
-                            game.edsavey = (edentity[testeditor].y%30)*8;
+                            int tx=customentities[testeditor].x/40;
+                            int ty=customentities[testeditor].y/30;
+                            game.edsavex = (customentities[testeditor].x%40)*8 - 4;
+                            game.edsavey = (customentities[testeditor].y%30)*8;
                             game.edsaverx = 100+tx;
                             game.edsavery = 100+ty;
-                            game.edsavegc = 1-edentity[testeditor].p1;
-                            game.edsavey--;
+                            if (customentities[testeditor].p1 == 0) // NOT a bool check!
+                            {
+                                game.edsavegc = 1;
+                                game.edsavey -= 2;
+                            }
+                            else
+                            {
+                                game.edsavegc = 0;
+                                game.edsavey -= 7;
+                            }
                             game.edsavedir = 0;
                         }
                         else
                         {
                             //Start point spawn
-                            int tx=(edentity[testeditor].x-(edentity[testeditor].x%40))/40;
-                            int ty=(edentity[testeditor].y-(edentity[testeditor].y%30))/30;
-                            game.edsavex = (edentity[testeditor].x%40)*8 - 4;
-                            game.edsavey = (edentity[testeditor].y%30)*8;
+                            int tx=customentities[testeditor].x/40;
+                            int ty=customentities[testeditor].y/30;
+                            game.edsavex = (customentities[testeditor].x%40)*8 - 4;
+                            game.edsavey = (customentities[testeditor].y%30)*8;
                             game.edsaverx = 100+tx;
                             game.edsavery = 100+ty;
                             game.edsavegc = 0;
-                            game.edsavey--;
-                            game.edsavedir=1-edentity[testeditor].p1;
+                            game.edsavey++;
+                            game.edsavedir=1-customentities[testeditor].p1;
                         }
 
                         music.haltdasmusik();
@@ -4810,10 +2865,10 @@ void editorinput()
                 ed.changeroom=true;
             }
 
-            if(ed.levx<0) ed.levx+=ed.mapwidth;
-            if(ed.levx>= ed.mapwidth) ed.levx-=ed.mapwidth;
-            if(ed.levy<0) ed.levy+=ed.mapheight;
-            if(ed.levy>=ed.mapheight) ed.levy-=ed.mapheight;
+            if(ed.levx<0) ed.levx+=cl.mapwidth;
+            if(ed.levx>= cl.mapwidth) ed.levx-=cl.mapwidth;
+            if(ed.levy<0) ed.levy+=cl.mapheight;
+            if(ed.levy>=cl.mapheight) ed.levy-=cl.mapheight;
             if(key.keymap[SDLK_SPACE])
             {
                 ed.spacemod = !ed.spacemod;
@@ -4838,7 +2893,7 @@ void editorinput()
                         }
                         else if(ed.boundarymod==2)
                         {
-                            if((ed.tilex*8)+8>=ed.boundx1 || (ed.tiley*8)+8>=ed.boundy1)
+                            if((ed.tilex*8)+8>=ed.boundx1 && (ed.tiley*8)+8>=ed.boundy1)
                             {
                                 ed.boundx2=(ed.tilex*8)+8;
                                 ed.boundy2=(ed.tiley*8)+8;
@@ -4852,29 +2907,27 @@ void editorinput()
                             {
                                 //Script trigger
                                 ed.lclickdelay=1;
-                                ed.textent=edentity.size();
+                                ed.textent=customentities.size();
                                 addedentity((ed.boundx1/8)+(ed.levx*40),(ed.boundy1/8)+ (ed.levy*30),19,
                                             (ed.boundx2-ed.boundx1)/8, (ed.boundy2-ed.boundy1)/8);
-                                ed.getlin(TEXT_SCRIPT, "Enter script name:", &(edentity[ed.textent].scriptname));
+                                ed.getlin(TEXT_SCRIPT, "Enter script name:", &(customentities[ed.textent].scriptname));
                                 ed.lclickdelay=1;
                             }
                             else if(ed.boundarytype==1)
                             {
                                 //Enemy bounds
-                                int tmp=ed.levx+(ed.levy*ed.maxwidth);
-                                ed.level[tmp].enemyx1=ed.boundx1;
-                                ed.level[tmp].enemyy1=ed.boundy1;
-                                ed.level[tmp].enemyx2=ed.boundx2;
-                                ed.level[tmp].enemyy2=ed.boundy2;
+                                cl.setroomenemyx1(ed.levx, ed.levy, ed.boundx1);
+                                cl.setroomenemyy1(ed.levx, ed.levy, ed.boundy1);
+                                cl.setroomenemyx2(ed.levx, ed.levy, ed.boundx2);
+                                cl.setroomenemyy2(ed.levx, ed.levy, ed.boundy2);
                             }
                             else if(ed.boundarytype==2)
                             {
                                 //Platform bounds
-                                int tmp=ed.levx+(ed.levy*ed.maxwidth);
-                                ed.level[tmp].platx1=ed.boundx1;
-                                ed.level[tmp].platy1=ed.boundy1;
-                                ed.level[tmp].platx2=ed.boundx2;
-                                ed.level[tmp].platy2=ed.boundy2;
+                                cl.setroomplatx1(ed.levx, ed.levy, ed.boundx1);
+                                cl.setroomplaty1(ed.levx, ed.levy, ed.boundy1);
+                                cl.setroomplatx2(ed.levx, ed.levy, ed.boundx2);
+                                cl.setroomplaty2(ed.levx, ed.levy, ed.boundy2);
                             }
                             else if(ed.boundarytype==3)
                             {
@@ -4903,8 +2956,8 @@ void editorinput()
                     {
                         if(ed.free(ed.tilex, ed.tiley)==0)
                         {
-                            edentity[ed.warpent].p1=ed.tilex+(ed.levx*40);
-                            edentity[ed.warpent].p2=ed.tiley+(ed.levy*30);
+                            customentities[ed.warpent].p1=ed.tilex+(ed.levx*40);
+                            customentities[ed.warpent].p2=ed.tiley+(ed.levy*30);
                             ed.warpmod=false;
                             ed.warpent=-1;
                             ed.lclickdelay=1;
@@ -4934,7 +2987,7 @@ void editorinput()
                         {
                             //place tiles
                             //Are we in direct mode?
-                            if(ed.level[ed.levx+(ed.levy*ed.maxwidth)].directmode>=1)
+                            if(cl.getroomprop(ed.levx, ed.levy)->directmode>=1)
                             {
                                 if(ed.bmod)
                                 {
@@ -5132,9 +3185,9 @@ void editorinput()
                             if(ed.drawmode==10)
                             {
                                 ed.lclickdelay=1;
-                                ed.textent=edentity.size();
+                                ed.textent=customentities.size();
                                 addedentity(ed.tilex+ (ed.levx*40),ed.tiley+ (ed.levy*30),17);
-                                ed.getlin(TEXT_ROOMTEXT, "Enter roomtext:", &(edentity[ed.textent].scriptname));
+                                ed.getlin(TEXT_ROOMTEXT, "Enter roomtext:", &(customentities[ed.textent].scriptname));
                             }
                             else if(ed.drawmode==12)   //Script Trigger
                             {
@@ -5149,7 +3202,7 @@ void editorinput()
                         {
                             if(ed.drawmode==3)
                             {
-                                if(ed.numtrinkets()<100)
+                                if(cl.numtrinkets()<100)
                                 {
                                     addedentity(ed.tilex+ (ed.levx*40),ed.tiley+ (ed.levy*30),9);
                                     ed.lclickdelay=1;
@@ -5193,54 +3246,46 @@ void editorinput()
                             else if(ed.drawmode==11)
                             {
                                 ed.lclickdelay=1;
-                                ed.textent=edentity.size();
+                                ed.textent=customentities.size();
                                 addedentity(ed.tilex+(ed.levx*40),ed.tiley+ (ed.levy*30),18,0);
-                                ed.getlin(TEXT_SCRIPT, "Enter script name", &(edentity[ed.textent].scriptname));
+                                ed.getlin(TEXT_SCRIPT, "Enter script name:", &(customentities[ed.textent].scriptname));
                             }
                             else if(ed.drawmode==13)
                             {
                                 ed.warpmod=true;
-                                ed.warpent=edentity.size();
+                                ed.warpent=customentities.size();
                                 addedentity(ed.tilex+ (ed.levx*40),ed.tiley+ (ed.levy*30),13);
                                 ed.lclickdelay=1;
                             }
                             else if(ed.drawmode==14)
                             {
                                 //Warp lines
-                                if(ed.level[ed.levx+(ed.maxwidth*ed.levy)].warpdir==0)
+                                if(ed.tilex==0)
                                 {
-                                    if(ed.tilex==0)
-                                    {
-                                        addedentity(ed.tilex+ (ed.levx*40),ed.tiley+ (ed.levy*30),50,0);
-                                    }
-                                    else if(ed.tilex==39)
-                                    {
-                                        addedentity(ed.tilex+ (ed.levx*40),ed.tiley+ (ed.levy*30),50,1);
-                                    }
-                                    else if(ed.tiley==0)
-                                    {
-                                        addedentity(ed.tilex+ (ed.levx*40),ed.tiley+ (ed.levy*30),50,2);
-                                    }
-                                    else if(ed.tiley==29)
-                                    {
-                                        addedentity(ed.tilex+ (ed.levx*40),ed.tiley+ (ed.levy*30),50,3);
-                                    }
-                                    else
-                                    {
-                                        ed.note="ERROR: Warp lines must be on edges";
-                                        ed.notedelay=45;
-                                    }
+                                    addedentity(ed.tilex+ (ed.levx*40),ed.tiley+ (ed.levy*30),50,0);
+                                }
+                                else if(ed.tilex==39)
+                                {
+                                    addedentity(ed.tilex+ (ed.levx*40),ed.tiley+ (ed.levy*30),50,1);
+                                }
+                                else if(ed.tiley==0)
+                                {
+                                    addedentity(ed.tilex+ (ed.levx*40),ed.tiley+ (ed.levy*30),50,2);
+                                }
+                                else if(ed.tiley==29)
+                                {
+                                    addedentity(ed.tilex+ (ed.levx*40),ed.tiley+ (ed.levy*30),50,3);
                                 }
                                 else
                                 {
-                                    ed.note="ERROR: Cannot have both warp types";
+                                    ed.note="ERROR: Warp lines must be on edges";
                                     ed.notedelay=45;
                                 }
                                 ed.lclickdelay=1;
                             }
                             else if(ed.drawmode==15)  //Crewmate
                             {
-                                if(ed.numcrewmates()<100)
+                                if(cl.numcrewmates()<100)
                                 {
                                     addedentity(ed.tilex+ (ed.levx*40),ed.tiley+ (ed.levy*30),15,int(fRandom() * 6));
                                     ed.lclickdelay=1;
@@ -5254,9 +3299,9 @@ void editorinput()
                             else if(ed.drawmode==16)  //Start Point
                             {
                                 //If there is another start point, destroy it
-                                for(size_t i=0; i<edentity.size(); i++)
+                                for(size_t i=0; i<customentities.size(); i++)
                                 {
-                                    if(edentity[i].t==16)
+                                    if(customentities[i].t==16)
                                     {
                                         removeedentity(i);
                                         i--;
@@ -5270,55 +3315,65 @@ void editorinput()
                         {
                             //Important! Do nothing, or else Undefined Behavior will happen
                         }
-                        else if(edentity[tmp].t==1)
+                        else if(customentities[tmp].t==1)
                         {
-                            edentity[tmp].p1=(edentity[tmp].p1+1)%4;
+                            customentities[tmp].p1=(customentities[tmp].p1+1)%4;
                             ed.lclickdelay=1;
                         }
-                        else if(edentity[tmp].t==2)
+                        else if(customentities[tmp].t==2)
                         {
-                            if(edentity[tmp].p1>=5)
+                            if(customentities[tmp].p1>=5)
                             {
-                                edentity[tmp].p1=(edentity[tmp].p1+1)%9;
-                                if(edentity[tmp].p1<5) edentity[tmp].p1=5;
+                                customentities[tmp].p1=(customentities[tmp].p1+1)%9;
+                                if(customentities[tmp].p1<5) customentities[tmp].p1=5;
                             }
                             else
                             {
-                                edentity[tmp].p1=(edentity[tmp].p1+1)%4;
+                                customentities[tmp].p1=(customentities[tmp].p1+1)%4;
                             }
                             ed.lclickdelay=1;
                         }
-                        else if(edentity[tmp].t==10)
+                        else if(customentities[tmp].t==10)
                         {
-                            edentity[tmp].p1=(edentity[tmp].p1+1)%2;
+                            // If it's not textured as a checkpoint, leave it alone
+                            if (customentities[tmp].p1 == 0 || customentities[tmp].p1 == 1)
+                            {
+                                customentities[tmp].p1=(customentities[tmp].p1+1)%2;
+                            }
                             ed.lclickdelay=1;
                         }
-                        else if(edentity[tmp].t==11)
+                        else if(customentities[tmp].t==11)
                         {
-                            edentity[tmp].p1=(edentity[tmp].p1+1)%2;
+                            customentities[tmp].p1=(customentities[tmp].p1+1)%2;
                             ed.lclickdelay=1;
                         }
-                        else if(edentity[tmp].t==15)
+                        else if(customentities[tmp].t==15)
                         {
-                            edentity[tmp].p1=(edentity[tmp].p1+1)%6;
+                            customentities[tmp].p1=(customentities[tmp].p1+1)%6;
                             ed.lclickdelay=1;
                         }
-                        else if(edentity[tmp].t==16)
+                        else if(customentities[tmp].t==16)
                         {
-                            edentity[tmp].p1=(edentity[tmp].p1+1)%2;
+                            customentities[tmp].p1=(customentities[tmp].p1+1)%2;
                             ed.lclickdelay=1;
                         }
-                        else if(edentity[tmp].t==17)
+                        else if(customentities[tmp].t==17)
                         {
-                            ed.getlin(TEXT_ROOMTEXT, "Enter roomtext:", &(edentity[tmp].scriptname));
+                            ed.getlin(TEXT_ROOMTEXT, "Enter roomtext:", &(customentities[tmp].scriptname));
                             ed.textent=tmp;
                             ed.lclickdelay=1;
                         }
-                        else if(edentity[tmp].t==18 || edentity[tmp].t==19)
+                        else if(customentities[tmp].t==18 || customentities[tmp].t==19)
                         {
                             ed.lclickdelay=1;
                             ed.textent=tmp;
-                            ed.getlin(TEXT_SCRIPT, "Enter script name:", &(edentity[ed.textent].scriptname));
+                            ed.getlin(TEXT_SCRIPT, "Enter script name:", &(customentities[ed.textent].scriptname));
+                            if (customentities[tmp].t == 18
+                            && (customentities[tmp].p1 == 0 || customentities[tmp].p1 == 1))
+                            {
+                                // Flip the terminal, but if it's not textured as a terminal leave it alone
+                                customentities[tmp].p1 = (customentities[tmp].p1 + 1) % 2;
+                            }
                         }
                     }
                 }
@@ -5394,9 +3449,9 @@ void editorinput()
                     {
                         ed.placetilelocal(ed.tilex, ed.tiley, 0);
                     }
-                    for(size_t i=0; i<edentity.size(); i++)
+                    for(size_t i=0; i<customentities.size(); i++)
                     {
-                        if(edentity[i].x==ed.tilex + (ed.levx*40)&& edentity[i].y==ed.tiley+ (ed.levy*30))
+                        if(customentities[i].x==ed.tilex + (ed.levx*40)&& customentities[i].y==ed.tiley+ (ed.levy*30))
                         {
                             removeedentity(i);
                         }
@@ -5405,38 +3460,50 @@ void editorinput()
 
                 if(key.middlebutton)
                 {
-                    ed.dmtile=ed.contents[ed.tilex + (ed.levx*40) + ed.vmult[ed.tiley + (ed.levy*30)]];
+                    ed.dmtile=cl.gettile(ed.levx, ed.levy, ed.tilex, ed.tiley);
                 }
             }
         }
     }
 
-    if(ed.updatetiles && ed.level[ed.levx + (ed.levy*ed.maxwidth)].directmode==0)
+    if(ed.updatetiles && cl.getroomprop(ed.levx, ed.levy)->directmode==0)
     {
         ed.updatetiles=false;
         //Correctly set the tiles in the current room
-        switch(ed.level[ed.levx + (ed.levy*ed.maxwidth)].tileset)
+        switch(cl.getroomprop(ed.levx, ed.levy)->tileset)
         {
         case 0: //The Space Station
             for(int j=0; j<30; j++)
             {
                 for(int i=0; i<40; i++)
                 {
-                    int temp=i+(ed.levx*40) + ed.vmult[j+(ed.levy*30)];
-                    if(ed.contents[temp]>=3 && ed.contents[temp]<80)
+                    int temp=cl.gettile(ed.levx, ed.levy, i, j);
+                    if(temp>=3 && temp<80)
                     {
                         //Fix spikes
-                        ed.contents[temp]=ed.spikedir(i,j);
+                        cl.settile(ed.levx, ed.levy, i, j, ed.spikedir(i, j));
                     }
-                    else if(ed.contents[temp]==2 || ed.contents[temp]>=680)
+                    else if(temp==2 || temp>=680)
                     {
                         //Fix background
-                        ed.contents[temp]=ed.backedgetile(i,j)+ed.backbase(ed.levx,ed.levy);
+                        cl.settile(
+                            ed.levx,
+                            ed.levy,
+                            i,
+                            j,
+                            ed.backedgetile(i, j) + ed.backbase(ed.levx, ed.levy)
+                        );
                     }
-                    else if(ed.contents[temp]>0)
+                    else if(temp>0)
                     {
                         //Fix tiles
-                        ed.contents[temp]=ed.edgetile(i,j)+ed.base(ed.levx,ed.levy);
+                        cl.settile(
+                            ed.levx,
+                            ed.levy,
+                            i,
+                            j,
+                            ed.edgetile(i, j) + ed.base(ed.levx, ed.levy)
+                        );
                     }
                 }
             }
@@ -5446,21 +3513,33 @@ void editorinput()
             {
                 for(int i=0; i<40; i++)
                 {
-                    int temp=i+(ed.levx*40) + ed.vmult[j+(ed.levy*30)];
-                    if(ed.contents[temp]>=3 && ed.contents[temp]<80)
+                    int temp=cl.gettile(ed.levx, ed.levy, i, j);
+                    if(temp>=3 && temp<80)
                     {
                         //Fix spikes
-                        ed.contents[temp]=ed.spikedir(i,j);
+                        cl.settile(ed.levx, ed.levy, i, j, ed.spikedir(i, j));
                     }
-                    else if(ed.contents[temp]==2 || ed.contents[temp]>=680)
+                    else if(temp==2 || temp>=680)
                     {
                         //Fix background
-                        ed.contents[temp]=ed.outsideedgetile(i,j)+ed.backbase(ed.levx,ed.levy);
+                        cl.settile(
+                            ed.levx,
+                            ed.levy,
+                            i,
+                            j,
+                            ed.outsideedgetile(i, j) + ed.backbase(ed.levx, ed.levy)
+                        );
                     }
-                    else if(ed.contents[temp]>0)
+                    else if(temp>0)
                     {
                         //Fix tiles
-                        ed.contents[temp]=ed.edgetile(i,j)+ed.base(ed.levx,ed.levy);
+                        cl.settile(
+                            ed.levx,
+                            ed.levy,
+                            i,
+                            j,
+                            ed.edgetile(i, j) + ed.base(ed.levx, ed.levy)
+                        );
                     }
                 }
             }
@@ -5470,21 +3549,37 @@ void editorinput()
             {
                 for(int i=0; i<40; i++)
                 {
-                    int temp=i+(ed.levx*40) + ed.vmult[j+(ed.levy*30)];
-                    if(ed.contents[temp]>=3 && ed.contents[temp]<80)
+                    int temp=cl.gettile(ed.levx, ed.levy, i, j);
+                    if(temp>=3 && temp<80)
                     {
                         //Fix spikes
-                        ed.contents[temp]=ed.labspikedir(i,j, ed.level[ed.levx + (ed.maxwidth*ed.levy)].tilecol);
+                        cl.settile(
+                            ed.levx,
+                            ed.levy,
+                            i,
+                            j,
+                            ed.labspikedir(
+                                i,
+                                j,
+                                cl.getroomprop(ed.levx, ed.levy)->tilecol
+                            )
+                        );
                     }
-                    else if(ed.contents[temp]==2 || ed.contents[temp]>=680)
+                    else if(temp==2 || temp>=680)
                     {
                         //Fix background
-                        ed.contents[temp]=713;
+                        cl.settile(ed.levx, ed.levy, i, j, 713);
                     }
-                    else if(ed.contents[temp]>0)
+                    else if(temp>0)
                     {
                         //Fix tiles
-                        ed.contents[temp]=ed.edgetile(i,j)+ed.base(ed.levx,ed.levy);
+                        cl.settile(
+                            ed.levx,
+                            ed.levy,
+                            i,
+                            j,
+                            ed.edgetile(i, j) + ed.base(ed.levx, ed.levy)
+                        );
                     }
                 }
             }
@@ -5494,21 +3589,27 @@ void editorinput()
             {
                 for(int i=0; i<40; i++)
                 {
-                    int temp=i+(ed.levx*40) + ed.vmult[j+(ed.levy*30)];
-                    if(ed.contents[temp]>=3 && ed.contents[temp]<80)
+                    int temp=cl.gettile(ed.levx, ed.levy, i, j);
+                    if(temp>=3 && temp<80)
                     {
                         //Fix spikes
-                        ed.contents[temp]=ed.spikedir(i,j);
+                        cl.settile(ed.levx, ed.levy, i, j, ed.spikedir(i, j));
                     }
-                    else if(ed.contents[temp]==2 || ed.contents[temp]>=680)
+                    else if(temp==2 || temp>=680)
                     {
                         //Fix background
-                        ed.contents[temp]=713;
+                        cl.settile(ed.levx, ed.levy, i, j, 713);
                     }
-                    else if(ed.contents[temp]>0)
+                    else if(temp>0)
                     {
                         //Fix tiles
-                        ed.contents[temp]=ed.edgetile(i,j)+ed.base(ed.levx,ed.levy);
+                        cl.settile(
+                            ed.levx,
+                            ed.levy,
+                            i,
+                            j,
+                            ed.edgetile(i, j) + ed.base(ed.levx, ed.levy)
+                        );
                     }
                 }
             }
@@ -5518,21 +3619,33 @@ void editorinput()
             {
                 for(int i=0; i<40; i++)
                 {
-                    int temp=i+(ed.levx*40) + ed.vmult[j+(ed.levy*30)];
-                    if(ed.contents[temp]>=3 && ed.contents[temp]<80)
+                    int temp=cl.gettile(ed.levx, ed.levy, i, j);
+                    if(temp>=3 && temp<80)
                     {
                         //Fix spikes
-                        ed.contents[temp]=ed.spikedir(i,j);
+                        cl.settile(ed.levx, ed.levy, i, j, ed.spikedir(i, j));
                     }
-                    else if(ed.contents[temp]==2 || ed.contents[temp]>=680)
+                    else if(temp==2 || temp>=680)
                     {
                         //Fix background
-                        ed.contents[temp]=ed.backedgetile(i,j)+ed.backbase(ed.levx,ed.levy);
+                        cl.settile(
+                            ed.levx,
+                            ed.levy,
+                            i,
+                            j,
+                            ed.backedgetile(i, j) + ed.backbase(ed.levx, ed.levy)
+                        );
                     }
-                    else if(ed.contents[temp]>0)
+                    else if(temp>0)
                     {
                         //Fix tiles
-                        ed.contents[temp]=ed.edgetile(i,j)+ed.base(ed.levx,ed.levy);
+                        cl.settile(
+                            ed.levx,
+                            ed.levy,
+                            i,
+                            j,
+                            ed.edgetile(i, j) + ed.base(ed.levx, ed.levy)
+                        );
                     }
                 }
             }
@@ -5550,209 +3663,662 @@ void editorinput()
         }
     }
 }
-#endif /* NO_EDITOR */
 
-// Return a graphics-ready color based off of the given tileset and tilecol
-// Much kudos to Dav999 for saving me a lot of work, because I stole these colors from const.lua in Ved! -Info Teddy
-Uint32 editorclass::getonewaycol(const int rx, const int ry)
+int editorclass::getenemyframe(int t)
 {
-    const int roomnum = rx + ry*maxwidth;
-    if (roomnum < 0 || roomnum >= 400)
+    switch(t)
     {
-        return graphics.getRGB(255, 255, 255);
+    case 0:
+        return 78;
+        break;
+    case 1:
+        return 88;
+        break;
+    case 2:
+        return 36;
+        break;
+    case 3:
+        return 164;
+        break;
+    case 4:
+        return 68;
+        break;
+    case 5:
+        return 48;
+        break;
+    case 6:
+        return 176;
+        break;
+    case 7:
+        return 168;
+        break;
+    case 8:
+        return 112;
+        break;
+    case 9:
+        return 114;
+        break;
+    default:
+        return 78;
+        break;
     }
-    const edlevelclass& room = level[roomnum];
-    switch (room.tileset) {
+}
 
-    case 0: // Space Station
-        switch (room.tilecol) {
-        case -1:
-            return graphics.getRGB(109, 109, 109);
+void editorclass::placetilelocal( int x, int y, int t )
+{
+    if(x>=0 && y>=0 && x<40 && y<30)
+    {
+        cl.settile(levx, levy, x, y, t);
+    }
+    updatetiles=true;
+}
+
+int editorclass::base( int x, int y )
+{
+    //Return the base tile for the given tileset and colour
+    const RoomProperty* const room = cl.getroomprop(x, y);
+    if(room->tileset==0)  //Space Station
+    {
+        if(room->tilecol>=22)
+        {
+            return 483 + ((room->tilecol-22)*3);
+        }
+        else if(room->tilecol>=11)
+        {
+            return 283 + ((room->tilecol-11)*3);
+        }
+        else
+        {
+            return 83 + (room->tilecol*3);
+        }
+    }
+    else if(room->tileset==1)   //Outside
+    {
+        return 480 + (room->tilecol*3);
+    }
+    else if(room->tileset==2)   //Lab
+    {
+        return 280 + (room->tilecol*3);
+    }
+    else if(room->tileset==3)   //Warp Zone/Intermission
+    {
+        return 80 + (room->tilecol*3);
+    }
+    else if(room->tileset==4)   //SHIP
+    {
+        return 101 + (room->tilecol*3);
+    }
+    return 0;
+}
+
+int editorclass::backbase( int x, int y )
+{
+    //Return the base tile for the background of the given tileset and colour
+    const RoomProperty* const room = cl.getroomprop(x, y);
+    if(room->tileset==0)  //Space Station
+    {
+        //Pick depending on tilecol
+        switch(room->tilecol)
+        {
         case 0:
-            return graphics.getRGB(131, 141, 235);
-        case 1:
-            return graphics.getRGB(227, 140, 227);
-        case 2:
-            return graphics.getRGB(242, 126, 151);
-        case 3:
-            return graphics.getRGB(229, 235, 133);
-        case 4:
-            return graphics.getRGB(148, 238, 130);
         case 5:
-            return graphics.getRGB(140, 165, 227);
-        case 6:
-            return graphics.getRGB(227, 140, 148);
-        case 7:
-            return graphics.getRGB(140, 173, 228);
-        case 8:
-            return graphics.getRGB(142, 235, 137);
-        case 9:
-            return graphics.getRGB(137, 235, 206);
-        case 10:
-            return graphics.getRGB(235, 139, 223);
-        case 11:
-            return graphics.getRGB(238, 130, 138);
-        case 12:
-            return graphics.getRGB(137, 235, 178);
-        case 13:
-            return graphics.getRGB(125, 205, 247);
-        case 14:
-            return graphics.getRGB(190, 137, 235);
-        case 15:
-            return graphics.getRGB(235, 137, 206);
-        case 16:
-            return graphics.getRGB(229, 247, 127);
-        case 17:
-            return graphics.getRGB(127, 200, 247);
-        case 18:
-            return graphics.getRGB(197, 137, 235);
-        case 19:
-            return graphics.getRGB(235, 131, 175);
-        case 20:
-            return graphics.getRGB(242, 210, 123);
-        case 21:
-            return graphics.getRGB(131, 235, 158);
-        case 22:
-            return graphics.getRGB(242, 126, 151);
-        case 23:
-            return graphics.getRGB(219, 243, 123);
-        case 24:
-            return graphics.getRGB(131, 234, 145);
-        case 25:
-            return graphics.getRGB(131, 199, 234);
         case 26:
-            return graphics.getRGB(141, 131, 234);
-        case 27:
-            return graphics.getRGB(226, 140, 144);
+            return 680; //Blue
+            break;
+        case 3:
+        case 16:
+        case 23:
+            return 683; //Yellow
+            break;
+        case 9:
+        case 12:
+        case 21:
+            return 686; //Greeny Cyan
+            break;
+        case 4:
+        case 8:
+        case 24:
         case 28:
-            return graphics.getRGB(129, 236, 144);
-        case 29:
-            return graphics.getRGB(235, 231, 131);
         case 30:
-            return graphics.getRGB(153, 235, 131);
+            return 689; //Green
+            break;
+        case 20:
+        case 29:
+            return 692; //Orange
+            break;
+        case 2:
+        case 6:
+        case 11:
+        case 22:
+        case 27:
+            return 695; //Red
+            break;
+        case 1:
+        case 10:
+        case 15:
+        case 19:
         case 31:
-            return graphics.getRGB(207, 131, 235);
-        }
-        break;
-
-    case 1: // Outside
-        switch (room.tilecol) {
-        case 0:
-            return graphics.getRGB(57, 86, 140);
-        case 1:
-            return graphics.getRGB(156, 42, 42);
-        case 2:
-            return graphics.getRGB(42, 156, 155);
-        case 3:
-            return graphics.getRGB(125, 36, 162);
-        case 4:
-            return graphics.getRGB(191, 198, 0);
-        case 5:
-            return graphics.getRGB(0, 198, 126);
-        case 6:
-            return graphics.getRGB(224, 110, 177);
+            return 698; //Pink
+            break;
+        case 14:
+        case 18:
+            return 701; //Dark Blue
+            break;
         case 7:
-            return graphics.getRGB(255, 142, 87);
+        case 13:
+        case 17:
+        case 25:
+            return 704; //Cyan
+            break;
+        default:
+            return 680;
+            break;
         }
-        break;
-
-    case 2: // Lab
-        switch (room.tilecol) {
-        case 0:
-            return graphics.getRGB(0, 165, 206);
-        case 1:
-            return graphics.getRGB(206, 5, 0);
-        case 2:
-            return graphics.getRGB(222, 0, 173);
-        case 3:
-            return graphics.getRGB(27, 67, 255);
-        case 4:
-            return graphics.getRGB(194, 206, 0);
-        case 5:
-            return graphics.getRGB(0, 206, 39);
-        case 6:
-            return graphics.getRGB(0, 165, 206);
-        }
-        break;
-
-    case 3: // Warp Zone
-        switch (room.tilecol) {
-        case 0:
-            return graphics.getRGB(113, 178, 197);
-        case 1:
-            return graphics.getRGB(197, 113, 119);
-        case 2:
-            return graphics.getRGB(196, 113, 197);
-        case 3:
-            return graphics.getRGB(149, 113, 197);
-        case 4:
-            return graphics.getRGB(197, 182, 113);
-        case 5:
-            return graphics.getRGB(141, 197, 113);
-        case 6:
-            return graphics.getRGB(109, 109, 109);
-        }
-        break;
-
-    case 4: // Ship
-        switch (room.tilecol) {
-        case 0:
-            return graphics.getRGB(0, 206, 39);
-        case 1:
-            return graphics.getRGB(0, 165, 206);
-        case 2:
-            return graphics.getRGB(194, 206, 0);
-        case 3:
-            return graphics.getRGB(206, 0, 160);
-        case 4:
-            return graphics.getRGB(27, 67, 255);
-        case 5:
-            return graphics.getRGB(206, 5, 0);
-        }
-        break;
 
     }
-
-    // Uh, I guess return solid white
-    return graphics.getRGB(255, 255, 255);
-}
-
-// This version detects the room automatically
-Uint32 editorclass::getonewaycol()
-{
-    if (game.gamestate == EDITORMODE)
-        return getonewaycol(ed.levx, ed.levy);
-    else if (map.custommode)
-        return getonewaycol(game.roomx - 100, game.roomy - 100);
-
-    // Uh, I guess return solid white
-    return graphics.getRGB(255, 255, 255);
-}
-
-int editorclass::numtrinkets()
-{
-    int temp = 0;
-    for (size_t i = 0; i < edentity.size(); i++)
+    else if(room->tileset==1)   //outside
     {
-        if (edentity[i].t == 9)
-        {
-            temp++;
-        }
+        return 680 + (room->tilecol*3);
     }
-    return temp;
-}
-
-int editorclass::numcrewmates()
-{
-    int temp = 0;
-    for (size_t i = 0; i < edentity.size(); i++)
+    else if(room->tileset==2)   //Lab
     {
-        if (edentity[i].t == 15)
-        {
-            temp++;
-        }
+        return 0;
     }
-    return temp;
+    else if(room->tileset==3)   //Warp Zone/Intermission
+    {
+        return 120 + (room->tilecol*3);
+    }
+    else if(room->tileset==4)   //SHIP
+    {
+        return 741 + (room->tilecol*3);
+    }
+    return 0;
 }
 
-#endif /* NO_CUSTOM_LEVELS */
+int editorclass::at( int x, int y )
+{
+    if(x<0) return at(0,y);
+    if(y<0) return at(x,0);
+    if(x>=40) return at(39,y);
+    if(y>=30) return at(x,29);
+
+    if(x>=0 && y>=0 && x<40 && y<30)
+    {
+        return cl.gettile(levx, levy, x, y);
+    }
+    return 0;
+}
+
+int editorclass::freewrap( int x, int y )
+{
+    if(x<0) return freewrap(x+(cl.mapwidth*40),y);
+    if(y<0) return freewrap(x,y+(cl.mapheight*30));
+    if(x>=(cl.mapwidth*40)) return freewrap(x-(cl.mapwidth*40),y);
+    if(y>=(cl.mapheight*30)) return freewrap(x,y-(cl.mapheight*30));
+
+    if(x>=0 && y>=0 && x<(cl.mapwidth*40) && y<(cl.mapheight*30))
+    {
+        if(cl.getabstile(x, y)==0)
+        {
+            return 0;
+        }
+        else
+        {
+            if(cl.getabstile(x, y)>=2 && cl.getabstile(x, y)<80)
+            {
+                return 0;
+            }
+            if(cl.getabstile(x, y)>=680)
+            {
+                return 0;
+            }
+        }
+    }
+    return 1;
+}
+
+int editorclass::backonlyfree( int x, int y )
+{
+    //Returns 1 if tile is a background tile, 0 otherwise
+    if(x<0) return backonlyfree(0,y);
+    if(y<0) return backonlyfree(x,0);
+    if(x>=40) return backonlyfree(39,y);
+    if(y>=30) return backonlyfree(x,29);
+
+    if(x>=0 && y>=0 && x<40 && y<30)
+    {
+        if(cl.gettile(levx, levy, x, y)>=680)
+        {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int editorclass::backfree( int x, int y )
+{
+    //Returns 0 if tile is not a block or background tile, 1 otherwise
+    if(x<0) return backfree(0,y);
+    if(y<0) return backfree(x,0);
+    if(x>=40) return backfree(39,y);
+    if(y>=30) return backfree(x,29);
+
+    if(x>=0 && y>=0 && x<40 && y<30)
+    {
+        if(cl.gettile(levx, levy, x, y)==0)
+        {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+int editorclass::spikefree( int x, int y )
+{
+    //Returns 0 if tile is not a block or spike, 1 otherwise
+    if(x==-1) return free(0,y);
+    if(y==-1) return free(x,0);
+    if(x==40) return free(39,y);
+    if(y==30) return free(x,29);
+
+    if(x>=0 && y>=0 && x<40 && y<30)
+    {
+        if(cl.gettile(levx, levy, x, y)==0)
+        {
+            return 0;
+        }
+        else
+        {
+            if(cl.gettile(levx, levy, x, y)>=680)
+            {
+                return 0;
+            }
+        }
+    }
+    return 1;
+}
+
+int editorclass::free( int x, int y )
+{
+    //Returns 0 if tile is not a block, 1 otherwise
+    if(x==-1) return free(0,y);
+    if(y==-1) return free(x,0);
+    if(x==40) return free(39,y);
+    if(y==30) return free(x,29);
+
+    if(x>=0 && y>=0 && x<40 && y<30)
+    {
+        if(cl.gettile(levx, levy, x, y)==0)
+        {
+            return 0;
+        }
+        else
+        {
+            if(cl.gettile(levx, levy, x, y)>=2 && cl.gettile(levx, levy, x, y)<80)
+            {
+                return 0;
+            }
+            if(cl.gettile(levx, levy, x, y)>=680)
+            {
+                return 0;
+            }
+        }
+    }
+    return 1;
+}
+
+int editorclass::match( int x, int y )
+{
+    if(free(x-1,y)==0 && free(x,y-1)==0 && free(x+1,y)==0 && free(x,y+1)==0) return 0;
+
+    if(free(x-1,y)==0 && free(x,y-1)==0) return 10;
+    if(free(x+1,y)==0 && free(x,y-1)==0) return 11;
+    if(free(x-1,y)==0 && free(x,y+1)==0) return 12;
+    if(free(x+1,y)==0 && free(x,y+1)==0) return 13;
+
+    if(free(x,y-1)==0) return 1;
+    if(free(x-1,y)==0) return 2;
+    if(free(x,y+1)==0) return 3;
+    if(free(x+1,y)==0) return 4;
+    if(free(x-1,y-1)==0) return 5;
+    if(free(x+1,y-1)==0) return 6;
+    if(free(x-1,y+1)==0) return 7;
+    if(free(x+1,y+1)==0) return 8;
+
+    return 0;
+}
+
+int editorclass::outsidematch( int x, int y )
+{
+
+    if(backonlyfree(x-1,y)==0 && backonlyfree(x+1,y)==0) return 2;
+    if(backonlyfree(x,y-1)==0 && backonlyfree(x,y+1)==0) return 1;
+
+    return 0;
+}
+
+int editorclass::backmatch( int x, int y )
+{
+    //Returns the first position match for a border
+    // 5 1 6
+    // 2 X 4
+    // 7 3 8
+    if(backfree(x-1,y)==0 && backfree(x,y-1)==0 && backfree(x+1,y)==0 && backfree(x,y+1)==0) return 0;
+
+    if(backfree(x-1,y)==0 && backfree(x,y-1)==0) return 10;
+    if(backfree(x+1,y)==0 && backfree(x,y-1)==0) return 11;
+    if(backfree(x-1,y)==0 && backfree(x,y+1)==0) return 12;
+    if(backfree(x+1,y)==0 && backfree(x,y+1)==0) return 13;
+
+    if(backfree(x,y-1)==0) return 1;
+    if(backfree(x-1,y)==0) return 2;
+    if(backfree(x,y+1)==0) return 3;
+    if(backfree(x+1,y)==0) return 4;
+    if(backfree(x-1,y-1)==0) return 5;
+    if(backfree(x+1,y-1)==0) return 6;
+    if(backfree(x-1,y+1)==0) return 7;
+    if(backfree(x+1,y+1)==0) return 8;
+
+    return 0;
+}
+
+int editorclass::edgetile( int x, int y )
+{
+    switch(match(x,y))
+    {
+    case 14:
+        return 0;
+        break;
+    case 10:
+        return 80;
+        break;
+    case 11:
+        return 82;
+        break;
+    case 12:
+        return 160;
+        break;
+    case 13:
+        return 162;
+        break;
+    case 1:
+        return 81;
+        break;
+    case 2:
+        return 120;
+        break;
+    case 3:
+        return 161;
+        break;
+    case 4:
+        return 122;
+        break;
+    case 5:
+        return 42;
+        break;
+    case 6:
+        return 41;
+        break;
+    case 7:
+        return 2;
+        break;
+    case 8:
+        return 1;
+        break;
+    case 0:
+    default:
+        return 0;
+        break;
+    }
+}
+
+int editorclass::outsideedgetile( int x, int y )
+{
+    switch(outsidematch(x,y))
+    {
+    case 2:
+        return 0;
+        break;
+    case 1:
+        return 1;
+        break;
+    case 0:
+    default:
+        return 2;
+        break;
+    }
+}
+
+
+int editorclass::backedgetile( int x, int y )
+{
+    switch(backmatch(x,y))
+    {
+    case 14:
+        return 0;
+        break;
+    case 10:
+        return 80;
+        break;
+    case 11:
+        return 82;
+        break;
+    case 12:
+        return 160;
+        break;
+    case 13:
+        return 162;
+        break;
+    case 1:
+        return 81;
+        break;
+    case 2:
+        return 120;
+        break;
+    case 3:
+        return 161;
+        break;
+    case 4:
+        return 122;
+        break;
+    case 5:
+        return 42;
+        break;
+    case 6:
+        return 41;
+        break;
+    case 7:
+        return 2;
+        break;
+    case 8:
+        return 1;
+        break;
+    case 0:
+    default:
+        return 0;
+        break;
+    }
+}
+
+int editorclass::labspikedir( int x, int y, int t )
+{
+    // a slightly more tricky case
+    if(free(x,y+1)==1) return 63 + (t*2);
+    if(free(x,y-1)==1) return 64 + (t*2);
+    if(free(x-1,y)==1) return 51 + (t*2);
+    if(free(x+1,y)==1) return 52 + (t*2);
+    return 63 + (t*2);
+}
+
+int editorclass::spikedir( int x, int y )
+{
+    if(free(x,y+1)==1) return 8;
+    if(free(x,y-1)==1) return 9;
+    if(free(x-1,y)==1) return 49;
+    if(free(x+1,y)==1) return 50;
+    return 8;
+}
+
+void editorclass::switch_tileset(const bool reversed)
+{
+    const char* tilesets[] = {"Space Station", "Outside", "Lab", "Warp Zone", "Ship"};
+
+    int tiles = cl.getroomprop(levx, levy)->tileset;
+
+    if (reversed)
+    {
+        tiles--;
+    }
+    else
+    {
+        tiles++;
+    }
+
+    const int modulus = SDL_arraysize(tilesets);
+    tiles = POS_MOD(tiles, modulus);
+    cl.setroomtileset(levx, levy, tiles);
+
+    clamp_tilecol(levx, levy, false);
+
+    char buffer[64];
+    SDL_snprintf(buffer, sizeof(buffer), "Now using %s Tileset", tilesets[tiles]);
+
+    note = buffer;
+    notedelay = 45;
+    updatetiles = true;
+}
+
+void editorclass::switch_tilecol(const bool reversed)
+{
+    int tilecol = cl.getroomprop(levx, levy)->tilecol;
+
+    if (reversed)
+    {
+        tilecol--;
+    }
+    else
+    {
+        tilecol++;
+    }
+
+    cl.setroomtilecol(levx, levy, tilecol);
+
+    clamp_tilecol(levx, levy, true);
+
+    notedelay = 45;
+    note = "Tileset Colour Changed";
+    updatetiles = true;
+}
+
+void editorclass::clamp_tilecol(const int rx, const int ry, const bool wrap)
+{
+    const RoomProperty* const room = cl.getroomprop(rx, ry);
+    const int tileset = room->tileset;
+    int tilecol = room->tilecol;
+
+    int mincol = -1;
+    int maxcol = 5;
+
+    // Only Space Station allows tileset -1
+    if (tileset != 0)
+    {
+        mincol = 0;
+    }
+
+    switch (tileset)
+    {
+    case 0:
+        maxcol = 31;
+        break;
+    case 1:
+        maxcol = 7;
+        break;
+    case 2:
+        if (room->directmode)
+        {
+            maxcol = 6;
+        }
+        break;
+    case 3:
+        maxcol = 6;
+        break;
+    case 5:
+        maxcol = 29;
+        break;
+    }
+
+    // If wrap is true, wrap-around, otherwise just cap
+    if (tilecol > maxcol)
+    {
+        tilecol = (wrap ? mincol : maxcol);
+    }
+    if (tilecol < mincol)
+    {
+        tilecol = (wrap ? maxcol : mincol);
+    }
+
+    cl.setroomtilecol(rx, ry, tilecol);
+}
+
+void editorclass::switch_enemy(const bool reversed)
+{
+    const RoomProperty* const room = cl.getroomprop(levx, levy);
+
+    int enemy = room->enemytype;
+
+    if (reversed)
+    {
+        enemy--;
+    }
+    else
+    {
+        enemy++;
+    }
+
+    const int modulus = 10;
+    enemy = POS_MOD(enemy, modulus);
+    cl.setroomenemytype(levx, levy, enemy);
+
+    note = "Enemy Type Changed";
+    notedelay = 45;
+}
+
+void editorclass::switch_warpdir(const bool reversed)
+{
+    static const int modulus = 4;
+    const RoomProperty* const room = cl.getroomprop(levx, levy);
+
+    int warpdir = room->warpdir;
+
+    if (reversed)
+    {
+        --warpdir;
+    }
+    else
+    {
+        ++warpdir;
+    }
+
+    warpdir = POS_MOD(warpdir, modulus);
+    cl.setroomwarpdir(levx, levy, warpdir);
+
+    switch (warpdir)
+    {
+    default:
+        note = "Room warping disabled";
+        break;
+    case 1:
+        note = "Room warps horizontally";
+        break;
+    case 2:
+        note = "Room warps vertically";
+        break;
+    case 3:
+        note = "Room warps in all directions";
+        break;
+    }
+
+    notedelay = 45;
+}
+
+#endif /* NO_CUSTOM_LEVELS and NO_EDITOR */

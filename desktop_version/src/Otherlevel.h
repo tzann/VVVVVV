@@ -1,14 +1,13 @@
 #ifndef OTHERLEVEL_H
 #define OTHERLEVEL_H
 
-#include <string>
-
 class otherlevelclass
 {
 public:
-    const short* loadlevel(int rx, int ry);
+    const short* loadlevel(int rx, int ry, int rxoff, int ryoff);
 
-    std::string roomname;
+    const char* roomname;
+    const char* hiddenname;
 
     int roomtileset;
 };
