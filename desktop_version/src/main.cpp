@@ -29,6 +29,8 @@
 #include "UtilityClass.h"
 #include "Vlogging.h"
 
+#include "Solver.h"
+
 scriptclass script;
 
 #ifndef NO_CUSTOM_LEVELS
@@ -695,6 +697,10 @@ int main(int argc, char *argv[])
 #ifdef __EMSCRIPTEN__
     emscripten_set_main_loop(emscriptenloop, 0, 0);
 #else
+
+    // Enter our injected code
+    Solver::entrypoint();
+
     while (true)
     {
         f_time = SDL_GetTicks64();
