@@ -354,6 +354,7 @@ namespace Solver {
             namespace THIS_IS_HOW_IT_IS {
                 const corner FLIP_UP(114, 101, 122, 46, UP_RIGHT);
                 const corner GO_RIGHT(114, 101, 174, 161, RIGHT_UP);
+                // const corner SCREEN_EDGE(114, 101, 308, ??, X_ONLY);
             }
 
             namespace BISECTED_SPIRAL {
