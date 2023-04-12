@@ -5,6 +5,7 @@
 #include <FAudio.h>
 #include <physfsrwops.h>
 
+#include "Alloc.h"
 #include "BinaryBlob.h"
 #include "FileSystemUtils.h"
 #include "Game.h"
@@ -21,7 +22,7 @@
 
 #define malloc SDL_malloc
 #define realloc SDL_realloc
-#define free SDL_free
+#define free VVV_free
 #ifdef memset /* Thanks, Apple! */
 #undef memset
 #endif
@@ -94,18 +95,35 @@ class SoundTrack
 public:
     SoundTrack(const char* fileName)
     {
-        unsigned char *mem;
+        unsigned char* mem;
         size_t length;
-        SDL_AudioSpec spec;
-        SDL_RWops *fileIn;
-        SDL_zerop(this);
-        FILESYSTEM_loadAssetToMemory(fileName, &mem, &length, false);
+        voice_index = -1;
+
+        FILESYSTEM_loadAssetToMemory(fileName, &mem, &length);
         if (mem == NULL)
         {
-            vlog_error("Unable to load WAV file %s", fileName);
-            SDL_assert(0 && "WAV file missing!");
+            vlog_error("Unable to load sound file %s", fileName);
+            SDL_assert(0 && "Sound file missing!");
             return;
         }
+
+        SDL_zerop(this);
+        if (length >= 4 && SDL_memcmp(mem, "OggS", 4) == 0)
+        {
+            LoadOGG(fileName, mem, length);
+            callbacks.OnBufferStart = &SoundTrack::refillReserve;
+            callbacks.OnBufferEnd = &SoundTrack::swapBuffers;
+        }
+        else
+        {
+            LoadWAV(fileName, mem, length);
+        }
+    }
+
+    void LoadWAV(const char* fileName, unsigned char* mem, const size_t length)
+    {
+        SDL_AudioSpec spec;
+        SDL_RWops *fileIn;
         fileIn = SDL_RWFromConstMem(mem, length);
         if (SDL_LoadWAV_RW(fileIn, 1, &spec, &wav_buffer, &wav_length) == NULL)
         {
@@ -115,21 +133,56 @@ public:
         format.nChannels = spec.channels;
         format.nSamplesPerSec = spec.freq;
         format.wFormatTag = FAUDIO_FORMAT_PCM;
-        format.wBitsPerSample = 16;
+        format.wBitsPerSample = SDL_AUDIO_BITSIZE(spec.format);
         format.nBlockAlign = format.nChannels * format.wBitsPerSample;
         format.nAvgBytesPerSec = format.nSamplesPerSec * format.nBlockAlign;
         format.cbSize = 0;
         valid = true;
 end:
-        FILESYSTEM_freeMemory(&mem);
+        VVV_free(mem);
     }
 
-    void Dispose()
+    void LoadOGG(const char* fileName, unsigned char* mem, const size_t length)
     {
-        SDL_free(wav_buffer);
+        int err;
+        stb_vorbis_info vorbis_info;
+        vorbis = stb_vorbis_open_memory(mem, length, &err, NULL);
+        if (vorbis == NULL)
+        {
+            vlog_error("Unable to create Vorbis handle for %s, error %d", fileName, err);
+            VVV_free(mem);
+            return;
+        }
+        vorbis_info = stb_vorbis_get_info(vorbis);
+        format.wFormatTag = FAUDIO_FORMAT_IEEE_FLOAT;
+        format.wBitsPerSample = sizeof(float) * 8;
+        format.nChannels = vorbis_info.channels;
+        format.nSamplesPerSec = vorbis_info.sample_rate;
+        format.nBlockAlign = format.nChannels * format.wBitsPerSample;
+        format.nAvgBytesPerSec = format.nSamplesPerSec * format.nBlockAlign;
+        format.cbSize = 0;
+
+        channels = format.nChannels;
+        size = format.nAvgBytesPerSec / 20;
+
+        decoded_buf_playing = (Uint8*) SDL_malloc(size);
+        decoded_buf_reserve = (Uint8*) SDL_malloc(size);
+
+        ogg_file = mem;
+        valid = true;
     }
 
-    void Play()
+    void Dispose(void)
+    {
+        VVV_free(wav_buffer);
+
+        VVV_free(decoded_buf_playing);
+        VVV_free(decoded_buf_reserve);
+        VVV_freefunc(stb_vorbis_close, vorbis);
+        VVV_free(ogg_file);
+    }
+
+    void Play(void)
     {
         if (!valid)
         {
@@ -142,14 +195,20 @@ end:
             FAudioSourceVoice_GetState(voices[i], &voicestate, 0);
             if (voicestate.BuffersQueued == 0)
             {
-                FAudioVoiceDetails details;
-                FAudioVoice_GetVoiceDetails(voices[i], &details);
-                if (details.InputChannels != format.nChannels)
+                if (SDL_memcmp(&voice_formats[i], &format, sizeof(format)) != 0)
                 {
-                    FAudioVoice_DestroyVoice(voices[i]);
-                    FAudio_CreateSourceVoice(faudioctx, &voices[i], &format, 0, 2.0f, NULL, NULL, NULL);
+                    VVV_freefunc(FAudioVoice_DestroyVoice, voices[i]);
+                    if (vorbis != NULL)
+                    {
+                        FAudio_CreateSourceVoice(faudioctx, &voices[i], &format, 0, 2.0f, &callbacks, NULL, NULL);
+                    }
+                    else
+                    {
+                        FAudio_CreateSourceVoice(faudioctx, &voices[i], &format, 0, 2.0f, NULL, NULL, NULL);
+                    }
+                    voice_formats[i] = format;
                 }
-                const FAudioBuffer faudio_buffer = {
+                FAudioBuffer faudio_buffer = {
                     FAUDIO_END_OF_STREAM, /* Flags */
                     wav_length * 8, /* AudioBytes */
                     wav_buffer, /* AudioData */
@@ -160,16 +219,32 @@ end:
                     0, /* LoopCount */
                     NULL
                 };
+                if (vorbis != NULL)
+                {
+                    stb_vorbis_seek_start(vorbis);
+                    faudio_buffer.PlayLength = stb_vorbis_get_samples_float_interleaved(
+                        vorbis,
+                        channels,
+                        (float*) decoded_buf_playing,
+                        size / sizeof(float)
+                    );
+                    faudio_buffer.AudioBytes = size;
+                    faudio_buffer.pAudioData = decoded_buf_playing;
+                    faudio_buffer.pContext = this;
+                }
                 if (FAudioSourceVoice_SubmitSourceBuffer(voices[i], &faudio_buffer, NULL))
                 {
                     vlog_error("Unable to queue sound buffer");
+                    voice_index = -1;
                     return;
                 }
                 FAudioVoice_SetVolume(voices[i], volume, FAUDIO_COMMIT_NOW);
                 if (FAudioSourceVoice_Start(voices[i], 0, FAUDIO_COMMIT_NOW))
                 {
                     vlog_error("Unable to start voice processing");
+                    voice_index = -1;
                 }
+                voice_index = i;
                 return;
             }
         }
@@ -190,6 +265,7 @@ end:
                 format.nBlockAlign = format.nChannels * format.wBitsPerSample;
                 format.nAvgBytesPerSec = format.nSamplesPerSec * format.nBlockAlign;
                 format.cbSize = 0;
+                voice_formats[i] = format;
                 if (FAudio_CreateSourceVoice(faudioctx, &voices[i], &format, 0, 2.0f, NULL, NULL, NULL))
                 {
                     vlog_error("Unable to create source voice no. %i", i);
@@ -199,7 +275,7 @@ end:
         }
     }
 
-    static void Pause()
+    static void Pause(void)
     {
         for (size_t i = 0; i < VVV_MAX_CHANNELS; i++)
         {
@@ -207,7 +283,7 @@ end:
         }
     }
 
-    static void Resume()
+    static void Resume(void)
     {
         for (size_t i = 0; i < VVV_MAX_CHANNELS; i++)
         {
@@ -215,16 +291,15 @@ end:
         }
     }
 
-    static void Destroy()
+    static void Destroy(void)
     {
         if (voices != NULL)
         {
             for (int i = 0; i < VVV_MAX_CHANNELS; i++)
             {
-                FAudioVoice_DestroyVoice(voices[i]);
+                VVV_freefunc(FAudioVoice_DestroyVoice, voices[i]);
             }
-            SDL_free(voices);
-            voices = NULL;
+            VVV_free(voices);
         }
     }
 
@@ -237,15 +312,61 @@ end:
         }
     }
 
+    static void refillReserve(FAudioVoiceCallback* callback, void* ctx)
+    {
+        bool inbounds;
+        SoundTrack* t = (SoundTrack*) ctx;
+        FAudioBuffer faudio_buffer;
+        SDL_zero(faudio_buffer);
+        UNUSED(callback);
+        faudio_buffer.PlayLength = stb_vorbis_get_samples_float_interleaved(t->vorbis, t->channels, (float*) t->decoded_buf_reserve, t->size / sizeof(float));
+        faudio_buffer.AudioBytes = t->size;
+        faudio_buffer.pAudioData = t->decoded_buf_reserve;
+        faudio_buffer.pContext = t;
+        if (faudio_buffer.PlayLength == 0)
+        {
+            return;
+        }
+
+        inbounds = t->voice_index >= 0 && t->voice_index < VVV_MAX_CHANNELS;
+        if (!inbounds)
+        {
+            return;
+        }
+
+        FAudioSourceVoice_SubmitSourceBuffer(voices[t->voice_index], &faudio_buffer, NULL);
+    }
+
+    static void swapBuffers(FAudioVoiceCallback* callback, void* ctx)
+    {
+        SoundTrack* t = (SoundTrack*) ctx;
+        Uint8* tmp = t->decoded_buf_playing;
+        UNUSED(callback);
+        t->decoded_buf_playing = t->decoded_buf_reserve;
+        t->decoded_buf_reserve = tmp;
+    }
+
     Uint8 *wav_buffer;
     Uint32 wav_length;
     FAudioWaveFormatEx format;
+    int voice_index;
+
+    unsigned char* ogg_file;
+    stb_vorbis* vorbis;
+    int channels;
+    Uint32 size;
+    Uint8* decoded_buf_playing;
+    Uint8* decoded_buf_reserve;
+    FAudioVoiceCallback callbacks;
+
     bool valid;
 
     static FAudioSourceVoice** voices;
+    static FAudioWaveFormatEx voice_formats[VVV_MAX_CHANNELS];
     static float volume;
 };
 FAudioSourceVoice** SoundTrack::voices = NULL;
+FAudioWaveFormatEx SoundTrack::voice_formats[VVV_MAX_CHANNELS];
 float SoundTrack::volume = 0.0f;
 
 class MusicTrack
@@ -263,8 +384,7 @@ public:
         if (vorbis == NULL)
         {
             vlog_error("Unable to create Vorbis handle, error %d", err);
-            SDL_free(read_buf);
-            read_buf = NULL;
+            VVV_free(read_buf);
             goto end;
         }
         vorbis_info = stb_vorbis_get_info(vorbis);
@@ -292,16 +412,15 @@ end:
         SDL_RWclose(rw);
     }
 
-    void Dispose()
+    void Dispose(void)
     {
-        stb_vorbis_close(vorbis);
-        SDL_free(read_buf);
-        SDL_free(decoded_buf_playing);
-        SDL_free(decoded_buf_reserve);
+        VVV_freefunc(stb_vorbis_close, vorbis);
+        VVV_free(read_buf);
+        VVV_free(decoded_buf_playing);
+        VVV_free(decoded_buf_reserve);
         if (!IsHalted())
         {
-            FAudioVoice_DestroyVoice(musicVoice);
-            musicVoice = NULL;
+            VVV_freefunc(FAudioVoice_DestroyVoice, musicVoice);
         }
     }
 
@@ -315,6 +434,15 @@ end:
         shouldloop = loop;
         sample_pos = 0;
         stb_vorbis_seek_start(vorbis);
+
+        if (!IsHalted())
+        {
+            if (SDL_memcmp(&musicVoiceFormat, &format, sizeof(format)) != 0)
+            {
+                Halt();
+                musicVoiceFormat = format;
+            }
+        }
 
         if (IsHalted())
         {
@@ -353,23 +481,22 @@ end:
         return true;
     }
 
-    static void Halt()
+    static void Halt(void)
     {
         if (!IsHalted())
         {
             FAudioSourceVoice_FlushSourceBuffers(musicVoice);
-            FAudioVoice_DestroyVoice(musicVoice);
-            musicVoice = NULL;
+            VVV_freefunc(FAudioVoice_DestroyVoice, musicVoice);
             paused = true;
         }
     }
 
-    static bool IsHalted()
+    static bool IsHalted(void)
     {
         return musicVoice == NULL;
     }
 
-    static void Pause()
+    static void Pause(void)
     {
         if (!IsHalted())
         {
@@ -378,12 +505,12 @@ end:
         }
     }
 
-    static bool IsPaused()
+    static bool IsPaused(void)
     {
         return paused || IsHalted();
     }
 
-    static void Resume()
+    static void Resume(void)
     {
         if (!IsHalted())
         {
@@ -419,6 +546,7 @@ end:
 
     static bool paused;
     static FAudioSourceVoice* musicVoice;
+    static FAudioWaveFormatEx musicVoiceFormat;
 
     static void refillReserve(FAudioVoiceCallback* callback, void* ctx)
     {
@@ -477,14 +605,23 @@ end:
     }
 
     /* Lifted from SDL_mixer, we used it in 2.3 and previous */
-    static void parseComments(MusicTrack* t, char** comments, int comment_list_length)
-    {
+    static void parseComments(
+        MusicTrack* t, char** comments, const int comment_list_length
+    ) {
         int loopend = 0;
         for (int i = 0; i < comment_list_length; i++)
         {
-            char *param = SDL_strdup(comments[i]);
-            char *argument = param;
-            char *value = SDL_strchr(param, '=');
+            char* param = SDL_strdup(comments[i]);
+            if (param == NULL)
+            {
+                vlog_error(
+                    "Could not allocate memory to parse '%s'. Ignoring comments.",
+                    comments[i]
+                );
+                break;
+            }
+            char* argument = param;
+            char* value = SDL_strchr(param, '=');
             if (value == NULL)
             {
                 value = param + SDL_strlen(param);
@@ -498,7 +635,8 @@ end:
             * string if it is present at position 4. */
             char buf[5];
             SDL_strlcpy(buf, argument, sizeof(buf));
-            if (SDL_strcasecmp(buf, "LOOP") == 0 && ((argument[4] == '_') || (argument[4] == '-')))
+            if (SDL_strcasecmp(buf, "LOOP") == 0
+            && ((argument[4] == '_') || (argument[4] == '-')))
             {
                 SDL_memmove(argument + 4, argument + 5, SDL_strlen(argument) - 4);
             }
@@ -516,7 +654,20 @@ end:
                 loopend = _Mix_ParseTime(value, t->format.nSamplesPerSec);
             }
 
-            SDL_free(param);
+            if (t->loopbegin < 0 || t->looplength < 0 || loopend < 0)
+            {
+                vlog_warn(
+                    "A track loop comment had a negative value. "
+                    "Ignoring all comments for the track."
+                );
+                t->loopbegin = 0;
+                t->looplength = 0;
+                loopend = 0;
+                VVV_free(param);
+                break;
+            }
+
+            VVV_free(param);
         }
         if (loopend != 0)
         {
@@ -524,11 +675,11 @@ end:
         }
     }
 
-    static int _Mix_ParseTime(char *time, long samplerate_hz)
+    static int _Mix_ParseTime(char* time, const long samplerate_hz)
     {
-        char *num_start, *p;
-        Sint64 result;
-        char c;
+        char* num_start = time;
+        char* p;
+        Sint64 result = 0;
         int val;
 
         /* Time is directly expressed as a sample position */
@@ -537,15 +688,14 @@ end:
             return SDL_strtoll(time, NULL, 10);
         }
 
-        result = 0;
-        num_start = time;
-
         for (p = time; *p != '\0'; ++p)
         {
             if (*p == '.' || *p == ':')
             {
-                c = *p; *p = '\0';
-                if ((val = SDL_atoi(num_start)) < 0)
+                const char c = *p;
+                *p = '\0';
+                val = SDL_atoi(num_start);
+                if (val < 0)
                 {
                     return -1;
                 }
@@ -556,7 +706,7 @@ end:
 
             if (*p == '.')
             {
-                double val_f = SDL_atof(p);
+                const double val_f = SDL_atof(p);
                 if (val_f < 0)
                 {
                     return -1;
@@ -565,7 +715,8 @@ end:
             }
         }
 
-        if ((val = SDL_atoi(num_start)) < 0)
+        val = SDL_atoi(num_start);
+        if (val < 0)
         {
             return -1;
         }
@@ -574,6 +725,7 @@ end:
 };
 bool MusicTrack::paused = false;
 FAudioSourceVoice* MusicTrack::musicVoice = NULL;
+FAudioWaveFormatEx MusicTrack::musicVoiceFormat;
 
 musicclass::musicclass(void)
 {
@@ -769,14 +921,8 @@ void musicclass::destroy(void)
 
     pppppp_blob.clear();
     mmmmmm_blob.clear();
-    if (masteringvoice != NULL)
-    {
-        FAudioVoice_DestroyVoice(masteringvoice);
-    }
-    if (faudioctx != NULL)
-    {
-        FAudio_Release(faudioctx);
-    }
+    VVV_freefunc(FAudioVoice_DestroyVoice, masteringvoice);
+    VVV_freefunc(FAudio_Release, faudioctx);
 }
 
 void musicclass::play(int t)
@@ -858,7 +1004,7 @@ void musicclass::play(int t)
     }
 }
 
-void musicclass::resume()
+void musicclass::resume(void)
 {
     MusicTrack::Resume();
 }
@@ -881,11 +1027,21 @@ void musicclass::pause(void)
 
 void musicclass::haltdasmusik(void)
 {
+    haltdasmusik(false);
+}
+
+void musicclass::haltdasmusik(const bool from_fade)
+{
     /* Just pauses music. This is intended. */
     pause();
     currentsong = -1;
     m_doFadeInVol = false;
     m_doFadeOutVol = false;
+    if (!from_fade)
+    {
+        nicefade = false;
+        nicechange = -1;
+    }
 }
 
 void musicclass::silencedasmusik(void)
@@ -997,7 +1153,7 @@ void musicclass::processmusicfadeout(void)
     {
         musicVolume = 0;
         m_doFadeOutVol = false;
-        haltdasmusik();
+        haltdasmusik(true);
     }
 }
 

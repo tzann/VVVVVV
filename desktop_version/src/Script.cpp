@@ -4,17 +4,26 @@
 #include <limits.h>
 #include <SDL_timer.h>
 
+#include "Alloc.h"
+#include "Constants.h"
 #include "CustomLevels.h"
 #include "Editor.h"
 #include "Entity.h"
 #include "Enums.h"
 #include "Exit.h"
+#include "Font.h"
 #include "GlitchrunnerMode.h"
 #include "Graphics.h"
 #include "KeyPoll.h"
+#include "Localization.h"
+#include "LocalizationMaint.h"
+#include "LocalizationStorage.h"
 #include "Map.h"
 #include "Music.h"
+#include "Unreachable.h"
+#include "Unused.h"
 #include "UtilityClass.h"
+#include "VFormat.h"
 #include "Vlogging.h"
 #include "Xoshiro.h"
 
@@ -34,7 +43,31 @@ scriptclass::scriptclass(void)
     r = 0;
     textx = 0;
     texty = 0;
+    textbox_colours.clear();
+    add_default_colours();
     textflipme = false;
+    textcentertext = false;
+    textpad_left = 0;
+    textpad_right = 0;
+    textpadtowidth = 0;
+    textcase = 1;
+    textbuttons = false;
+    textlarge = false;
+}
+
+void scriptclass::add_default_colours(void)
+{
+    textbox_colours["player"] = graphics.getRGB(164, 164, 255);
+    textbox_colours["cyan"] = graphics.getRGB(164, 164, 255);
+    textbox_colours["red"] = graphics.getRGB(255, 60, 60);
+    textbox_colours["green"] = graphics.getRGB(144, 255, 144);
+    textbox_colours["yellow"] = graphics.getRGB(255, 255, 134);
+    textbox_colours["blue"] = graphics.getRGB(95, 95, 255);
+    textbox_colours["purple"] = graphics.getRGB(255, 134, 255);
+    textbox_colours["white"] = graphics.getRGB(244, 244, 244);
+    textbox_colours["gray"] = graphics.getRGB(174, 174, 174);
+    textbox_colours["orange"] = graphics.getRGB(255, 130, 20);
+    textbox_colours["transparent"] = graphics.getRGB(0, 0, 0);
 }
 
 void scriptclass::clearcustom(void)
@@ -162,43 +195,66 @@ void scriptclass::run(void)
                 scriptdelay = 1;
             }
 #if !defined(NO_CUSTOM_LEVELS)
+            if (words[0] == "setroomname")
+            {
+                ++position;
+                if (INBOUNDS_VEC(position, commands))
+                {
+                    map.roomname_special = true;
+                    map.roomnameset = true;
+                    map.setroomname(commands[position].c_str());
+                }
+            }
             if (words[0] == "warpdir")
             {
-                int temprx=ss_toi(words[1])-1;
-                int tempry=ss_toi(words[2])-1;
+                int temprx = ss_toi(words[1]) - 1;
+                int tempry = ss_toi(words[2]) - 1;
                 const RoomProperty* room;
                 cl.setroomwarpdir(temprx, tempry, ss_toi(words[3]));
 
                 room = cl.getroomprop(temprx, tempry);
 
                 //Do we update our own room?
-                if(game.roomx-100==temprx && game.roomy-100==tempry){
+                if (game.roomx - 100 == temprx && game.roomy - 100 == tempry)
+                {
                     //If screen warping, then override all that:
                     graphics.backgrounddrawn = false;
-                    map.warpx=false; map.warpy=false;
-                    if(room->warpdir==0){
+                    map.warpx = false;
+                    map.warpy = false;
+                    if (room->warpdir == 0)
+                    {
                         map.background = 1;
                         //Be careful, we could be in a Lab or Warp Zone room...
-                        if(room->tileset==2){
+                        if (room->tileset == 2)
+                        {
                             //Lab
                             map.background = 2;
                             graphics.rcol = room->tilecol;
-                        }else if(room->tileset==3){
+                        }
+                        else if (room->tileset == 3)
+                        {
                             //Warp Zone
                             map.background = 6;
                         }
-                    }else if(room->warpdir==1){
-                        map.warpx=true;
-                        map.background=3;
-                        graphics.rcol = cl.getwarpbackground(temprx,tempry);
-                    }else if(room->warpdir==2){
-                        map.warpy=true;
-                        map.background=4;
-                        graphics.rcol = cl.getwarpbackground(temprx,tempry);
-                    }else if(room->warpdir==3){
-                        map.warpx=true; map.warpy=true;
+                    }
+                    else if (room->warpdir == 1)
+                    {
+                        map.warpx = true;
+                        map.background = 3;
+                        graphics.rcol = cl.getwarpbackground(temprx, tempry);
+                    }
+                    else if (room->warpdir == 2)
+                    {
+                        map.warpy = true;
+                        map.background = 4;
+                        graphics.rcol = cl.getwarpbackground(temprx, tempry);
+                    }
+                    else if (room->warpdir == 3)
+                    {
+                        map.warpx = true;
+                        map.warpy = true;
                         map.background = 5;
-                        graphics.rcol = cl.getwarpbackground(temprx,tempry);
+                        graphics.rcol = cl.getwarpbackground(temprx, tempry);
                     }
                 }
             }
@@ -207,7 +263,7 @@ void scriptclass::run(void)
                 const RoomProperty* const room = cl.getroomprop(ss_toi(words[1])-1, ss_toi(words[2])-1);
                 if (room->warpdir == ss_toi(words[3]))
                 {
-                    load("custom_" + raw_words[4]);
+                    loadalts("custom_" + words[4], "custom_" + raw_words[4]);
                     position--;
                 }
             }
@@ -240,7 +296,7 @@ void scriptclass::run(void)
             {
                 if (game.trinkets() >= ss_toi(words[1]))
                 {
-                    load("custom_" + raw_words[2]);
+                    loadalts("custom_" + words[2], "custom_" + raw_words[2]);
                     position--;
                 }
             }
@@ -248,7 +304,7 @@ void scriptclass::run(void)
             {
                 if (game.trinkets() < ss_toi(words[1]))
                 {
-                    load("custom_" + raw_words[2]);
+                    loadalts("custom_" + words[2], "custom_" + raw_words[2]);
                     position--;
                 }
             }
@@ -257,7 +313,7 @@ void scriptclass::run(void)
                 int flag = ss_toi(words[1]);
                 if (INBOUNDS_ARR(flag, obj.flags) && obj.flags[flag])
                 {
-                    load("custom_" + raw_words[2]);
+                    loadalts("custom_" + words[2], "custom_" + raw_words[2]);
                     position--;
                 }
             }
@@ -413,89 +469,28 @@ void scriptclass::run(void)
             }
             else if (words[0] == "text")
             {
-                //oh boy
-                //first word is the colour.
-                if (words[1] == "cyan")
+                // oh boy
+                // first word is the colour.
+                if (textbox_colours.count(words[1]) == 0)
                 {
-                    r = 164;
-                    g = 164;
-                    b = 255;
+                    // No colour named this, use gray
+                    words[1] = "gray";
                 }
-                else if (words[1] == "player")
-                {
-                    r = 164;
-                    g = 164;
-                    b = 255;
-                }
-                else if (words[1] == "red")
-                {
-                    r = 255;
-                    g = 60;
-                    b = 60;
-                }
-                else if (words[1] == "green")
-                {
-                    r = 144;
-                    g = 255;
-                    b = 144;
-                }
-                else if (words[1] == "yellow")
-                {
-                    r = 255;
-                    g = 255;
-                    b = 134;
-                }
-                else if (words[1] == "blue")
-                {
-                    r = 95;
-                    g = 95;
-                    b = 255;
-                }
-                else if (words[1] == "purple")
-                {
-                    r = 255;
-                    g = 134;
-                    b = 255;
-                }
-                else if (words[1] == "white")
-                {
-                    r = 244;
-                    g = 244;
-                    b = 244;
-                }
-                else if (words[1] == "gray")
-                {
-                    r = 174;
-                    g = 174;
-                    b = 174;
-                }
-                else if (words[1] == "orange")
-                {
-                    r = 255;
-                    g = 130;
-                    b = 20;
-                }
-                else if (words[1] == "transparent")
-                {
-                    r = 0;
-                    g = 0;
-                    b = 0;
-                }
-                else
-                {
-                    //use a gray
-                    r = 174;
-                    g = 174;
-                    b = 174;
-                }
+
+                r = textbox_colours[words[1]].r;
+                g = textbox_colours[words[1]].g;
+                b = textbox_colours[words[1]].b;
 
                 //next are the x,y coordinates
                 textx = ss_toi(words[2]);
                 texty = ss_toi(words[3]);
 
+                textlarge = endsWith(words[4].c_str(), "l") || endsWith(words[4].c_str(), "L");
+                int lines = ss_toi(words[4]);
+
                 //Number of lines for the textbox!
                 txt.clear();
-                for (int i = 0; i < ss_toi(words[4]); i++)
+                for (int i = 0; i < lines; i++)
                 {
                     position++;
                     if (INBOUNDS_VEC(position, commands))
@@ -503,6 +498,13 @@ void scriptclass::run(void)
                         txt.push_back(commands[position]);
                     }
                 }
+
+                textcentertext = false;
+                textpad_left = 0;
+                textpad_right = 0;
+                textpadtowidth = 0;
+
+                translate_dialogue();
             }
             else if (words[0] == "position")
             {
@@ -544,12 +546,12 @@ void scriptclass::run(void)
                     if (j == 1)    //left
                     {
                         textx = obj.entities[i].xp -10000; //tells the box to be oriented correctly later
-                        texty = obj.entities[i].yp - 16 - (txt.size()*8);
+                        texty = obj.entities[i].yp - 16 - (txt.size() * font::height(PR_FONT_LEVEL));
                     }
                     else if (j == 0)     //Right
                     {
                         textx = obj.entities[i].xp - 16;
-                        texty = obj.entities[i].yp - 18 - (txt.size() * 8);
+                        texty = obj.entities[i].yp - 18 - (txt.size() * font::height(PR_FONT_LEVEL));
                     }
                 }
                 else if (INBOUNDS_VEC(i, obj.entities))
@@ -641,12 +643,12 @@ void scriptclass::run(void)
                     if (j == 1)    //left
                     {
                         textx = obj.entities[i].xp -10000; //tells the box to be oriented correctly later
-                        texty = obj.entities[i].yp - 16 - (txt.size()*8);
+                        texty = obj.entities[i].yp - 16 - (txt.size() * font::height(PR_FONT_LEVEL));
                     }
                     else if (j == 0)     //Right
                     {
                         textx = obj.entities[i].xp - 16;
-                        texty = obj.entities[i].yp - 18 - (txt.size() * 8);
+                        texty = obj.entities[i].yp - 18 - (txt.size() * font::height(PR_FONT_LEVEL));
                     }
                 }
                 else if (INBOUNDS_VEC(i, obj.entities))
@@ -681,12 +683,30 @@ void scriptclass::run(void)
                 }
                 graphics.createtextboxreal(txt[0], textx, texty, r, g, b, textflipme);
                 textflipme = false;
+
+                graphics.setlarge(textlarge);
+                textlarge = false;
+
                 if ((int) txt.size() > 1)
                 {
                     for (i = 1; i < (int) txt.size(); i++)
                     {
                         graphics.addline(txt[i]);
                     }
+                }
+
+                // Some textbox formatting that can be set by translations...
+                if (textcentertext)
+                {
+                    graphics.textboxcentertext();
+                }
+                if (textpad_left > 0 || textpad_right > 0)
+                {
+                    graphics.textboxpad(textpad_left, textpad_right);
+                }
+                if (textpadtowidth > 0)
+                {
+                    graphics.textboxpadtowidth(textpadtowidth);
                 }
 
                 //the textbox cannot be outside the screen. Fix if it is.
@@ -724,6 +744,12 @@ void scriptclass::run(void)
                         || key.isDown(KEYBOARD_UP) || key.isDown(KEYBOARD_DOWN)) game.jumpheld = true;
                 }
                 game.backgroundtext = false;
+
+                if (textbuttons)
+                {
+                    graphics.textboxbuttons();
+                }
+                textbuttons = false;
             }
             else if (words[0] == "endtext")
             {
@@ -760,6 +786,8 @@ void scriptclass::run(void)
                 {
                     obj.entities[i].xp = 30;
                     obj.entities[i].yp = 46;
+                    obj.entities[i].lerpoldxp = obj.entities[i].xp;
+                    obj.entities[i].lerpoldyp = obj.entities[i].yp;
                     obj.entities[i].size = 13;
                     obj.entities[i].colour = 23;
                     obj.entities[i].cx = 36;// 6;
@@ -774,6 +802,7 @@ void scriptclass::run(void)
                 if (INBOUNDS_VEC(i, obj.entities))
                 {
                     obj.entities[i].xp = 100;
+                    obj.entities[i].lerpoldxp = obj.entities[i].xp;
                     obj.entities[i].size = 0;
                     obj.entities[i].colour = 0;
                     obj.entities[i].cx = 6;
@@ -1117,6 +1146,7 @@ void scriptclass::run(void)
             }
             else if (words[0] == "gamestate")
             {
+                // Allow the gamestate command to bypass statelock, at least for now
                 game.state = ss_toi(words[1]);
                 game.statedelay = 0;
             }
@@ -1143,7 +1173,7 @@ void scriptclass::run(void)
             {
                 if (map.isexplored(ss_toi(words[1]), ss_toi(words[2])))
                 {
-                    load(raw_words[3]);
+                    loadalts(words[3], raw_words[3]);
                     position--;
                 }
             }
@@ -1151,7 +1181,7 @@ void scriptclass::run(void)
             {
                 if (game.lastsaved==ss_toi(words[1]))
                 {
-                    load(raw_words[2]);
+                    loadalts(words[2], raw_words[2]);
                     position--;
                 }
             }
@@ -1159,7 +1189,7 @@ void scriptclass::run(void)
             {
                 if (game.nocutscenes)
                 {
-                    load(raw_words[1]);
+                    loadalts(words[1], raw_words[1]);
                     position--;
                 }
             }
@@ -1168,7 +1198,7 @@ void scriptclass::run(void)
                 int flag = ss_toi(words[1]);
                 if (INBOUNDS_ARR(flag, obj.flags) && obj.flags[flag])
                 {
-                    load(raw_words[2]);
+                    loadalts(words[2], raw_words[2]);
                     position--;
                 }
             }
@@ -1177,7 +1207,7 @@ void scriptclass::run(void)
                 int crewmate = ss_toi(words[1]);
                 if (INBOUNDS_ARR(crewmate, game.crewstats) && !game.crewstats[crewmate])
                 {
-                    load(raw_words[2]);
+                    loadalts(words[2], raw_words[2]);
                     position--;
                 }
             }
@@ -1185,7 +1215,7 @@ void scriptclass::run(void)
             {
                 if (game.trinkets() >= ss_toi(words[1]))
                 {
-                    load(raw_words[2]);
+                    loadalts(words[2], raw_words[2]);
                     position--;
                 }
             }
@@ -1193,7 +1223,7 @@ void scriptclass::run(void)
             {
                 if (game.stat_trinkets < ss_toi(words[1]))
                 {
-                    load(raw_words[2]);
+                    loadalts(words[2], raw_words[2]);
                     position--;
                 }
             }
@@ -1328,7 +1358,6 @@ void scriptclass::run(void)
             }
             else if (words[0] == "resetgame")
             {
-                map.resetnames();
                 map.resetmap();
                 map.resetplayer();
                 graphics.towerbg.tdrawback = true;
@@ -1367,7 +1396,7 @@ void scriptclass::run(void)
             }
             else if (words[0] == "loadscript")
             {
-                load(raw_words[1]);
+                loadalts(words[1], raw_words[1]);
                 position--;
             }
             else if (words[0] == "rollcredits")
@@ -1376,8 +1405,7 @@ void scriptclass::run(void)
                 if (map.custommode && !map.custommodeforreal)
                 {
                     game.returntoeditor();
-                    ed.note = "Rolled credits";
-                    ed.notedelay = 45;
+                    ed.show_note(loc::gettext("Rolled credits"));
                 }
                 else
 #endif
@@ -1644,7 +1672,6 @@ void scriptclass::run(void)
             }
             else if (words[0] == "setactivityposition")
             {
-                obj.customactivitypositionx = ss_toi(words[1]);
                 obj.customactivitypositiony = ss_toi(words[2]);
             }
             else if (words[0] == "createrescuedcrew")
@@ -1719,23 +1746,38 @@ void scriptclass::run(void)
 
                 graphics.textboxremovefast();
 
-                graphics.createtextboxflipme("        Congratulations!       ", 50, 85, 174, 174, 174);
-                graphics.addline("");
-                graphics.addline("You have found a shiny trinket!");
+                graphics.createtextboxflipme(loc::gettext("Congratulations!\n\nYou have found a shiny trinket!"), 50, 85, TEXT_COLOUR("gray"));
+                graphics.textboxprintflags(PR_FONT_INTERFACE);
+                int h = graphics.textboxwrap(2);
+                graphics.textboxcentertext();
+                graphics.textboxpad(1, 1);
                 graphics.textboxcenterx();
 
-                std::string usethisnum;
+                int max_trinkets;
+
 #if !defined(NO_CUSTOM_LEVELS)
                 if (map.custommode)
                 {
-                    usethisnum = help.number_words(cl.numtrinkets());
+                    max_trinkets = cl.numtrinkets();
                 }
                 else
 #endif
                 {
-                    usethisnum = "Twenty";
+                    max_trinkets = 20;
                 }
-                graphics.createtextboxflipme(" " + help.number_words(game.trinkets()) + " out of " + usethisnum + " ", 50, 135, 174, 174, 174);
+
+                char buffer[SCREEN_WIDTH_CHARS + 1];
+                vformat_buf(
+                    buffer, sizeof(buffer),
+                    loc::gettext("{n_trinkets|wordy} out of {max_trinkets|wordy}"),
+                    "n_trinkets:int, max_trinkets:int",
+                    game.trinkets(), max_trinkets
+                );
+                graphics.createtextboxflipme(buffer, 50, 95+h, TEXT_COLOUR("gray"));
+                graphics.textboxprintflags(PR_FONT_INTERFACE);
+                graphics.textboxwrap(2);
+                graphics.textboxcentertext();
+                graphics.textboxpad(1, 1);
                 graphics.textboxcenterx();
 
                 if (!game.backgroundtext)
@@ -1754,9 +1796,11 @@ void scriptclass::run(void)
 
                 graphics.textboxremovefast();
 
-                graphics.createtextbox("        Congratulations!       ", 50, 85, 174, 174, 174);
-                graphics.addline("");
-                graphics.addline("You have found the secret lab!");
+                graphics.createtextbox(loc::gettext("Congratulations!\n\nYou have found the secret lab!"), 50, 85, TEXT_COLOUR("gray"));
+                graphics.textboxprintflags(PR_FONT_INTERFACE);
+                graphics.textboxwrap(2);
+                graphics.textboxcentertext();
+                graphics.textboxpad(1, 1);
                 graphics.textboxcenterx();
                 graphics.textboxcentery();
 
@@ -1774,11 +1818,9 @@ void scriptclass::run(void)
             {
                 graphics.textboxremovefast();
 
-                graphics.createtextbox("The secret lab is separate from", 50, 85, 174, 174, 174);
-                graphics.addline("the rest of the game. You can");
-                graphics.addline("now come back here at any time");
-                graphics.addline("by selecting the new SECRET LAB");
-                graphics.addline("option in the play menu.");
+                graphics.createtextbox(loc::gettext("The secret lab is separate from the rest of the game. You can now come back here at any time by selecting the new SECRET LAB option in the play menu."), 50, 85, TEXT_COLOUR("gray"));
+                graphics.textboxprintflags(PR_FONT_INTERFACE);
+                graphics.textboxwrap(0);
                 graphics.textboxcenterx();
                 graphics.textboxcentery();
 
@@ -1838,6 +1880,7 @@ void scriptclass::run(void)
             }
             else if (words[0] == "specialline")
             {
+                //Localization is handled with regular cutscene dialogue
                 switch(ss_toi(words[1]))
                 {
                 case 1:
@@ -1860,6 +1903,8 @@ void scriptclass::run(void)
                     }
                     break;
                 }
+
+                translate_dialogue();
             }
             else if (words[0] == "trinketbluecontrol")
             {
@@ -2337,6 +2382,45 @@ void scriptclass::run(void)
                     }
                 }
             }
+            else if (words[0] == "textbuttons")
+            {
+                // Parse buttons in the next textbox
+                textbuttons = true;
+            }
+            else if (words[0] == "textcase")
+            {
+                // Used to disambiguate identical textboxes for translations (1 by default)
+                textcase = ss_toi(words[1]);
+            }
+            else if (words[0] == "loadtext")
+            {
+                if (map.custommode)
+                {
+                    loc::lang_custom = words[1];
+                    loc::loadtext_custom(NULL);
+                }
+            }
+            else if (words[0] == "iflang")
+            {
+                if (loc::lang == words[1])
+                {
+                    loadalts("custom_" + words[2], "custom_" + raw_words[2]);
+                    position--;
+                }
+            }
+            else if (words[0] == "setfont")
+            {
+#ifndef NO_CUSTOM_LEVELS
+                if (words[1] == "")
+                {
+                    font::set_level_font(cl.level_font_name.c_str());
+                }
+                else
+                {
+                    font::set_level_font(words[1].c_str());
+                }
+#endif
+            }
 
             position++;
         }
@@ -2363,11 +2447,66 @@ void scriptclass::run(void)
     }
 }
 
-void scriptclass::resetgametomenu(void)
+void scriptclass::translate_dialogue(void)
 {
-    obj.entities.clear();
-    game.quittomenu();
-    game.createmenu(Menu::gameover);
+    char tc = textcase;
+    textcase = 1;
+
+    if (!loc::is_cutscene_translated(scriptname))
+    {
+        return;
+    }
+
+    // English text needs to be un-wordwrapped, translated, and re-wordwrapped
+    std::string eng;
+    for (size_t i = 0; i < txt.size(); i++)
+    {
+        if (i != 0)
+        {
+            eng.append("\n");
+        }
+        eng.append(txt[i]);
+    }
+
+    eng = font::string_unwordwrap(eng);
+    const loc::TextboxFormat* format = loc::gettext_cutscene(scriptname, eng, tc);
+    if (format == NULL || format->text == NULL || format->text[0] == '\0')
+    {
+        return;
+    }
+    std::string tra;
+    if (format->tt)
+    {
+        tra = std::string(format->text);
+        size_t pipe;
+        while (true)
+        {
+            pipe = tra.find('|', 0);
+            if (pipe == std::string::npos)
+            {
+                break;
+            }
+            tra.replace(pipe, 1, "\n");
+        }
+    }
+    else
+    {
+        tra = font::string_wordwrap_balanced(PR_FONT_LEVEL, format->text, format->wraplimit);
+    }
+
+    textcentertext = format->centertext;
+    textpad_left = format->pad_left;
+    textpad_right = format->pad_right;
+    textpadtowidth = format->padtowidth;
+
+    txt.clear();
+    size_t startline = 0;
+    size_t newline;
+    do {
+        newline = tra.find('\n', startline);
+        txt.push_back(tra.substr(startline, newline-startline));
+        startline = newline+1;
+    } while (newline != std::string::npos);
 }
 
 static void gotoerrorloadinglevel(void)
@@ -2379,490 +2518,275 @@ static void gotoerrorloadinglevel(void)
     music.play(6); /* title screen music */
 }
 
-void scriptclass::startgamemode( int t )
+#define DECLARE_MODE_FUNC(funcname, modename) \
+    static bool funcname(const enum StartMode mode) \
+    { \
+        return mode >= Start_FIRST_##modename && mode <= Start_LAST_##modename; \
+    }
+
+DECLARE_MODE_FUNC(is_no_death_mode, NODEATHMODE)
+DECLARE_MODE_FUNC(is_intermission_1, INTERMISSION1)
+DECLARE_MODE_FUNC(is_intermission_2, INTERMISSION2)
+
+#undef DECLARE_MODE_FUNC
+
+void scriptclass::startgamemode(const enum StartMode mode)
 {
-    switch(t)
+    if (mode == Start_QUIT)
     {
-    case 0:  //Normal new game
-        game.gamestate = GAMEMODE;
-        hardreset();
-        game.start();
-        game.jumpheld = true;
-        graphics.showcutscenebars = true;
-        graphics.setbars(320);
+        VVV_exit(0);
+    }
 
-        //set flipmode
-        if (graphics.setflipmode) graphics.flipmode = true;
-        else obj.flags[73] = true;
+    struct
+    {
+        bool initialized;
+        int size;
+        int cx;
+        int cy;
+        int w;
+        int h;
+    }
+    player_hitbox;
+    SDL_zero(player_hitbox);
 
-        if(obj.entities.empty())
+    if (GlitchrunnerMode_less_than_or_equal(Glitchrunner2_2))
+    {
+        /* Preserve player hitbox */
+        const int player_idx = obj.getplayer();
+        if (INBOUNDS_VEC(player_idx, obj.entities))
         {
-            obj.createentity(game.savex, game.savey, 0, 0); //In this game, constant, never destroyed
+            const entclass* player = &obj.entities[player_idx];
+            player_hitbox.initialized = true;
+            player_hitbox.size = player->size;
+            player_hitbox.cx = player->cx;
+            player_hitbox.cy = player->cy;
+            player_hitbox.w = player->w;
+            player_hitbox.h = player->h;
         }
-        map.resetplayer();
-        map.gotoroom(game.saverx, game.savery);
-        map.initmapdata();
+    }
 
-        load("intro");
+    /* Containers which need to be reset before gameplay starts
+     * ex. before custom levels get loaded */
+
+    switch (mode)
+    {
+    case Start_EDITORPLAYTESTING:
         break;
-    case 1:
-        game.gamestate = GAMEMODE;
-        hardreset();
-        game.start();
-        game.loadtele();
-        game.gravitycontrol = game.savegc;
-        game.jumpheld = true;
-
-        //set flipmode
-        if (graphics.setflipmode) graphics.flipmode = true;
-        else obj.flags[73] = true;
-
-        if(obj.entities.empty())
-        {
-            obj.createentity(game.savex, game.savey, 0, 0); //In this game, constant, never destroyed
-        }
-        map.resetplayer();
-        map.gotoroom(game.saverx, game.savery);
-        map.initmapdata();
-        graphics.fademode = FADE_START_FADEIN;
+    default:
+        textbox_colours.clear();
+        add_default_colours();
         break;
-    case 2: //Load Quicksave
+    }
+
+    hardreset();
+
+    if (mode == Start_EDITOR)
+    {
+        game.gamestate = EDITORMODE;
+    }
+    else
+    {
         game.gamestate = GAMEMODE;
-        hardreset();
-        game.start();
-        game.loadquick();
-        game.gravitycontrol = game.savegc;
-        game.jumpheld = true;
+    }
 
-        //set flipmode
-        if (graphics.setflipmode) graphics.flipmode = true;
-        else obj.flags[73] = true;
-
-        if(obj.entities.empty())
-        {
-            obj.createentity(game.savex, game.savey, 0, 0); //In this game, constant, never destroyed
-        }
-        map.resetplayer();
-        map.gotoroom(game.saverx, game.savery);
-        map.initmapdata();
-        //a very special case for here needs to ensure that the tower is set correctly
-        if (map.towermode)
-        {
-            map.resetplayer();
-
-            i = obj.getplayer();
-            if (INBOUNDS_VEC(i, obj.entities))
-            {
-                map.ypos = obj.entities[i].yp - 120;
-                map.oldypos = map.ypos;
-            }
-            map.setbgobjlerp(graphics.towerbg);
-            map.cameramode = 0;
-            map.colsuperstate = 0;
-        }
-        graphics.fademode = FADE_START_FADEIN;
+    // Font handling
+    switch (mode)
+    {
+    case Start_EDITORPLAYTESTING:
+    case Start_CUSTOM:
+    case Start_CUSTOM_QUICKSAVE:
         break;
-    case 3:
-    case 4:
-    case 5:
-    case 6:
-    case 7:
-    case 8:
-        //Start Time Trial
+    case Start_EDITOR:
+        font::set_level_font_new();
+        break;
+    default:
+        font::set_level_font_interface();
+    }
+
+    game.jumpheld = true;
+
+    switch (mode)
+    {
+    case Start_MAINGAME:
+    case Start_MAINGAME_TELESAVE:
+    case Start_MAINGAME_QUICKSAVE:
+    case Start_NODEATHMODE_WITHCUTSCENES:
+    case Start_NODEATHMODE_NOCUTSCENES:
+        game.nodeathmode = is_no_death_mode(mode);
+        game.nocutscenes = (mode == Start_NODEATHMODE_NOCUTSCENES);
+
+        game.start();
+
+        switch (mode)
+        {
+        case Start_MAINGAME_TELESAVE:
+            game.loadtele();
+            graphics.fademode = FADE_START_FADEIN;
+            break;
+        case Start_MAINGAME_QUICKSAVE:
+            game.loadquick();
+            graphics.fademode = FADE_START_FADEIN;
+            break;
+        default:
+            graphics.showcutscenebars = true;
+            graphics.setbars(320);
+            load("intro");
+        }
+        break;
+
+    case Start_TIMETRIAL_SPACESTATION1:
+    case Start_TIMETRIAL_LABORATORY:
+    case Start_TIMETRIAL_TOWER:
+    case Start_TIMETRIAL_SPACESTATION2:
+    case Start_TIMETRIAL_WARPZONE:
+    case Start_TIMETRIAL_FINALLEVEL:
         music.fadeout();
 
-        hardreset();
         game.nocutscenes = true;
         game.intimetrial = true;
         game.timetrialcountdown = 150;
-        game.timetrialparlost = false;
-        game.timetriallevel = t - 3;
+        game.timetriallevel = mode - Start_FIRST_TIMETRIAL;
 
-        switch (t)
+        if (map.invincibility)
         {
-        case 3:
+            game.sabotage_time_trial();
+        }
+
+        switch (mode)
+        {
+        case Start_TIMETRIAL_SPACESTATION1:
             game.timetrialpar = 75;
             game.timetrialshinytarget = 2;
             break;
-        case 4:
+        case Start_TIMETRIAL_LABORATORY:
             game.timetrialpar = 165;
             game.timetrialshinytarget = 4;
             break;
-        case 5:
+        case Start_TIMETRIAL_TOWER:
             game.timetrialpar = 105;
             game.timetrialshinytarget = 2;
             break;
-        case 6:
+        case Start_TIMETRIAL_SPACESTATION2:
             game.timetrialpar = 200;
             game.timetrialshinytarget = 5;
             break;
-        case 7:
+        case Start_TIMETRIAL_WARPZONE:
             game.timetrialpar = 120;
             game.timetrialshinytarget = 1;
             break;
-        case 8:
+        case Start_TIMETRIAL_FINALLEVEL:
             game.timetrialpar = 135;
             game.timetrialshinytarget = 1;
-            map.finalmode = true; //Enable final level mode
+            map.finalmode = true;
             map.final_colormode = false;
             map.final_mapcol = 0;
             map.final_colorframe = 0;
             break;
+        default:
+            VVV_unreachable();
         }
 
-        game.gamestate = GAMEMODE;
         game.starttrial(game.timetriallevel);
-        game.jumpheld = true;
 
-        if (graphics.setflipmode) graphics.flipmode = true;//set flipmode
-        if (obj.entities.empty())
+        if (game.translator_exploring)
         {
-            obj.createentity(game.savex, game.savey, 0, 0); //In this game, constant, never destroyed
+            game.timetrialcountdown = 0;
+            game.timetrialparlost = true;
+            SDL_memset(map.explored, true, sizeof(map.explored));
         }
-        map.resetplayer();
-        map.gotoroom(game.saverx, game.savery);
-        map.initmapdata();
+
         graphics.fademode = FADE_START_FADEIN;
         break;
-    case 9:
-        game.gamestate = GAMEMODE;
-        hardreset();
-        game.nodeathmode = true;
-        game.start();
-        game.jumpheld = true;
-        graphics.showcutscenebars = true;
-        graphics.setbars(320);
 
-        //set flipmode
-        if (graphics.setflipmode) graphics.flipmode = true;
-
-        if(obj.entities.empty())
-        {
-            obj.createentity(game.savex, game.savey, 0, 0); //In this game, constant, never destroyed
-        }
-        map.resetplayer();
-        map.gotoroom(game.saverx, game.savery);
-        map.initmapdata();
-
-
-        load("intro");
-        break;
-    case 10:
-        game.gamestate = GAMEMODE;
-        hardreset();
-        game.nodeathmode = true;
-        game.nocutscenes = true;
-
-        game.start();
-        game.jumpheld = true;
-        graphics.showcutscenebars = true;
-        graphics.setbars(320);
-
-        //set flipmode
-        if (graphics.setflipmode) graphics.flipmode = true;
-
-        if(obj.entities.empty())
-        {
-            obj.createentity(game.savex, game.savey, 0, 0); //In this game, constant, never destroyed
-        }
-        map.resetplayer();
-        map.gotoroom(game.saverx, game.savery);
-        map.initmapdata();
-
-
-        load("intro");
-        break;
-    case 11:
-        game.gamestate = GAMEMODE;
-        hardreset();
-
+    case Start_SECRETLAB:
         game.startspecial(0);
-        game.jumpheld = true;
 
-        //Secret lab, so reveal the map, give them all 20 trinkets
+        /* Unlock the entire map */
         SDL_memset(obj.collect, true, sizeof(obj.collect[0]) * 20);
+        /* Give all 20 trinkets */
         SDL_memset(map.explored, true, sizeof(map.explored));
         i = 400; /* previously a nested for-loop set this */
         game.insecretlab = true;
         map.showteleporters = true;
 
-        //set flipmode
-        if (graphics.setflipmode) graphics.flipmode = true;
-
-        if(obj.entities.empty())
-        {
-            obj.createentity(game.savex, game.savey, 0, 0); //In this game, constant, never destroyed
-        }
-        map.resetplayer();
-        map.gotoroom(game.saverx, game.savery);
-        map.initmapdata();
         music.play(11);
         graphics.fademode = FADE_START_FADEIN;
         break;
-    case 12:
-        game.gamestate = GAMEMODE;
-        hardreset();
+
+    case Start_INTERMISSION1_VITELLARY:
+    case Start_INTERMISSION1_VERMILION:
+    case Start_INTERMISSION1_VERDIGRIS:
+    case Start_INTERMISSION1_VICTORIA:
+    case Start_INTERMISSION2_VITELLARY:
+    case Start_INTERMISSION2_VERMILION:
+    case Start_INTERMISSION2_VERDIGRIS:
+    case Start_INTERMISSION2_VICTORIA:
         music.fadeout();
 
-        game.lastsaved = 2;
+        switch (mode)
+        {
+        case Start_INTERMISSION1_VITELLARY:
+        case Start_INTERMISSION2_VITELLARY:
+            game.lastsaved = 2;
+            break;
+        case Start_INTERMISSION1_VERMILION:
+        case Start_INTERMISSION2_VERMILION:
+            game.lastsaved = 3;
+            break;
+        case Start_INTERMISSION1_VERDIGRIS:
+        case Start_INTERMISSION2_VERDIGRIS:
+            game.lastsaved = 4;
+            break;
+        case Start_INTERMISSION1_VICTORIA:
+        case Start_INTERMISSION2_VICTORIA:
+            game.lastsaved = 5;
+            break;
+        default:
+            VVV_unreachable();
+        }
 
         game.crewstats[game.lastsaved] = true;
         game.inintermission = true;
-        game.companion = 11;
-        game.supercrewmate = true;
-        game.scmprogress = 0;
+
+        if (is_intermission_1(mode))
+        {
+            game.companion = 11;
+            game.supercrewmate = true;
+            game.scmprogress = 0;
+        }
+
         map.finalmode = true;
         map.final_colormode = false;
         map.final_mapcol = 0;
         map.final_colorframe = 0;
         game.startspecial(1);
-        game.jumpheld = true;
 
-        //set flipmode
-        if (graphics.setflipmode) graphics.flipmode = true;
-        if(obj.entities.empty())
+        if (is_intermission_1(mode))
         {
-            obj.createentity(game.savex, game.savey, 0, 0); //In this game, constant, never destroyed
+            load("intermission_1");
         }
-        map.resetplayer();
-        map.gotoroom(game.saverx, game.savery);
-        map.initmapdata();
-
-        load("intermission_1");
-        break;
-    case 13:
-        game.gamestate = GAMEMODE;
-        hardreset();
-        music.fadeout();
-
-        game.lastsaved = 3;
-
-        game.crewstats[game.lastsaved] = true;
-        game.inintermission = true;
-        game.companion = 11;
-        game.supercrewmate = true;
-        game.scmprogress = 0;
-        map.finalmode = true;
-        map.final_colormode = false;
-        map.final_mapcol = 0;
-        map.final_colorframe = 0;
-        game.startspecial(1);
-        game.jumpheld = true;
-
-        //set flipmode
-        if (graphics.setflipmode) graphics.flipmode = true;
-        if(obj.entities.empty())
+        else if (is_intermission_2(mode))
         {
-            obj.createentity(game.savex, game.savey, 0, 0); //In this game, constant, never destroyed
+            load("intermission_2");
         }
-        map.resetplayer();
-        map.gotoroom(game.saverx, game.savery);
-        map.initmapdata();
-
-        load("intermission_1");
         break;
-    case 14:
-        game.gamestate = GAMEMODE;
-        hardreset();
-        music.fadeout();
 
-        game.lastsaved = 4;
-
-        game.crewstats[game.lastsaved] = true;
-        game.inintermission = true;
-        game.companion = 11;
-        game.supercrewmate = true;
-        game.scmprogress = 0;
-        map.finalmode = true;
-        map.final_colormode = false;
-        map.final_mapcol = 0;
-        map.final_colorframe = 0;
-        game.startspecial(1);
-        game.jumpheld = true;
-
-        //set flipmode
-        if (graphics.setflipmode) graphics.flipmode = true;
-        if(obj.entities.empty())
-        {
-            obj.createentity(game.savex, game.savey, 0, 0); //In this game, constant, never destroyed
-        }
-        map.resetplayer();
-        map.gotoroom(game.saverx, game.savery);
-        map.initmapdata();
-
-        load("intermission_1");
-        break;
-    case 15:
-        game.gamestate = GAMEMODE;
-        hardreset();
-        music.fadeout();
-
-        game.lastsaved = 5;
-
-        game.crewstats[game.lastsaved] = true;
-        game.inintermission = true;
-        game.companion = 11;
-        game.supercrewmate = true;
-        game.scmprogress = 0;
-        map.finalmode = true;
-        map.final_colormode = false;
-        map.final_mapcol = 0;
-        map.final_colorframe = 0;
-        game.startspecial(1);
-        game.jumpheld = true;
-
-        //set flipmode
-        if (graphics.setflipmode) graphics.flipmode = true;
-        if(obj.entities.empty())
-        {
-            obj.createentity(game.savex, game.savey, 0, 0); //In this game, constant, never destroyed
-        }
-        map.resetplayer();
-        map.gotoroom(game.saverx, game.savery);
-        map.initmapdata();
-
-        load("intermission_1");
-        break;
-    case 16:
-        game.gamestate = GAMEMODE;
-        hardreset();
-        music.fadeout();
-
-        game.lastsaved = 2;
-
-        game.crewstats[game.lastsaved] = true;
-        game.inintermission = true;
-        map.finalmode = true;
-        map.final_colormode = false;
-        map.final_mapcol = 0;
-        map.final_colorframe = 0;
-        game.startspecial(1);
-        game.jumpheld = true;
-
-        //set flipmode
-        if (graphics.setflipmode) graphics.flipmode = true;
-        if(obj.entities.empty())
-        {
-            obj.createentity(game.savex, game.savey, 0, 0); //In this game, constant, never destroyed
-        }
-        map.resetplayer();
-        map.gotoroom(game.saverx, game.savery);
-        map.initmapdata();
-
-        load("intermission_2");
-        break;
-    case 17:
-        game.gamestate = GAMEMODE;
-        hardreset();
-        music.fadeout();
-
-        game.lastsaved = 3;
-
-        game.crewstats[game.lastsaved] = true;
-        game.inintermission = true;
-        map.finalmode = true;
-        map.final_colormode = false;
-        map.final_mapcol = 0;
-        map.final_colorframe = 0;
-        game.startspecial(1);
-        game.jumpheld = true;
-
-        //set flipmode
-        if (graphics.setflipmode) graphics.flipmode = true;
-        if(obj.entities.empty())
-        {
-            obj.createentity(game.savex, game.savey, 0, 0); //In this game, constant, never destroyed
-        }
-        map.resetplayer();
-        map.gotoroom(game.saverx, game.savery);
-        map.initmapdata();
-
-        load("intermission_2");
-        break;
-    case 18:
-        game.gamestate = GAMEMODE;
-        hardreset();
-        music.fadeout();
-
-        game.lastsaved = 4;
-
-        game.crewstats[game.lastsaved] = true;
-        game.inintermission = true;
-        map.finalmode = true;
-        map.final_colormode = false;
-        map.final_mapcol = 0;
-        map.final_colorframe = 0;
-        game.startspecial(1);
-        game.jumpheld = true;
-
-        //set flipmode
-        if (graphics.setflipmode) graphics.flipmode = true;
-        if(obj.entities.empty())
-        {
-            obj.createentity(game.savex, game.savey, 0, 0); //In this game, constant, never destroyed
-        }
-        map.resetplayer();
-        map.gotoroom(game.saverx, game.savery);
-        map.initmapdata();
-
-        load("intermission_2");
-        break;
-    case 19:
-        game.gamestate = GAMEMODE;
-        hardreset();
-        music.fadeout();
-
-        game.lastsaved = 5;
-
-        game.crewstats[game.lastsaved] = true;
-        game.inintermission = true;
-        map.finalmode = true;
-        map.final_colormode = false;
-        map.final_mapcol = 0;
-        map.final_colorframe = 0;
-        game.startspecial(1);
-        game.jumpheld = true;
-
-        //set flipmode
-        if (graphics.setflipmode) graphics.flipmode = true;
-        if(obj.entities.empty())
-        {
-            obj.createentity(game.savex, game.savey, 0, 0); //In this game, constant, never destroyed
-        }
-        map.resetplayer();
-        map.gotoroom(game.saverx, game.savery);
-        map.initmapdata();
-
-        load("intermission_2");
-        break;
-#ifndef NO_CUSTOM_LEVELS
+#ifdef NO_CUSTOM_LEVELS
+        UNUSED(gotoerrorloadinglevel);
+#else
 # ifndef NO_EDITOR
-    case 20:
-        //Level editor
-        hardreset();
+    case Start_EDITOR:
         cl.reset();
         ed.reset();
         music.fadeout();
         map.custommode = true;
         map.custommodeforreal = false;
-
-        game.gamestate = EDITORMODE;
-        game.jumpheld = true;
-
-        if (graphics.setflipmode) graphics.flipmode = true;//set flipmode
-        if(obj.entities.empty())
-        {
-            obj.createentity(game.savex, game.savey, 0, 0); //In this game, constant, never destroyed
-        }
-        map.resetplayer();
-        map.gotoroom(game.saverx, game.savery);
-        map.initmapdata();
         graphics.fademode = FADE_START_FADEIN;
         break;
-    case 21:  //play custom level (in editor)
-        game.gamestate = GAMEMODE;
+
+    case Start_EDITORPLAYTESTING:
         music.fadeout();
-        hardreset();
+
         //If warpdir() is used during playtesting, we need to set it back after!
         for (int j = 0; j < cl.maxheight; j++)
         {
@@ -2871,34 +2795,28 @@ void scriptclass::startgamemode( int t )
                 ed.kludgewarpdir[i+(j*cl.maxwidth)]=cl.roomproperties[i+(j*cl.maxwidth)].warpdir;
             }
         }
-        game.customstart();
-        game.jumpheld = true;
 
+        game.customstart();
         ed.ghosts.clear();
 
         map.custommode = true;
+        map.custommodeforreal = false;
+        map.customshowmm = true;
 
-        //set flipmode
-        if (graphics.setflipmode) graphics.flipmode = true;
-
-        if(obj.entities.empty())
+        if (cl.levmusic > 0)
         {
-            obj.createentity(game.savex, game.savey, 0, 0); //In this game, constant, never destroyed
-        }
-        map.resetplayer();
-        map.gotoroom(game.saverx, game.savery);
-        map.initmapdata();
-        if(cl.levmusic>0){
             music.play(cl.levmusic);
-        }else{
-            music.currentsong=-1;
+        }
+        else
+        {
+            music.currentsong = -1;
         }
         break;
 # endif /* NO_EDITOR */
-    case 22:  //play custom level (in game)
+
+    case Start_CUSTOM:
+    case Start_CUSTOM_QUICKSAVE:
     {
-        //Initilise the level
-        //First up, find the start point
         std::string filename = std::string(cl.ListOfMetaData[game.playcustomlevel].filename);
         if (!cl.load(filename))
         {
@@ -2907,78 +2825,107 @@ void scriptclass::startgamemode( int t )
         }
         cl.findstartpoint();
 
-        game.gamestate = GAMEMODE;
-        music.fadeout();
-        hardreset();
-        game.customstart();
-        game.jumpheld = true;
-
         map.custommodeforreal = true;
         map.custommode = true;
+        map.customshowmm = true;
 
-        //set flipmode
-        if (graphics.setflipmode) graphics.flipmode = true;
+        music.fadeout();
+        game.customstart();
 
-        if(obj.entities.empty())
+        switch (mode)
         {
-            obj.createentity(game.savex, game.savey, 0, 0); //In this game, constant, never destroyed
-        }
-        map.resetplayer();
-        map.gotoroom(game.saverx, game.savery);
-        map.initmapdata();
-
-        cl.generatecustomminimap();
-        map.customshowmm=true;
-        if(cl.levmusic>0){
-            music.play(cl.levmusic);
-        }else{
-            music.currentsong=-1;
-        }
-        graphics.fademode = FADE_START_FADEIN;
-        break;
-    }
-    case 23: //Continue in custom level
-    {
-        //Initilise the level
-        //First up, find the start point
-        std::string filename = std::string(cl.ListOfMetaData[game.playcustomlevel].filename);
-        if (!cl.load(filename))
-        {
-            gotoerrorloadinglevel();
+        case Start_CUSTOM:
+            if (cl.levmusic > 0)
+            {
+                music.play(cl.levmusic);
+            }
+            else
+            {
+                music.currentsong = -1;
+            }
             break;
+        case Start_CUSTOM_QUICKSAVE:
+            game.customloadquick(cl.ListOfMetaData[game.playcustomlevel].filename);
+            break;
+        default:
+            VVV_unreachable();
         }
-        cl.findstartpoint();
 
-        game.gamestate = GAMEMODE;
-        music.fadeout();
-        hardreset();
-        map.custommodeforreal = true;
-        map.custommode = true;
-
-        game.customstart();
-        game.customloadquick(cl.ListOfMetaData[game.playcustomlevel].filename);
-        game.jumpheld = true;
-        game.gravitycontrol = game.savegc;
-
-
-        //set flipmode
-        if (graphics.setflipmode) graphics.flipmode = true;
-
-        if(obj.entities.empty())
-        {
-            obj.createentity(game.savex, game.savey, 0, 0); //In this game, constant, never destroyed
-        }
-        map.resetplayer();
-        map.gotoroom(game.saverx, game.savery);
-        map.initmapdata();
-        cl.generatecustomminimap();
         graphics.fademode = FADE_START_FADEIN;
         break;
     }
 #endif /* NO_CUSTOM_LEVELS */
-    case 100:
-        VVV_exit(0);
+
+    case Start_CUTSCENETEST:
+        music.fadeout();
+        game.translator_exploring = true;
+        game.translator_cutscene_test = true;
+        game.startspecial(2);
+        game.mapheld = true;
+
+        loadtest(game.cutscenetest_menu_play_id);
         break;
+
+    case Start_QUIT:
+        VVV_unreachable();
+
+#if defined(NO_CUSTOM_LEVELS) || defined(NO_EDITOR)
+    /* Silence warnings about unhandled cases. */
+    default:
+        break;
+#endif
+    }
+
+    game.gravitycontrol = game.savegc;
+    graphics.flipmode = graphics.setflipmode;
+
+    if (!map.custommode && !graphics.setflipmode)
+    {
+        /* Invalidate Flip Mode trophy */
+        obj.flags[73] = true;
+    }
+
+    obj.entities.clear();
+    obj.createentity(game.savex, game.savey, 0, 0);
+    if (player_hitbox.initialized)
+    {
+        /* Restore player hitbox */
+        const int player_idx = obj.getplayer();
+        if (INBOUNDS_VEC(player_idx, obj.entities))
+        {
+            entclass* player = &obj.entities[player_idx];
+            player->size = player_hitbox.size;
+            player->cx = player_hitbox.cx;
+            player->cy = player_hitbox.cy;
+            player->w = player_hitbox.w;
+            player->h = player_hitbox.h;
+        }
+    }
+
+    map.resetplayer();
+    map.gotoroom(game.saverx, game.savery);
+    map.initmapdata();
+#ifndef NO_CUSTOM_LEVELS
+    if (map.custommode)
+    {
+        cl.generatecustomminimap();
+    }
+#endif
+
+    /* If we are spawning in a tower, ensure variables are set correctly */
+    if (map.towermode)
+    {
+        map.resetplayer();
+
+        i = obj.getplayer();
+        if (INBOUNDS_VEC(i, obj.entities))
+        {
+            map.ypos = obj.entities[i].yp - 120;
+            map.oldypos = map.ypos;
+        }
+        map.setbgobjlerp(graphics.towerbg);
+        map.cameramode = 0;
+        map.colsuperstate = 0;
     }
 }
 
@@ -3036,44 +2983,44 @@ void scriptclass::teleport(void)
 
     if(game.teleport_to_x==0 && game.teleport_to_y==0)
     {
-        game.state = 4020;
+        game.setstate(4020);
     }
     else if(game.teleport_to_x==0 && game.teleport_to_y==16)
     {
-        game.state = 4030;
+        game.setstate(4030);
     }
     else if(game.teleport_to_x==7 && game.teleport_to_y==9)
     {
-        game.state = 4040;
+        game.setstate(4040);
     }
     else if(game.teleport_to_x==8 && game.teleport_to_y==11)
     {
-        game.state = 4050;
+        game.setstate(4050);
     }
     else if(game.teleport_to_x==14 && game.teleport_to_y==19)
     {
-        game.state = 4030;
+        game.setstate(4030);
     }
     else if(game.teleport_to_x==17 && game.teleport_to_y==12)
     {
-        game.state = 4020;
+        game.setstate(4020);
     }
     else if(game.teleport_to_x==17 && game.teleport_to_y==17)
     {
-        game.state = 4020;
+        game.setstate(4020);
     }
     else if(game.teleport_to_x==18 && game.teleport_to_y==7)
     {
-        game.state = 4060;
+        game.setstate(4060);
     }
     else
     {
-        game.state = 4010;
+        game.setstate(4010);
     }
 
     if (game.teleportscript != "")
     {
-        game.state = 0;
+        game.setstate(0);
         load(game.teleportscript);
         game.teleportscript = "";
     }
@@ -3094,8 +3041,15 @@ void scriptclass::hardreset(void)
 {
     const bool version2_2 = GlitchrunnerMode_less_than_or_equal(Glitchrunner2_2);
 
-    /* The RNG is 32-bit. We don't _really_ need 64-bit... */
-    xoshiro_seed((Uint32) SDL_GetTicks64());
+    if (game.seed_use_sdl_getticks)
+    {
+        /* The RNG is 32-bit. We don't _really_ need 64-bit... */
+        xoshiro_seed((Uint32) SDL_GetTicks64());
+    }
+    else
+    {
+        xoshiro_seed(game.framecounter);
+    }
 
     //Game:
     game.hascontrol = true;
@@ -3148,6 +3102,9 @@ void scriptclass::hardreset(void)
         // Ironically, resetting more variables makes the janky fadeout system in glitchrunnermode even more glitchy
         game.saverx = 0;
         game.savery = 0;
+        game.savex = 0;
+        game.savey = 0;
+        game.savegc = 0;
     }
     game.savecolour = 0;
 
@@ -3156,9 +3113,15 @@ void scriptclass::hardreset(void)
     game.timetrialshinytarget = 0;
     game.timetrialparlost = false;
     game.timetrialpar = 0;
+    game.timetrialcheater = false;
+
+    game.translator_exploring = game.start_translator_exploring;
+    game.start_translator_exploring = false;
+    game.translator_exploring_allowtele = false;
+    game.translator_cutscene_test = false;
 
     game.totalflips = 0;
-    game.hardestroom = "Welcome Aboard";
+    game.hardestroom = loc::gettext_roomname(false, 13, 5, "Welcome Aboard", false);
     game.hardestroomdeaths = 0;
     game.currentroomdeaths=0;
 
@@ -3185,6 +3148,7 @@ void scriptclass::hardreset(void)
     game.inintermission = false;
     game.insecretlab = false;
 
+    game.unlockstate();
     game.state = 0;
     game.statedelay = 0;
 
@@ -3231,7 +3195,6 @@ void scriptclass::hardreset(void)
     map.final_aniframe = 0;
     map.final_aniframedelay = 0;
     map.rcol = 0;
-    map.resetnames();
     map.custommode=false;
     map.custommodeforreal=false;
     if (!version2_2)
@@ -3296,11 +3259,10 @@ void scriptclass::hardreset(void)
 
     obj.customactivitycolour = "";
     obj.customactivitytext = "";
-    obj.customactivitypositionx = -1;
     obj.customactivitypositiony = -1;
 }
 
-void scriptclass::loadcustom(const std::string& t)
+bool scriptclass::loadcustom(const std::string& t)
 {
     //this magic function breaks down the custom script and turns into real scripting!
     std::string cscriptname="";
@@ -3320,7 +3282,7 @@ void scriptclass::loadcustom(const std::string& t)
         }
     }
     if(contents == NULL){
-        return;
+        return false;
     }
 
     std::vector<std::string>& lines = *contents;
@@ -3484,6 +3446,18 @@ void scriptclass::loadcustom(const std::string& t)
         }else if(words[0] == "iftrinketsless"){
             if(customtextmode==1){ add("endtext"); customtextmode=0;}
             add("custom"+lines[i]);
+        }else if(words[0] == "textcase"){
+            if(customtextmode==1){ add("endtext"); customtextmode=0;}
+            add(lines[i]);
+        }else if(words[0] == "iflang"){
+            if(customtextmode==1){ add("endtext"); customtextmode=0;}
+            add(lines[i]);
+        }else if(words[0] == "loadtext"){
+            if(customtextmode==1){ add("endtext"); customtextmode=0;}
+            add(lines[i]);
+        }else if(words[0] == "setfont"){
+            if(customtextmode==1){ add("endtext"); customtextmode=0;}
+            add(lines[i]);
         }else if(words[0] == "destroy"){
             if(customtextmode==1){ add("endtext"); customtextmode=0;}
             add(lines[i]);
@@ -3535,11 +3509,13 @@ void scriptclass::loadcustom(const std::string& t)
                     add("text(blue,0,0,"+words[1]+")");
                 break;
             }
-            int ti=help.Int(words[1].c_str());
-            int nti = ti>=0 && ti<=50 ? ti : 1;
-            for(int ti2=0; ti2<nti; ti2++){
+            int ti = ss_toi(words[1]);
+            int nti = ti >= 0 ? ti : 1;
+            for (int ti2 = 0; ti2 < nti; ti2++)
+            {
                 i++;
-                if(INBOUNDS_VEC(i, lines)){
+                if (INBOUNDS_VEC(i, lines))
+                {
                     add(lines[i]);
                 }
             }
@@ -3561,7 +3537,7 @@ void scriptclass::loadcustom(const std::string& t)
             add("text(cyan,0,0,"+words[1]+")");
 
             int ti=help.Int(words[1].c_str());
-            int nti = ti>=0 && ti<=50 ? ti : 1;
+            int nti = ti>=0 ? ti : 1;
             for(int ti2=0; ti2<nti; ti2++){
                 i++;
                 if(INBOUNDS_VEC(i, lines)){
@@ -3579,4 +3555,54 @@ void scriptclass::loadcustom(const std::string& t)
         add("endcutscene()");
         add("untilbars()");
     }
+
+    return true;
+}
+
+void scriptclass::loadalts(const std::string& processed, const std::string& raw)
+{
+    const bool exists = load(processed);
+    if (!exists)
+    {
+        load(raw);
+    }
+}
+
+void scriptclass::add_test_line(
+    const std::string& speaker,
+    const std::string& english,
+    const char textcase,
+    const bool textbuttons
+) {
+    if (speaker == "gray")
+    {
+        add("squeak(terminal)");
+    }
+    else
+    {
+        add("squeak("+speaker+")");
+    }
+    add("textcase("+help.String(textcase)+")");
+    add("text("+speaker+",0,0,1)");
+    add(english);
+    add("position(center)");
+    if (textbuttons)
+    {
+        add("textbuttons()");
+    }
+    add("speak_active");
+}
+
+void scriptclass::loadtest(const std::string& name)
+{
+    // Another magic function, that turns language files into a demo script
+    position = 0;
+    commands.clear();
+    scriptname = name;
+    running = true;
+
+    loc::populate_cutscene_test(name.c_str());
+
+    add("endtext");
+    add("gamestate(3100)");
 }

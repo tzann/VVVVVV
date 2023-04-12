@@ -1,6 +1,7 @@
 #ifndef TEXTBOX_H
 #define TEXTBOX_H
 
+#include <stdint.h>
 #include <string>
 #include <vector>
 
@@ -26,6 +27,12 @@ public:
     void resize(void);
 
     void addline(const std::string& t);
+
+    void pad(size_t left_pad, size_t right_pad);
+
+    void padtowidth(size_t new_w);
+
+    void centertext(void);
 public:
     //Fundamentals
     std::vector<std::string> lines;
@@ -41,6 +48,11 @@ public:
     bool flipme;
 
     int rand;
+
+    bool large;
+
+    uint32_t print_flags;
+    bool fill_buttons;
 };
 
 #endif /* TEXTBOX_H */

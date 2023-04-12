@@ -2,14 +2,18 @@
 #include "KeyPoll.h"
 
 #include <string.h>
-#include <utf8/unchecked.h>
 
+#include "Alloc.h"
+#include "ButtonGlyphs.h"
 #include "Exit.h"
 #include "Game.h"
 #include "GlitchrunnerMode.h"
 #include "Graphics.h"
+#include "Localization.h"
+#include "LocalizationStorage.h"
 #include "Music.h"
 #include "Screen.h"
+#include "UTF8.h"
 #include "Vlogging.h"
 
 int inline KeyPoll::getThreshold(void)
@@ -164,13 +168,20 @@ void KeyPoll::Poll(void)
                 fullscreenkeybind = true;
             }
 
+            if (loc::show_translator_menu && evt.key.keysym.sym == SDLK_F12 && !evt.key.repeat)
+            {
+                /* Reload language files */
+                loc::loadtext(false);
+                music.playef(4);
+            }
+
+            BUTTONGLYPHS_keyboard_set_active(true);
+
             if (textentry())
             {
                 if (evt.key.keysym.sym == SDLK_BACKSPACE && !keybuffer.empty())
                 {
-                    std::string::iterator iter = keybuffer.end();
-                    utf8::unchecked::prior(iter);
-                    keybuffer = keybuffer.substr(0, iter - keybuffer.begin());
+                    keybuffer.erase(UTF8_backspace(keybuffer.c_str(), keybuffer.length()));
                     if (keybuffer.empty())
                     {
                         linealreadyemptykludge = true;
@@ -183,7 +194,15 @@ void KeyPoll::Poll(void)
                     if (text != NULL)
                     {
                         keybuffer += text;
-                        SDL_free(text);
+                        VVV_free(text);
+                    }
+                }
+                else if (    evt.key.keysym.sym == SDLK_x &&
+                        keymap[SDLK_LCTRL]    )
+                {
+                    if (SDL_SetClipboardText(keybuffer.c_str()) == 0)
+                    {
+                        keybuffer = "";
                     }
                 }
             }
@@ -252,6 +271,7 @@ void KeyPoll::Poll(void)
         /* Controller Input */
         case SDL_CONTROLLERBUTTONDOWN:
             buttonmap[(SDL_GameControllerButton) evt.cbutton.button] = true;
+            BUTTONGLYPHS_keyboard_set_active(false);
             break;
         case SDL_CONTROLLERBUTTONUP:
             buttonmap[(SDL_GameControllerButton) evt.cbutton.button] = false;
@@ -284,6 +304,7 @@ void KeyPoll::Poll(void)
                 }
                 break;
             }
+            BUTTONGLYPHS_keyboard_set_active(false);
             break;
         }
         case SDL_CONTROLLERDEVICEADDED:
@@ -295,6 +316,7 @@ void KeyPoll::Poll(void)
                 SDL_GameControllerName(toOpen)
             );
             controllers[SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(toOpen))] = toOpen;
+            BUTTONGLYPHS_keyboard_set_active(false);
             break;
         }
         case SDL_CONTROLLERDEVICEREMOVED:
@@ -303,6 +325,10 @@ void KeyPoll::Poll(void)
             controllers.erase(evt.cdevice.which);
             vlog_info("Closing %s", SDL_GameControllerName(toClose));
             SDL_GameControllerClose(toClose);
+            if (controllers.empty())
+            {
+                BUTTONGLYPHS_keyboard_set_active(true);
+            }
             break;
         }
 
@@ -343,6 +369,7 @@ void KeyPoll::Poll(void)
                     }
                 }
                 SDL_DisableScreenSaver();
+                gameScreen.recacheTextures();
                 break;
             case SDL_WINDOWEVENT_FOCUS_LOST:
                 if (!game.disablepause)
@@ -468,4 +495,14 @@ bool KeyPoll::controllerWantsRight(bool includeVert)
             (    includeVert &&
                 (    buttonmap[SDL_CONTROLLER_BUTTON_DPAD_DOWN] ||
                     yVel > 0    )    )    );
+}
+
+bool KeyPoll::controllerWantsUp(void)
+{
+    return buttonmap[SDL_CONTROLLER_BUTTON_DPAD_UP] || yVel < 0;
+}
+
+bool KeyPoll::controllerWantsDown(void)
+{
+    return buttonmap[SDL_CONTROLLER_BUTTON_DPAD_DOWN] || yVel > 0;
 }

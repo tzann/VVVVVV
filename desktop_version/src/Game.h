@@ -28,6 +28,7 @@ struct MenuOption
 {
     char text[MENU_TEXT_BYTES];
     bool active;
+    uint32_t print_flags;
 };
 
 //Menu IDs
@@ -52,6 +53,7 @@ namespace Menu
         ed_desc,
         ed_music,
         ed_quit,
+        ed_font,
         options,
         gameplayoptions,
         speedrunneroptions,
@@ -60,6 +62,16 @@ namespace Menu
         audiooptions,
         accessibility,
         controller,
+        language,
+        translator_main,
+        translator_options,
+        translator_options_limitscheck,
+        translator_options_stats,
+        translator_options_exploregame,
+        translator_options_cutscenetest,
+        translator_maintenance,
+        translator_maintenance_sync,
+        translator_error_setlangwritedir,
         cleardatamenu,
         clearcustomdatamenu,
         setinvincibility,
@@ -120,6 +132,8 @@ struct CustomLevelStat
 
 class Game
 {
+    char magic[16];
+
 public:
     void init(void);
 
@@ -158,6 +172,16 @@ public:
     void remaining_textbox(void);
     void actionprompt_textbox(void);
     void savetele_textbox(void);
+
+    void setstate(int gamestate);
+
+    void incstate(void);
+
+    void setstatedelay(int delay);
+
+    void lockstate(void);
+
+    void unlockstate(void);
 
     void updatestate(void);
 
@@ -241,7 +265,7 @@ public:
     bool hascontrol, jumpheld;
     int jumppressed;
     int gravitycontrol;
-    bool isingamecompletescreen();
+    bool isingamecompletescreen(void);
 
     bool muted;
     int mutebutton;
@@ -257,6 +281,8 @@ public:
     int lastsaved;
     int deathcounts;
 
+    int framecounter;
+    bool seed_use_sdl_getticks;
     int frames, seconds, minutes, hours;
     bool gamesaved;
     bool gamesavefailed;
@@ -278,6 +304,7 @@ public:
     //Main Menu Variables
     std::vector<MenuOption> menuoptions;
     int currentmenuoption ;
+    bool menutestmode;
     enum Menu::MenuName currentmenuname;
     enum Menu::MenuName kludge_ingametemp;
     enum SLIDERMODE slidermode;
@@ -286,11 +313,12 @@ public:
     int menuspacing;
     std::vector<MenuStackFrame> menustack;
 
-    void inline option(const char* text, bool active = true)
+    void inline option(const char* text, bool active = true, uint32_t print_flags = 0)
     {
         MenuOption menuoption;
         SDL_strlcpy(menuoption.text, text, sizeof(menuoption.text));
         menuoption.active = active;
+        menuoption.print_flags = print_flags;
         menuoptions.push_back(menuoption);
     }
 
@@ -318,6 +346,7 @@ public:
     bool noflashingmode;
     int slowdown;
     int get_timestep(void);
+    bool physics_frozen(void);
 
     bool nodeathmode;
     int gameoverdelay;
@@ -331,8 +360,17 @@ public:
     bool intimetrial, timetrialparlost;
     int timetrialcountdown, timetrialshinytarget, timetriallevel;
     int timetrialpar, timetrialresulttime, timetrialresultframes, timetrialrank;
+    bool timetrialcheater;
     int timetrialresultshinytarget, timetrialresulttrinkets, timetrialresultpar;
     int timetrialresultdeaths;
+
+    bool start_translator_exploring;
+    bool translator_exploring;
+    bool translator_exploring_allowtele;
+    bool translator_cutscene_test;
+
+    size_t cutscenetest_menu_page;
+    std::string cutscenetest_menu_play_id;
 
     int creditposition;
     int oldcreditposition;
@@ -374,7 +412,6 @@ public:
     int quick_trinkets;
     std::string quick_currentarea;
 
-    int mx, my;
     int screenshake, flashlight;
     bool advancetext, pausescript;
 
@@ -394,8 +431,9 @@ public:
     bool activetele;
     int readytotele;
     int oldreadytotele;
-    int activity_r, activity_g, activity_b, activity_x, activity_y;
+    int activity_r, activity_g, activity_b, activity_y;
     std::string activity_lastprompt;
+    uint32_t activity_print_flags;
 
     std::string telesummary, quicksummary, customquicksummary;
     bool save_exists(void);
@@ -411,7 +449,7 @@ public:
 
     //Some stats:
     int totalflips;
-    std::string hardestroom;
+    std::string hardestroom; // don't change to C string unless you wanna handle language switches (or make it store coords)
     int hardestroomdeaths, currentroomdeaths;
 
 
@@ -465,12 +503,15 @@ public:
 
     bool inline inspecial(void)
     {
-        return inintermission || insecretlab || intimetrial || nodeathmode;
+        return inintermission || insecretlab || intimetrial || nodeathmode || translator_exploring;
     }
 
     bool incompetitive(void);
 
     bool nocompetitive(void);
+    bool nocompetitive_unless_translator(void);
+
+    void sabotage_time_trial(void);
 
     bool over30mode;
     bool showingametimer;
@@ -487,6 +528,8 @@ public:
     bool disableaudiopause;
     bool disabletemporaryaudiopause;
     bool inputdelay;
+
+    bool statelocked;
 };
 
 #ifndef GAME_DEFINITION

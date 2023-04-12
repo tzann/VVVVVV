@@ -1,10 +1,12 @@
 #include "VFormat.h"
 
-#include <physfs.h>
 #include <SDL.h>
 #include <stdbool.h>
 
+#include "Alloc.h"
+#include "ButtonGlyphs.h"
 #include "CWrappers.h"
+#include "UTF8.h"
 
 
 static inline bool is_whitespace(char ch)
@@ -27,59 +29,53 @@ static inline void trim_whitespace(const char** string, size_t* bytes)
     }
 }
 
-static inline void call_with_button(format_callback callback, void* userdata, int button_value)
+int vformat_button(ActionSet actionset, int action)
+{
+    /* Pack an ActionSet and Action into a single vararg int.
+     * action is an Action */
+    return (((int) actionset) << 16) | action;
+}
+
+static void vformat_unbutton(ActionSet* actionset, Action* action, const int vararg_value)
+{
+    // Unpack the ActionSet and Action from a packed vararg value.
+    *actionset = vararg_value >> 16;
+    action->intval = vararg_value & 0xFFFF;
+}
+
+static inline void call_with_button(format_callback callback, void* userdata, int vararg_value)
 {
     /* Call the given callback with the specified button character (from
      * Unicode Private Use Area) so the text renderer can display it. */
 
-    if (button_value < 0 || button_value > 0xFF)
+    ActionSet actionset;
+    Action action;
+    vformat_unbutton(&actionset, &action, vararg_value);
+
+    const char* button_text = BUTTONGLYPHS_get_button(actionset, action, -1);
+    if (button_text == NULL)
     {
-        button_value = 0xFF;
+        callback(userdata, "[null]", 6);
+        return;
     }
-
-    uint32_t utf32[2];
-    utf32[0] = 0xE000 + button_value;
-    utf32[1] = 0x0000;
-
-    char utf8[5];
-    PHYSFS_utf8FromUcs4(utf32, utf8, sizeof(utf8));
-
-    callback(userdata, utf8, SDL_strlen(utf8));
+    callback(userdata, button_text, SDL_strlen(button_text));
 }
 
 static inline void call_with_upper(format_callback callback, void* userdata, const char* string, size_t bytes)
 {
     /* Call the given callback with the specified string, where the first
-     * letter is changed to uppercase.
-     * First reserve some more space for the (in UTF-8) possibly larger
-     * uppercase character, and the currently missing null terminator.
-     * (Theoretically 1->4 bytes, + 1 for '\0') */
-    size_t conv_bytes = bytes + 4;
-
-    char* utf8 = SDL_malloc(conv_bytes);
-    uint32_t* utf32 = SDL_malloc(conv_bytes*4);
-
-    if (utf8 == NULL || utf32 == NULL)
+     * letter is changed to uppercase. */
+    if (bytes == 0)
     {
-        /* Never mind the capitalization then! Better than nothing. */
-        callback(userdata, string, bytes);
-
-        SDL_free(utf32);
-        SDL_free(utf8);
         return;
     }
 
-    SDL_memcpy(utf8, string, bytes);
-    utf8[bytes] = '\0';
+    uint8_t lower_letter_nbytes;
+    uint32_t lower_letter = UTF8_peek_next(string, &lower_letter_nbytes);
 
-    PHYSFS_utf8ToUcs4(utf8, utf32, conv_bytes*4);
-    utf32[0] = SDL_toupper(utf32[0]); /* FIXME: use loc::toupper_ch in localization branch */
-    PHYSFS_utf8FromUcs4(utf32, utf8, conv_bytes);
-
-    callback(userdata, utf8, SDL_strlen(utf8));
-
-    SDL_free(utf32);
-    SDL_free(utf8);
+    UTF8_encoding upper_letter = UTF8_encode(LOC_toupper_ch(lower_letter));
+    callback(userdata, upper_letter.bytes, upper_letter.nbytes);
+    callback(userdata, &string[lower_letter_nbytes], bytes - lower_letter_nbytes);
 }
 
 
@@ -244,7 +240,8 @@ void vformat_cb_valist(
                 trim_whitespace(&arg_name, &arg_name_len);
                 trim_whitespace(&arg_type, &arg_type_len);
 
-                match = (arg_name_len == name_len && SDL_memcmp(arg_name, name, name_len) == 0);
+                match = (arg_name_len == name_len && SDL_memcmp(arg_name, name, name_len) == 0)
+                     || (arg_name_len == 1 && arg_name[0] == '_');
 
                 if (arg_type_len == 3 && SDL_memcmp(arg_type, "int", 3) == 0)
                 {
@@ -263,7 +260,7 @@ void vformat_cb_valist(
                             {
                                 callback(userdata, number, SDL_strlen(number));
                             }
-                            SDL_free(number);
+                            VVV_free(number);
                         }
                         else
                         {
@@ -296,11 +293,11 @@ void vformat_cb_valist(
                 }
                 else if (arg_type_len == 3 && SDL_memcmp(arg_type, "but", 3) == 0)
                 {
-                    int button_value = va_arg(args_copy, int);
+                    int vararg_value = va_arg(args_copy, int);
 
                     if (match)
                     {
-                        call_with_button(callback, userdata, button_value);
+                        call_with_button(callback, userdata, vararg_value);
                     }
                 }
                 else
@@ -458,7 +455,7 @@ char* vformat_alloc(
 )
 {
     /* Format to an automatically allocated and resized buffer.
-     * Caller must SDL_free. */
+     * Caller must VVV_free. */
 
     va_list args;
     va_start(args, args_index);

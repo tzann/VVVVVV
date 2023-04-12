@@ -4,15 +4,23 @@
 #include <SDL.h>
 
 #include "CustomLevels.h"
+#include "Font.h"
 #include "Game.h"
 #include "GlitchrunnerMode.h"
 #include "Graphics.h"
+#include "Localization.h"
 #include "Map.h"
+#include "Maths.h"
 #include "Music.h"
 #include "Script.h"
 #include "UtilityClass.h"
 #include "Vlogging.h"
 #include "Xoshiro.h"
+
+static int getgridpoint( int t )
+{
+    return t / 8;
+}
 
 bool entityclass::checktowerspikes(int t)
 {
@@ -76,7 +84,6 @@ void entityclass::init(void)
     customenemy = 0;
     customwarpmode = false; customwarpmodevon = false; customwarpmodehon = false;
     customactivitycolour = "";
-    customactivitypositionx = -1;
     customactivitypositiony = -1;
     customactivitytext = "";
     trophytext = 0;
@@ -851,211 +858,211 @@ void entityclass::createblock( int t, int xp, int yp, int w, int h, int trig /*=
         switch(trig)
         {
         case 0: //testing zone
-            block.prompt = "Press %s to explode";
+            block.prompt = loc::gettext("Press {button} to explode");
             block.script = "intro";
             block.setblockcolour("orange");
             trig=1;
             break;
         case 1:
-            block.prompt = "Press %s to talk to Violet";
+            block.prompt = loc::gettext("Press {button} to talk to Violet");
             block.script = "talkpurple";
             block.setblockcolour("purple");
             trig=0;
             break;
         case 2:
-            block.prompt = "Press %s to talk to Vitellary";
+            block.prompt = loc::gettext("Press {button} to talk to Vitellary");
             block.script = "talkyellow";
             block.setblockcolour("yellow");
             trig=0;
             break;
         case 3:
-            block.prompt = "Press %s to talk to Vermilion";
+            block.prompt = loc::gettext("Press {button} to talk to Vermilion");
             block.script = "talkred";
             block.setblockcolour("red");
             trig=0;
             break;
         case 4:
-            block.prompt = "Press %s to talk to Verdigris";
+            block.prompt = loc::gettext("Press {button} to talk to Verdigris");
             block.script = "talkgreen";
             block.setblockcolour("green");
             trig=0;
             break;
         case 5:
-            block.prompt = "Press %s to talk to Victoria";
+            block.prompt = loc::gettext("Press {button} to talk to Victoria");
             block.script = "talkblue";
             block.setblockcolour("blue");
             trig=0;
             break;
         case 6:
-            block.prompt = "Press %s to activate terminal";
+            block.prompt = loc::gettext("Press {button} to activate terminal");
             block.script = "terminal_station_1";
             block.setblockcolour("orange");
             trig=0;
             break;
         case 7:
-            block.prompt = "Press %s to activate terminal";
+            block.prompt = loc::gettext("Press {button} to activate terminal");
             block.script = "terminal_outside_1";
             block.setblockcolour("orange");
             trig=0;
             break;
         case 8:
-            block.prompt = "Press %s to activate terminal";
+            block.prompt = loc::gettext("Press {button} to activate terminal");
             block.script = "terminal_outside_2";
             block.setblockcolour("orange");
             trig=0;
             break;
         case 9:
-            block.prompt = "Press %s to activate terminal";
+            block.prompt = loc::gettext("Press {button} to activate terminal");
             block.script = "terminal_outside_3";
             block.setblockcolour("orange");
             trig=0;
             break;
         case 10:
-            block.prompt = "Press %s to activate terminal";
+            block.prompt = loc::gettext("Press {button} to activate terminal");
             block.script = "terminal_outside_4";
             block.setblockcolour("orange");
             trig=0;
             break;
         case 11:
-            block.prompt = "Press %s to activate terminal";
+            block.prompt = loc::gettext("Press {button} to activate terminal");
             block.script = "terminal_outside_5";
             block.setblockcolour("orange");
             trig=0;
             break;
         case 12:
-            block.prompt = "Press %s to activate terminal";
+            block.prompt = loc::gettext("Press {button} to activate terminal");
             block.script = "terminal_outside_6";
             block.setblockcolour("orange");
             trig=0;
             break;
         case 13:
-            block.prompt = "Press %s to activate terminal";
+            block.prompt = loc::gettext("Press {button} to activate terminal");
             block.script = "terminal_finallevel";
             block.setblockcolour("orange");
             trig=0;
             break;
         case 14:
-            block.prompt = "Press %s to activate terminal";
+            block.prompt = loc::gettext("Press {button} to activate terminal");
             block.script = "terminal_station_2";
             block.setblockcolour("orange");
             trig=0;
             break;
         case 15:
-            block.prompt = "Press %s to activate terminal";
+            block.prompt = loc::gettext("Press {button} to activate terminal");
             block.script = "terminal_station_3";
             block.setblockcolour("orange");
             trig=0;
             break;
         case 16:
-            block.prompt = "Press %s to activate terminal";
+            block.prompt = loc::gettext("Press {button} to activate terminal");
             block.script = "terminal_station_4";
             block.setblockcolour("orange");
             trig=0;
             break;
         case 17:
-            block.prompt = "Press %s to activate terminal";
+            block.prompt = loc::gettext("Press {button} to activate terminal");
             block.script = "terminal_warp_1";
             block.setblockcolour("orange");
             trig=0;
             break;
         case 18:
-            block.prompt = "Press %s to activate terminal";
+            block.prompt = loc::gettext("Press {button} to activate terminal");
             block.script = "terminal_warp_2";
             block.setblockcolour("orange");
             trig=0;
             break;
         case 19:
-            block.prompt = "Press %s to activate terminal";
+            block.prompt = loc::gettext("Press {button} to activate terminal");
             block.script = "terminal_lab_1";
             block.setblockcolour("orange");
             trig=0;
             break;
         case 20:
-            block.prompt = "Press %s to activate terminal";
+            block.prompt = loc::gettext("Press {button} to activate terminal");
             block.script = "terminal_lab_2";
             block.setblockcolour("orange");
             trig=0;
             break;
         case 21:
-            block.prompt = "Press %s to activate terminal";
+            block.prompt = loc::gettext("Press {button} to activate terminal");
             block.script = "terminal_secretlab";
             block.setblockcolour("orange");
             trig=0;
             break;
         case 22:
-            block.prompt = "Press %s to activate terminal";
+            block.prompt = loc::gettext("Press {button} to activate terminal");
             block.script = "terminal_shipcomputer";
             block.setblockcolour("orange");
             trig=0;
             break;
         case 23:
-            block.prompt = "Press %s to activate terminals";
+            block.prompt = loc::gettext("Press {button} to activate terminals");
             block.script = "terminal_radio";
             block.setblockcolour("orange");
             trig=0;
             break;
         case 24:
-            block.prompt = "Press %s to activate terminal";
+            block.prompt = loc::gettext("Press {button} to activate terminal");
             block.script = "terminal_jukebox";
             block.setblockcolour("orange");
             trig=0;
             break;
         case 25:
-            block.prompt = "Passion for Exploring";
+            block.prompt = loc::gettext("Passion for Exploring");
             block.script = "terminal_juke1";
             block.setblockcolour("orange");
             trig=0;
             break;
         case 26:
-            block.prompt = "Pushing Onwards";
+            block.prompt = loc::gettext("Pushing Onwards");
             block.script = "terminal_juke2";
             block.setblockcolour("orange");
             trig=0;
             break;
         case 27:
-            block.prompt = "Positive Force";
+            block.prompt = loc::gettext("Positive Force");
             block.script = "terminal_juke3";
             block.setblockcolour("orange");
             trig=0;
             break;
         case 28:
-            block.prompt = "Presenting VVVVVV";
+            block.prompt = loc::gettext("Presenting VVVVVV");
             block.script = "terminal_juke4";
             block.setblockcolour("orange");
             trig=0;
             break;
         case 29:
-            block.prompt = "Potential for Anything";
+            block.prompt = loc::gettext("Potential for Anything");
             block.script = "terminal_juke5";
             block.setblockcolour("orange");
             trig=0;
             break;
         case 30:
-            block.prompt = "Predestined Fate";
+            block.prompt = loc::gettext("Predestined Fate");
             block.script = "terminal_juke6";
             block.setblockcolour("orange");
             trig=0;
             break;
         case 31:
-            block.prompt = "Pipe Dream";
+            block.prompt = loc::gettext("Pipe Dream");
             block.script = "terminal_juke7";
             block.setblockcolour("orange");
             trig=0;
             break;
         case 32:
-            block.prompt = "Popular Potpourri";
+            block.prompt = loc::gettext("Popular Potpourri");
             block.script = "terminal_juke8";
             block.setblockcolour("orange");
             trig=0;
             break;
         case 33:
-            block.prompt = "Pressure Cooker";
+            block.prompt = loc::gettext("Pressure Cooker");
             block.script = "terminal_juke9";
             block.setblockcolour("orange");
             trig=0;
             break;
         case 34:
-            block.prompt = "ecroF evitisoP";
+            block.prompt = loc::gettext("ecroF evitisoP");
             block.script = "terminal_juke10";
             block.setblockcolour("orange");
             trig=0;
@@ -1063,11 +1070,11 @@ void entityclass::createblock( int t, int xp, int yp, int w, int h, int trig /*=
         case 35:
             if (custom)
             {
-                block.prompt = "Press %s to interact";
+                block.prompt = loc::gettext("Press {button} to interact");
             }
             else
             {
-                block.prompt = "Press %s to activate terminal";
+                block.prompt = loc::gettext("Press {button} to activate terminal");
             }
             block.script = "custom_"+customscript;
             block.setblockcolour("orange");
@@ -1080,7 +1087,12 @@ void entityclass::createblock( int t, int xp, int yp, int w, int h, int trig /*=
     if (customactivitytext != "")
     {
         block.prompt = customactivitytext;
+        block.print_flags = PR_FONT_LEVEL;
         customactivitytext = "";
+    }
+    else
+    {
+        block.print_flags = PR_FONT_INTERFACE;
     }
 
     if (customactivitycolour != "")
@@ -1089,16 +1101,13 @@ void entityclass::createblock( int t, int xp, int yp, int w, int h, int trig /*=
         customactivitycolour = "";
     }
 
-    if (customactivitypositionx != -1)
+    if (customactivitypositiony != -1)
     {
-        block.activity_x = customactivitypositionx;
         block.activity_y = customactivitypositiony;
-        customactivitypositionx = -1;
         customactivitypositiony = -1;
     }
     else
     {
-        block.activity_x = 0;
         block.activity_y = 0;
     }
 
@@ -1215,7 +1224,7 @@ void entityclass::revertlinecross(std::vector<entclass>& linecrosskludge, int t,
     entities[t].life = linecrosskludge[s].life;
 }
 
-bool entityclass::gridmatch( int p1, int p2, int p3, int p4, int p11, int p21, int p31, int p41 )
+static bool gridmatch( int p1, int p2, int p3, int p4, int p11, int p21, int p31, int p41 )
 {
     if (p1 == p11 && p2 == p21 && p3 == p31 && p4 == p41) return true;
     return false;
@@ -1277,13 +1286,19 @@ void entityclass::createentity(int xp, int yp, int t, int meta1, int meta2, int 
     //Rule 4 is a horizontal line, 5 is vertical
     //Rule 6 is a crew member
 
+    bool custom_gray;
 #if !defined(NO_CUSTOM_LEVELS)
     // Special case for gray Warp Zone tileset!
-    const RoomProperty* const room = cl.getroomprop(game.roomx - 100, game.roomy - 100);
-    bool custom_gray = room->tileset == 3 && room->tilecol == 6;
-#else
-    bool custom_gray = false;
+    if (map.custommode)
+    {
+        const RoomProperty* const room = cl.getroomprop(game.roomx - 100, game.roomy - 100);
+        custom_gray = room->tileset == 3 && room->tilecol == 6;
+    }
+    else
 #endif
+    {
+        custom_gray = false;
+    }
 
     entclass& entity = *entptr;
     entity.xp = xp;
@@ -2667,7 +2682,7 @@ bool entityclass::updateentities( int i )
                 }
                 else
                 {
-                    game.state = 1000;
+                    game.setstate(1000);
                     if(music.currentsong!=-1) music.silencedasmusik();
                     music.playef(3);
                     if (game.trinkets() > game.stat_trinkets && !map.custommode)
@@ -3316,7 +3331,7 @@ bool entityclass::updateentities( int i )
                 }
                 else
                 {
-                    game.state = 1010;
+                    game.setstate(1010);
                     //music.haltdasmusik();
                     if(music.currentsong!=-1) music.silencedasmusik();
                     music.playef(27);
@@ -3336,8 +3351,8 @@ bool entityclass::updateentities( int i )
                     entities[i].colour = 101;
                     if(!game.intimetrial && !game.nodeathmode)
                     {
-                        game.state = 2000;
-                        game.statedelay = 0;
+                        game.setstate(2000);
+                        game.setstatedelay(0);
                     }
 
                     game.activetele = true;
@@ -3723,7 +3738,7 @@ void entityclass::animateentities( int _i )
             }
             break;
         case 100: //the teleporter!
-            if (entities[_i].tile == 1)
+            if (entities[_i].tile == 1 || game.noflashingmode)
             {
                 //it's inactive
                 entities[_i].drawframe = entities[_i].tile;
@@ -3733,10 +3748,10 @@ void entityclass::animateentities( int _i )
                 entities[_i].drawframe = entities[_i].tile;
 
                 entities[_i].framedelay--;
-                if(entities[_i].framedelay<=0)
+                if (entities[_i].framedelay <= 0)
                 {
                     entities[_i].framedelay = 1;
-                    entities[_i].walkingframe = int(fRandom() * 6);
+                    entities[_i].walkingframe = (int) (fRandom() * 6);
                     if (entities[_i].walkingframe >= 4)
                     {
                         entities[_i].walkingframe = -1;
@@ -3753,10 +3768,10 @@ void entityclass::animateentities( int _i )
                 entities[_i].drawframe = entities[_i].tile;
 
                 entities[_i].framedelay--;
-                if(entities[_i].framedelay<=0)
+                if (entities[_i].framedelay <= 0)
                 {
                     entities[_i].framedelay = 2;
-                    entities[_i].walkingframe = int(fRandom() * 6);
+                    entities[_i].walkingframe = (int) (fRandom() * 6);
                     if (entities[_i].walkingframe >= 4)
                     {
                         entities[_i].walkingframe = -5;
@@ -4094,11 +4109,6 @@ int entityclass::checkactivity(void)
     return -1;
 }
 
-int entityclass::getgridpoint( int t )
-{
-    return t / 8;
-}
-
 bool entityclass::checkplatform(const SDL_Rect& temprect, int* px, int* py)
 {
     //Return true if rectset intersects a moving platform, setups px & py to the platform x & y
@@ -4114,7 +4124,7 @@ bool entityclass::checkplatform(const SDL_Rect& temprect, int* px, int* py)
     return false;
 }
 
-bool entityclass::checkblocks(const SDL_Rect& temprect, const float dx, const float dy, const float dr, const bool skipdirblocks)
+bool entityclass::checkblocks(const SDL_Rect& temprect, const float dx, const float dy, const int dr, const bool skipdirblocks)
 {
     for (size_t i = 0; i < blocks.size(); i++)
     {
@@ -4137,7 +4147,7 @@ bool entityclass::checkblocks(const SDL_Rect& temprect, const float dx, const fl
     return false;
 }
 
-bool entityclass::checkwall(const bool invincible, const SDL_Rect& temprect, const float dx, const float dy, const float dr, const bool skipblocks, const bool skipdirblocks)
+bool entityclass::checkwall(const bool invincible, const SDL_Rect& temprect, const float dx, const float dy, const int dr, const bool skipblocks, const bool skipdirblocks)
 {
     //Returns true if entity setup in temprect collides with a wall
     if(skipblocks)
@@ -4211,7 +4221,7 @@ float entityclass::hplatformat(const int px, const int py)
     return -1000;
 }
 
-int entityclass::yline( int a, int b )
+static int yline( int a, int b )
 {
     if (a < b) return -1;
     return 1;
@@ -4445,7 +4455,7 @@ bool entityclass::testwallsx( int t, int tx, int ty, const bool skipdirblocks )
     float dx = 0;
     float dy = 0;
     if (entities[t].rule == 0) dx = entities[t].vx;
-    float dr = entities[t].rule;
+    int dr = entities[t].rule;
 
     const bool invincible = map.invincibility && entities[t].ishumanoid();
 
@@ -4473,7 +4483,7 @@ bool entityclass::testwallsx( int t, int tx, int ty, const bool skipdirblocks )
     return true;
 }
 
-bool entityclass::testwallsy( int t, float tx, float ty )
+bool entityclass::testwallsy( int t, int tx, int ty )
 {
     if (!INBOUNDS_VEC(t, entities))
     {
@@ -4482,8 +4492,8 @@ bool entityclass::testwallsy( int t, float tx, float ty )
     }
 
     SDL_Rect temprect;
-    temprect.x = static_cast<int>(tx) + entities[t].cx;
-    temprect.y = static_cast<int>(ty) + entities[t].cy;
+    temprect.x = tx + entities[t].cx;
+    temprect.y = ty + entities[t].cy;
     temprect.w = entities[t].w;
     temprect.h = entities[t].h;
 
@@ -4492,7 +4502,7 @@ bool entityclass::testwallsy( int t, float tx, float ty )
     float dx = 0;
     float dy = 0;
     if (entities[t].rule == 0) dy = entities[t].vy;
-    float dr = entities[t].rule;
+    int dr = entities[t].rule;
 
     const bool invincible = map.invincibility && entities[t].ishumanoid();
 
@@ -4744,13 +4754,13 @@ void entityclass::entitycollisioncheck(void)
             game.startscript = true;
             game.newscript = blocks[block_idx].script;
             removetrigger(activetrigger);
-            game.state = 0;
+            game.setstate(0);
         }
         else
         {
-            game.state = activetrigger;
+            game.setstate(activetrigger);
         }
-        game.statedelay = 0;
+        game.setstatedelay(0);
     }
 }
 
@@ -4776,15 +4786,16 @@ void entityclass::collisioncheck(int i, int j, bool scm /*= false*/)
             if (entities[i].size == 0 && (entities[j].size == 0 || entities[j].size == 12))
             {
                 //They're both sprites, so do a per pixel collision
-                point colpoint1;
+                SDL_Point colpoint1;
                 colpoint1.x = entities[i].xp;
                 colpoint1.y = entities[i].yp;
-                point colpoint2;
+                SDL_Point colpoint2;
                 colpoint2.x = entities[j].xp;
                 colpoint2.y = entities[j].yp;
                 int drawframe1 = entities[i].collisiondrawframe;
                 int drawframe2 = entities[j].drawframe;
-                std::vector<SDL_Surface*>& spritesvec = graphics.flipmode ? graphics.flipsprites : graphics.sprites;
+
+                std::vector<SDL_Surface*>& spritesvec = graphics.flipmode ? graphics.flipsprites_surf : graphics.sprites_surf;
                 if (INBOUNDS_VEC(drawframe1, spritesvec) && INBOUNDS_VEC(drawframe2, spritesvec)
                 && graphics.Hitest(spritesvec[drawframe1],
                                  colpoint1, spritesvec[drawframe2], colpoint2))

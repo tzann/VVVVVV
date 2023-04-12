@@ -82,8 +82,6 @@ public:
 
     void revertlinecross(std::vector<entclass>& linecrosskludge, int t, int s);
 
-    bool gridmatch(int p1, int p2, int p3, int p4, int p11, int p21, int p31, int p41);
-
     void createentity(int xp, int yp, int t, int meta1, int meta2,
                       int p1, int p2, int p3, int p4);
     void createentity(int xp, int yp, int t, int meta1, int meta2,
@@ -98,7 +96,7 @@ public:
 
     void animateentities(int i);
 
-    void animatehumanoidcollision(const int i);
+    void animatehumanoidcollision(int i);
 
     int getcompanion(void);
 
@@ -121,20 +119,16 @@ public:
 
     int checkactivity(void);
 
-    int getgridpoint(int t);
-
     bool checkplatform(const SDL_Rect& temprect, int* px, int* py);
 
-    bool checkblocks(const SDL_Rect& temprect, const float dx, const float dy, const float dr, const bool skipdirblocks);
+    bool checkblocks(const SDL_Rect& temprect, float dx, float dy, int dr, bool skipdirblocks);
 
     bool checktowerspikes(int t);
 
-    bool checkwall(const bool invincible, const SDL_Rect& temprect, const float dx, const float dy, const float dr, const bool skipblocks, const bool skipdirblocks);
-    bool checkwall(const bool invincible, const SDL_Rect& temprect);
+    bool checkwall(bool invincible, const SDL_Rect& temprect, float dx, float dy, int dr, bool skipblocks, bool skipdirblocks);
+    bool checkwall(bool invincible, const SDL_Rect& temprect);
 
-    float hplatformat(const int px, const int py);
-
-    int yline(int a, int b);
+    float hplatformat(int px, int py);
 
     bool entityhlinecollide(int t, int l);
 
@@ -153,9 +147,9 @@ public:
 
     bool entitycollideroof(int t);
 
-    bool testwallsx(int t, int tx, int ty, const bool skipdirblocks);
+    bool testwallsx(int t, int tx, int ty, bool skipdirblocks);
 
-    bool testwallsy(int t, float tx, float ty);
+    bool testwallsy(int t, int tx, int ty);
 
     void applyfriction(int t, float xrate, float yrate);
 
@@ -205,7 +199,6 @@ public:
     bool customcrewmoods[Game::numcrew];
     std::string customactivitycolour;
     std::string customactivitytext;
-    int customactivitypositionx;
     int customactivitypositiony;
 };
 

@@ -4,6 +4,7 @@
 #include <emscripten/html5.h>
 #endif
 
+#include "ButtonGlyphs.h"
 #include "CustomLevels.h"
 #include "DeferCallbacks.h"
 #include "Editor.h"
@@ -11,11 +12,15 @@
 #include "Entity.h"
 #include "Exit.h"
 #include "FileSystemUtils.h"
+#include "Font.h"
 #include "Game.h"
 #include "Graphics.h"
+#include "GraphicsUtil.h"
 #include "Input.h"
 #include "InterimVersion.h"
 #include "KeyPoll.h"
+#include "Localization.h"
+#include "LocalizationStorage.h"
 #include "Logic.h"
 #include "Map.h"
 #include "Music.h"
@@ -26,6 +31,7 @@
 #include "RenderFixed.h"
 #include "Screen.h"
 #include "Script.h"
+#include "Unused.h"
 #include "UtilityClass.h"
 #include "Vlogging.h"
 
@@ -176,13 +182,15 @@ static const inline struct ImplFunc* get_gamestate_funcs(
         {Func_fixed, gamecompletelogic2},
     FUNC_LIST_END
 
-#if !defined(NO_CUSTOM_LEVELS) && !defined(NO_EDITOR)
+#if defined(NO_CUSTOM_LEVELS) || defined(NO_EDITOR)
+        UNUSED(flipmodeoff);
+#else
     FUNC_LIST_BEGIN(EDITORMODE)
         {Func_fixed, flipmodeoff},
         {Func_input, editorinput},
+        {Func_fixed, editorlogic},
         {Func_fixed, editorrenderfixed},
         {Func_delta, editorrender},
-        {Func_fixed, editorlogic},
     FUNC_LIST_END
 #endif
 
@@ -370,6 +378,12 @@ int main(int argc, char *argv[])
 {
     char* baseDir = NULL;
     char* assetsPath = NULL;
+    char* langDir = NULL;
+    char* fontsDir = NULL;
+    bool seed_use_sdl_getticks = false;
+#ifdef _WIN32
+    bool open_console = false;
+#endif
 
     vlog_init();
 
@@ -390,11 +404,43 @@ int main(int argc, char *argv[])
         if (ARG("-version"))
         {
             /* Just print the version and exit. No vlogging. */
-            puts("VVVVVV " RELEASE_VERSION);
+            puts(
+                "VVVVVV " RELEASE_VERSION
+#ifdef MAKEANDPLAY
+                " [M&P]"
+#endif
+#ifdef NO_CUSTOM_LEVELS
+                " [no custom levels]"
+#endif
+#ifdef NO_EDITOR
+                " [no editor]"
+#endif
+            );
 #ifdef INTERIM_VERSION_EXISTS
             puts(COMMIT_DATE);
             puts(INTERIM_COMMIT);
+            puts(BRANCH_NAME);
 #endif
+            VVV_exit(0);
+        }
+        else if (ARG("-addresses"))
+        {
+#ifndef NO_CUSTOM_LEVELS
+            printf("cl         : %p\n", (void*) &cl);
+# ifndef NO_EDITOR
+            printf("ed         : %p\n", (void*) &ed);
+# endif
+#endif
+            printf("game       : %p\n", (void*) &game);
+            printf("gameScreen : %p\n", (void*) &gameScreen);
+            printf("graphics   : %p\n", (void*) &graphics);
+            printf("help       : %p\n", (void*) &help);
+            printf("key        : %p\n", (void*) &key);
+            printf("map        : %p\n", (void*) &map);
+            printf("music      : %p\n", (void*) &music);
+            printf("obj        : %p\n", (void*) &obj);
+            printf("script     : %p\n", (void*) &script);
+
             VVV_exit(0);
         }
         else if (ARG("-renderer"))
@@ -416,6 +462,20 @@ int main(int argc, char *argv[])
             ARG_INNER({
                 i++;
                 assetsPath = argv[i];
+            })
+        }
+        else if (ARG("-langdir"))
+        {
+            ARG_INNER({
+                i++;
+                langDir = argv[i];
+            })
+        }
+        else if (ARG("-fontsdir"))
+        {
+            ARG_INNER({
+                i++;
+                fontsDir = argv[i];
             })
         }
         else if (ARG("-playing") || ARG("-p"))
@@ -480,6 +540,20 @@ int main(int argc, char *argv[])
         {
             vlog_toggle_error(0);
         }
+        else if (ARG("-translator"))
+        {
+            loc::show_translator_menu = true;
+        }
+#ifdef _WIN32
+        else if (ARG("-console"))
+        {
+            open_console = true;
+        }
+#endif
+        else if (ARG("-seed-use-sdl-getticks"))
+        {
+            seed_use_sdl_getticks = true;
+        }
 #undef ARG_INNER
 #undef ARG
         else
@@ -489,7 +563,18 @@ int main(int argc, char *argv[])
         }
     }
 
-    if(!FILESYSTEM_init(argv[0], baseDir, assetsPath))
+#if defined(ALWAYS_SHOW_TRANSLATOR_MENU)
+    loc::show_translator_menu = true;
+#endif
+
+#ifdef _WIN32
+    if (open_console)
+    {
+        vlog_open_console();
+    }
+#endif
+
+    if(!FILESYSTEM_init(argv[0], baseDir, assetsPath, langDir, fontsDir))
     {
         vlog_error("Unable to initialize filesystem!");
         VVV_exit(1);
@@ -537,32 +622,11 @@ int main(int argc, char *argv[])
     vlog_info("\t\t");
     vlog_info("\t\t");
 
-    //Set up screen
-
-
-
-
-    // Load Ini
-
-
+    // Set up screen
     graphics.init();
 
     game.init();
-
-    // This loads music too...
-    if (!graphics.reloadresources())
-    {
-        /* Something wrong with the default assets? We can't use them to
-         * display the error message, and we have to bail. */
-        SDL_ShowSimpleMessageBox(
-            SDL_MESSAGEBOX_ERROR,
-            graphics.error_title,
-            graphics.error,
-            NULL
-        );
-
-        VVV_exit(1);
-    }
+    game.seed_use_sdl_getticks = seed_use_sdl_getticks;
 
     game.gamestate = PRELOADER;
 
@@ -588,11 +652,41 @@ int main(int argc, char *argv[])
         gameScreen.init(&screen_settings);
     }
 
-    graphics.create_buffers(gameScreen.GetFormat());
+    BUTTONGLYPHS_init();
+    font::load_main();
+
+    // This loads music too...
+    if (!graphics.reloadresources())
+    {
+        /* Something wrong with the default assets? We can't use them to
+         * display the error message, and we have to bail. */
+        SDL_ShowSimpleMessageBox(
+            SDL_MESSAGEBOX_ERROR,
+            graphics.error_title,
+            graphics.error,
+            NULL
+        );
+
+        VVV_exit(1);
+    }
+
+    loc::loadtext(false);
+    loc::loadlanguagelist();
+    game.createmenu(Menu::mainmenu);
+
+    graphics.create_buffers();
 
     if (game.skipfakeload)
         game.gamestate = TITLEMODE;
     if (game.slowdown == 0) game.slowdown = 30;
+
+    if (!loc::lang_set)
+    {
+        game.gamestate = TITLEMODE;
+        game.menustart = true;
+        game.createmenu(Menu::language);
+        game.currentmenuoption = loc::languagelist_curlang;
+    }
 
     //Check to see if you've already unlocked some achievements here from before the update
     if (game.swnbestrank > 0){
@@ -677,9 +771,9 @@ int main(int argc, char *argv[])
             game.playgc = savegc;
             game.playmusic = savemusic;
             game.cliplaytest = true;
-            script.startgamemode(23);
+            script.startgamemode(Start_CUSTOM_QUICKSAVE);
         } else {
-            script.startgamemode(22);
+            script.startgamemode(Start_CUSTOM);
         }
 
         graphics.fademode = FADE_NONE;
@@ -734,12 +828,16 @@ static void cleanup(void)
     {
         game.savestatsandsettings();
     }
-    gameScreen.destroy();
+
     graphics.grphx.destroy();
     graphics.destroy_buffers();
     graphics.destroy();
+    font::destroy();
+    gameScreen.destroy();
     music.destroy();
+    map.destroy();
     NETWORK_shutdown();
+    loc::resettext(true);
     SDL_Quit();
     FILESYSTEM_deinit();
 }
@@ -791,9 +889,13 @@ static void inline deltaloop(void)
 
         if (implfunc->type == Func_delta && implfunc->func != NULL)
         {
+            graphics.clear();
+
+            graphics.set_render_target(graphics.gameTexture);
+
             implfunc->func();
 
-            gameScreen.FlipScreen(graphics.flipmode);
+            gameScreen.RenderPresent();
         }
     }
 }
@@ -815,12 +917,20 @@ static void unfocused_run(void)
 {
     if (!game.blackout)
     {
-        ClearSurface(graphics.backBuffer);
+        graphics.fill_rect(0, 0, 0);
 #define FLIP(YPOS) graphics.flipmode ? 232 - YPOS : YPOS
-        graphics.bprint(5, FLIP(110), "Game paused", 196 - help.glow, 255 - help.glow, 196 - help.glow, true);
-        graphics.bprint(5, FLIP(120), "[click to resume]", 196 - help.glow, 255 - help.glow, 196 - help.glow, true);
-        graphics.bprint(5, FLIP(220), "Press M to mute in game", 164 - help.glow, 196 - help.glow, 164 - help.glow, true);
-        graphics.bprint(5, FLIP(230), "Press N to mute music only", 164 - help.glow, 196 - help.glow, 164 - help.glow, true);
+        /* The pause screen can also appear on the language screen, where highlighting
+         * a language changes the used language metadata but not the loaded strings... */
+        uint32_t flags = PR_CEN | PR_BOR | PR_FONT_IDX(loc::langmeta.font_idx);
+        font::print(flags | PR_CJK_HIGH, -1, FLIP(110), loc::gettext("Game paused"), 196 - help.glow, 255 - help.glow, 196 - help.glow);
+
+        if (BUTTONGLYPHS_keyboard_is_available())
+        {
+            font::print(flags | PR_CJK_LOW, -1, FLIP(120), loc::gettext("[click to resume]"), 196 - help.glow, 255 - help.glow, 196 - help.glow);
+
+            font::print(flags | PR_CJK_HIGH, -1, FLIP(220), loc::gettext("Press M to mute in game"), 164 - help.glow, 196 - help.glow, 164 - help.glow);
+            font::print(flags, -1, FLIP(230), loc::gettext("Press N to mute music only"), 164 - help.glow, 196 - help.glow, 164 - help.glow);
+        }
 #undef FLIP
     }
     graphics.render();
@@ -844,6 +954,8 @@ static void focused_end(void)
 
 static enum LoopCode loop_end(void)
 {
+    ++game.framecounter;
+
     //We did editorinput, now it's safe to turn this off
     key.linealreadyemptykludge = false;
 

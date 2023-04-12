@@ -5,39 +5,9 @@
 #include <sstream>
 
 #include "Constants.h"
+#include "Localization.h"
 #include "Maths.h"
-
-static const char* GCChar(const SDL_GameControllerButton button)
-{
-    switch (button)
-    {
-    case SDL_CONTROLLER_BUTTON_A:
-        return "A";
-    case SDL_CONTROLLER_BUTTON_B:
-        return "B";
-    case SDL_CONTROLLER_BUTTON_X:
-        return "X";
-    case SDL_CONTROLLER_BUTTON_Y:
-        return "Y";
-    case SDL_CONTROLLER_BUTTON_BACK:
-        return "BACK";
-    case SDL_CONTROLLER_BUTTON_GUIDE:
-        return "GUIDE";
-    case SDL_CONTROLLER_BUTTON_START:
-        return "START";
-    case SDL_CONTROLLER_BUTTON_LEFTSTICK:
-        return "L3";
-    case SDL_CONTROLLER_BUTTON_RIGHTSTICK:
-        return "R3";
-    case SDL_CONTROLLER_BUTTON_LEFTSHOULDER:
-        return "LB";
-    case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER:
-        return "RB";
-    default:
-        SDL_assert(0 && "Unhandled button!");
-        return NULL;
-    }
-}
+#include "VFormat.h"
 
 int ss_toi(const std::string& str)
 {
@@ -155,20 +125,6 @@ int UtilityClass::Int(const char* str, int fallback /*= 0*/)
     return (int) SDL_strtol(str, NULL, 0);
 }
 
-std::string UtilityClass::GCString(const std::vector<SDL_GameControllerButton>& buttons)
-{
-    std::string retval = "";
-    for (size_t i = 0; i < buttons.size(); i += 1)
-    {
-        retval += GCChar(buttons[i]);
-        if ((i + 1) < buttons.size())
-        {
-            retval += ",";
-        }
-    }
-    return retval;
-}
-
 int UtilityClass::hms_to_seconds(int h, int m, int s)
 {
     return h*3600 + m*60 + s;
@@ -183,24 +139,27 @@ void UtilityClass::format_time(char* buffer, const size_t buffer_size, int secon
     if (h > 0)
     {
         /* H:MM:SS / H:MM:SS.CC */
-        SDL_snprintf(buffer, buffer_size,
-            frames == -1 ? "%d:%02d:%02d" : "%d:%02d:%02d.%02d",
+        vformat_buf(buffer, buffer_size,
+            loc::gettext(frames == -1 ? "{hrs}:{min|digits=2}:{sec|digits=2}" : "{hrs}:{min|digits=2}:{sec|digits=2}.{cen|digits=2}"),
+            "hrs:int, min:int, sec:int, cen:int",
             h, m, s, frames * 100 / 30
         );
     }
     else if (m > 0 || always_minutes || frames == -1)
     {
         /* M:SS / M:SS.CC */
-        SDL_snprintf(buffer, buffer_size,
-            frames == -1 ? "%d:%02d" : "%d:%02d.%02d",
+        vformat_buf(buffer, buffer_size,
+            loc::gettext(frames == -1 ? "{min}:{sec|digits=2}" : "{min}:{sec|digits=2}.{cen|digits=2}"),
+            "min:int, sec:int, cen:int",
             m, s, frames * 100 / 30
         );
     }
     else
     {
         /* S.CC */
-        SDL_snprintf(buffer, buffer_size,
-            "%d.%02d",
+        vformat_buf(buffer, buffer_size,
+            loc::gettext("{sec}.{cen|digits=2}"),
+            "sec:int, cen:int",
             s, frames * 100 / 30
         );
     }
@@ -216,6 +175,11 @@ std::string UtilityClass::timestring( int t )
 
 std::string UtilityClass::number_words( int _t )
 {
+    if (loc::lang != "en")
+    {
+        return loc::getnumber(_t);
+    }
+
     static const std::string ones_place[] = {"One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine"};
     static const std::string tens_place[] = {"Ten", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"};
     static const std::string teens[] = {"Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen"};

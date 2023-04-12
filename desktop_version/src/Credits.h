@@ -8,7 +8,7 @@ namespace Credits {
 /* Terry's Patrons... */
 static const char* superpatrons[] = {
     "Anders Ekermo",
-    "Andreas K|mper",
+    "Andreas Kämper",
     "Anthony Burch",
     "Bennett Foddy",
     "Brendan O'Sullivan",
@@ -29,8 +29,8 @@ static const char* superpatrons[] = {
 
 static const char* patrons[] = {
     "Adam Wendt",
-    "Andreas J{rgensen",
-    "}ngel Louzao Penalva",
+    "Andreas Jörgensen",
+    "Ángel Louzao Penalva",
     "Ashley Burton",
     "Aubrey Hesselgren",
     "Bradley Rose",
@@ -63,7 +63,7 @@ static const char* patrons[] = {
     "Joshua Buergel",
     "Joshua Hochner",
     "Kurt Ostfeld",
-    "Magnus P~lsson",
+    "Magnus Pålsson",
     "Mark Neschadimenko",
     "Matt Antonellis",
     "Matthew Reppert",
@@ -85,18 +85,21 @@ static const char* patrons[] = {
 /* CONTRIBUTORS.txt, again listed alphabetically (according to `sort`) by first name
  * Misa is special; she gets to be listed in C++ credits alongside Ethan */
 static const char* githubfriends[] = {
+    "Alexandra Fox",
     "AlexApps99",
     "Allison Fleischer",
-    "AllyTally",
     "Brian Callahan",
     "Charlie Bruce",
-    "Christoph B{hmwalder",
+    "Christoph Böhmwalder",
     "Daniel Lee",
     "Dav999",
     "Elijah Stone",
     "Elliott Saltar",
     "Emmanuel Vadot",
+    "fraZ0R",
     "Fredrik Ljungdahl",
+    "iliana etaoin",
+    "Jules de Sartiges",
     "Keith Stellyes",
     "KyoZM",
     "leo60228",
@@ -108,8 +111,8 @@ static const char* githubfriends[] = {
     "Nichole Mattera",
     "Pierre-Alain TORET",
     "Reese Rivers",
-    "Remi Verschelde", // TODO: Change to "Rémi" if/when UTF-8 support is added
-    "Thomas S|nger",
+    "Rémi Verschelde",
+    "Thomas Sänger",
     "Tynan Richards",
     "Wouter",
     "viri",
@@ -118,7 +121,7 @@ static const char* githubfriends[] = {
 };
 
 /* Calculate credits length, finally. */
-static const int creditmaxposition = 1040 + (10 * (
+static const int creditmaxposition = 1068 + (10 * (
     SDL_arraysize(superpatrons) + SDL_arraysize(patrons) + SDL_arraysize(githubfriends)
 ));
 

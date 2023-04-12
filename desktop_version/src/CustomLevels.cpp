@@ -7,18 +7,23 @@
 #include <stdio.h>
 #include <string>
 #include <tinyxml2.h>
-#include <utf8/unchecked.h>
 
+#include "Alloc.h"
 #include "Constants.h"
 #include "Editor.h"
 #include "Enums.h"
 #include "FileSystemUtils.h"
+#include "Font.h"
 #include "Game.h"
 #include "Graphics.h"
 #include "GraphicsUtil.h"
 #include "KeyPoll.h"
+#include "Localization.h"
+#include "LocalizationStorage.h"
 #include "Map.h"
+#include "Screen.h"
 #include "Script.h"
+#include "UTF8.h"
 #include "UtilityClass.h"
 #include "Vlogging.h"
 #include "XMLUtils.h"
@@ -78,6 +83,32 @@ static bool compare_nocase (std::string first, std::string second)
         return true;
     else
         return false;
+}
+
+/* translate_title and translate_creator are used to display default title/author
+ * as being translated, while they're actually stored in English in the level file.
+ * This way we translate "Untitled Level" and "Unknown" without
+ * spreading around translations in level files posted online! */
+std::string translate_title(const std::string& title, bool* is_gettext)
+{
+    if (title == "Untitled Level")
+    {
+        *is_gettext = true;
+        return loc::gettext("Untitled Level");
+    }
+    *is_gettext = false;
+    return title;
+}
+
+std::string translate_creator(const std::string& creator, bool* is_gettext)
+{
+    if (creator == "Unknown")
+    {
+        *is_gettext = true;
+        return loc::gettext("Unknown");
+    }
+    *is_gettext = false;
+    return creator;
 }
 
 static void levelZipCallback(const char* filename)
@@ -177,10 +208,7 @@ static std::string find_tag(const std::string& buf, const std::string& start, co
         {
             SDL_sscanf(number.c_str(), "%" SCNu32, &character);
         }
-        uint32_t utf32[] = {character, 0};
-        std::string utf8;
-        utf8::unchecked::utf32to8(utf32, utf32 + 1, std::back_inserter(utf8));
-        value.replace(start_pos, end - start_pos + 1, utf8);
+        value.replace(start_pos, end - start_pos + 1, UTF8_encode(character).bytes);
     }
 
     return value;
@@ -200,6 +228,7 @@ TAG_FINDER(find_desc1, "Desc1")
 TAG_FINDER(find_desc2, "Desc2")
 TAG_FINDER(find_desc3, "Desc3")
 TAG_FINDER(find_website, "website")
+TAG_FINDER(find_font, "font")
 
 /* For CliPlaytestArgs */
 TAG_FINDER(find_playtest, "Playtest")
@@ -257,7 +286,7 @@ void customlevelclass::getDirectoryData(void)
 bool customlevelclass::getLevelMetaDataAndPlaytestArgs(const std::string& _path, LevelMetaData& _data, CliPlaytestArgs* pt_args)
 {
     unsigned char *uMem;
-    FILESYSTEM_loadFileToMemory(_path.c_str(), &uMem, NULL, true);
+    FILESYSTEM_loadFileToMemory(_path.c_str(), &uMem, NULL);
 
     if (uMem == NULL)
     {
@@ -267,7 +296,7 @@ bool customlevelclass::getLevelMetaDataAndPlaytestArgs(const std::string& _path,
 
     std::string buf((char*) uMem);
 
-    FILESYSTEM_freeMemory(&uMem);
+    VVV_free(uMem);
 
     if (find_metadata(buf) == "")
     {
@@ -275,12 +304,17 @@ bool customlevelclass::getLevelMetaDataAndPlaytestArgs(const std::string& _path,
         return false;
     }
 
-    _data.creator = find_creator(buf);
-    _data.title = find_title(buf);
+    _data.creator = translate_creator(find_creator(buf), &_data.creator_is_gettext);
+    _data.title = translate_title(find_title(buf), &_data.title_is_gettext);
     _data.Desc1 = find_desc1(buf);
     _data.Desc2 = find_desc2(buf);
     _data.Desc3 = find_desc3(buf);
     _data.website = find_website(buf);
+    if (!font::find_main_font_by_name(find_font(buf).c_str(), &_data.level_main_font_idx))
+    {
+        _data.level_main_font_idx = font::get_font_idx_8x8();
+    }
+
 
     if (pt_args != NULL)
     {
@@ -317,7 +351,7 @@ void customlevelclass::reset(void)
     mapwidth=5;
     mapheight=5;
 
-    title="Untitled Level";
+    title="Untitled Level"; // Already translatable
     creator="Unknown";
 
     levmusic=0;
@@ -352,6 +386,10 @@ void customlevelclass::reset(void)
     script.clearcustom();
 
     onewaycol_override = false;
+
+    script.textbox_colours.clear();
+    script.add_default_colours();
+    map.specialroomnames.clear();
 }
 
 const int* customlevelclass::loadlevel( int rxi, int ryi )
@@ -904,12 +942,10 @@ void customlevelclass::findstartpoint(void)
     else
     {
         //Start point spawn
-        int tx=customentities[testeditor].x/40;
-        int ty=customentities[testeditor].y/30;
-        game.edsavex = ((customentities[testeditor].x%40)*8)-4;
-        game.edsavey = (customentities[testeditor].y%30)*8;
-        game.edsaverx = 100+tx;
-        game.edsavery = 100+ty;
+        game.edsavex = (customentities[testeditor].x * 8) - 4;
+        game.edsavey = customentities[testeditor].y * 8;
+        game.edsaverx = 100 + customentities[testeditor].rx;
+        game.edsavery = 100 + customentities[testeditor].ry;
         game.edsavegc = 0;
         game.edsavey++;
         game.edsavedir=1-customentities[testeditor].p1;
@@ -950,7 +986,7 @@ int customlevelclass::findwarptoken(int t)
 }
 
 
-bool customlevelclass::load(std::string& _path)
+bool customlevelclass::load(std::string _path)
 {
     tinyxml2::XMLDocument doc;
     tinyxml2::XMLHandle hDoc(&doc);
@@ -994,6 +1030,7 @@ bool customlevelclass::load(std::string& _path)
 #endif
 
     version = 0;
+    level_font_name = "font";
 
     for (pElem = hDoc
         .FirstChildElement()
@@ -1056,6 +1093,11 @@ bool customlevelclass::load(std::string& _path)
                 {
                     onewaycol_override = help.Int(pText_);
                 }
+
+                if(SDL_strcmp(pKey_, "font") == 0)
+                {
+                    level_font_name = pText_;
+                }
             }
         }
 
@@ -1107,6 +1149,8 @@ bool customlevelclass::load(std::string& _path)
             {
                 CustomEntity entity = CustomEntity();
                 const char* text = edEntityEl->GetText();
+                int global_x = 0;
+                int global_y = 0;
 
                 if (text != NULL)
                 {
@@ -1151,8 +1195,12 @@ bool customlevelclass::load(std::string& _path)
 
                     entity.scriptname = std::string(text, len);
                 }
-                edEntityEl->QueryIntAttribute("x", &entity.x);
-                edEntityEl->QueryIntAttribute("y", &entity.y);
+                edEntityEl->QueryIntAttribute("x", &global_x);
+                edEntityEl->QueryIntAttribute("y", &global_y);
+                entity.rx = global_x / SCREEN_WIDTH_TILES;
+                entity.x = global_x % SCREEN_WIDTH_TILES;
+                entity.ry = global_y / SCREEN_HEIGHT_TILES;
+                entity.y = global_y % SCREEN_HEIGHT_TILES;
                 edEntityEl->QueryIntAttribute("t", &entity.t);
 
                 edEntityEl->QueryIntAttribute("p1", &entity.p1);
@@ -1242,6 +1290,104 @@ next:
                 script.customscripts.push_back(script_);
             }
         }
+
+        if (SDL_strcmp(pKey, "TextboxColours") == 0)
+        {
+            for (tinyxml2::XMLElement* textColourElement = pElem->FirstChildElement(); textColourElement; textColourElement = textColourElement->NextSiblingElement())
+            {
+                if (SDL_strcmp(textColourElement->Value(), "colour") == 0)
+                {
+                    int r = 255;
+                    int g = 255;
+                    int b = 255;
+
+                    textColourElement->QueryIntAttribute("r", &r);
+                    textColourElement->QueryIntAttribute("g", &g);
+                    textColourElement->QueryIntAttribute("b", &b);
+
+                    const char* name = textColourElement->Attribute("name");
+
+                    if (name != NULL)
+                    {
+                        SDL_Colour colour;
+                        colour.r = r;
+                        colour.g = g;
+                        colour.b = b;
+
+                        script.textbox_colours[name] = colour;
+                    }
+                }
+            }
+        }
+
+        if (SDL_strcmp(pKey, "SpecialRoomnames") == 0)
+        {
+            for (tinyxml2::XMLElement* roomnameElement = pElem->FirstChildElement(); roomnameElement; roomnameElement = roomnameElement->NextSiblingElement())
+            {
+                const char* roomnameType = roomnameElement->Value();
+                Roomname name;
+                name.x = 0;
+                name.y = 0;
+                name.flag = -1;
+                name.loop = false;
+                name.type = RoomnameType_STATIC;
+                name.progress = 0;
+                name.delay = 0;
+                if (SDL_strcmp(roomnameType, "transform") == 0)
+                {
+                    name.type = RoomnameType_TRANSFORM;
+                    name.delay = 2;
+                }
+                else if (SDL_strcmp(roomnameType, "glitch") == 0)
+                {
+                    name.type = RoomnameType_GLITCH;
+                    name.progress = 1;
+                    name.delay = -1;
+                }
+
+                name.text.clear();
+
+                roomnameElement->QueryIntAttribute("x", &name.x);
+                roomnameElement->QueryIntAttribute("y", &name.y);
+                roomnameElement->QueryIntAttribute("flag", &name.flag);
+
+                roomnameElement->QueryBoolAttribute("loop", &name.loop);
+
+                // Rooms start at (100, 100) instead of (0, 0), so offset the coordinates
+                name.x += 100;
+                name.y += 100;
+
+                if (name.type == RoomnameType_STATIC)
+                {
+                    const char* text = roomnameElement->GetText();
+                    if (text != NULL)
+                    {
+                        name.text.push_back(std::string(text));
+                    }
+                }
+                else
+                {
+                    // Does it have children?
+                    if (roomnameElement->FirstChildElement() == NULL)
+                    {
+                        continue;
+                    }
+                    for (tinyxml2::XMLElement* textElement = roomnameElement->FirstChildElement(); textElement; textElement = textElement->NextSiblingElement())
+                    {
+                        if (SDL_strcmp(textElement->Value(), "text") == 0)
+                        {
+                            const char* text = textElement->GetText();
+                            if (text != NULL)
+                            {
+                                name.text.push_back(std::string(text));
+                            }
+                        }
+                    }
+                }
+
+                map.specialroomnames.push_back(name);
+            }
+        }
     }
 
     if (mapwidth < maxwidth)
@@ -1283,9 +1429,8 @@ next:
         }
     }
 
-#ifndef NO_EDITOR
-    ed.gethooks();
-#endif
+    loc::loadtext_custom(_path.c_str());
+    font::load_custom(level_font_name.c_str());
 
     version=2;
 
@@ -1360,6 +1505,20 @@ bool customlevelclass::save(const std::string& _path)
         }
     }
 
+    if (level_font_name != "" && level_font_name != "font")
+    {
+        xml::update_tag(msg, "font", level_font_name.c_str());
+    }
+    else
+    {
+        // Get rid of it completely, same as <onewaycol_override>
+        tinyxml2::XMLElement* element;
+        while ((element = msg->FirstChildElement("font")) != NULL)
+        {
+            doc.DeleteNode(element);
+        }
+    }
+
     xml::update_tag(data, "mapwidth", mapwidth);
 
     xml::update_tag(data, "mapheight", mapheight);
@@ -1382,8 +1541,10 @@ bool customlevelclass::save(const std::string& _path)
     for(size_t i = 0; i < customentities.size(); i++)
     {
         tinyxml2::XMLElement *edentityElement = doc.NewElement( "edentity" );
-        edentityElement->SetAttribute( "x", customentities[i].x);
-        edentityElement->SetAttribute(  "y", customentities[i].y);
+        const int global_x = customentities[i].rx * SCREEN_WIDTH_TILES + customentities[i].x;
+        const int global_y = customentities[i].ry * SCREEN_HEIGHT_TILES + customentities[i].y;
+        edentityElement->SetAttribute("x", global_x);
+        edentityElement->SetAttribute("y", global_y);
         edentityElement->SetAttribute(  "t", customentities[i].t);
         edentityElement->SetAttribute(  "p1", customentities[i].p1);
         edentityElement->SetAttribute(  "p2", customentities[i].p2);
@@ -1483,126 +1644,106 @@ bool customlevelclass::save(const std::string& _path)
 
 void customlevelclass::generatecustomminimap(void)
 {
-    map.customwidth=mapwidth;
-    map.customheight=mapheight;
-
-    map.customzoom=1;
-    if(map.customwidth<=10 && map.customheight<=10) map.customzoom=2;
-    if(map.customwidth<=5 && map.customheight<=5) map.customzoom=4;
-
-    //Set minimap offsets
-    if(map.customzoom==4)
+    map.customzoom = 1;
+    if (mapwidth <= 10 && mapheight <= 10)
     {
-        map.custommmxoff=24*(5-map.customwidth);
-        map.custommmxsize=240-(map.custommmxoff*2);
-
-        map.custommmyoff=18*(5-map.customheight);
-        map.custommmysize=180-(map.custommmyoff*2);
+        map.customzoom = 2;
     }
-    else if(map.customzoom==2)
+    if (mapwidth <= 5 && mapheight <= 5)
     {
-        map.custommmxoff=12*(10-map.customwidth);
-        map.custommmxsize=240-(map.custommmxoff*2);
-
-        map.custommmyoff=9*(10-map.customheight);
-        map.custommmysize=180-(map.custommmyoff*2);
-    }
-    else
-    {
-        map.custommmxoff=6*(20-map.customwidth);
-        map.custommmxsize=240-(map.custommmxoff*2);
-
-        map.custommmyoff=int(4.5*(20-map.customheight));
-        map.custommmysize=180-(map.custommmyoff*2);
+        map.customzoom = 4;
     }
 
-    FillRect(graphics.images[12], graphics.getRGB(0, 0, 0));
-
-    int tm=0;
-    int temp=0;
-    //Scan over the map size
-    if(mapheight<=5 && mapwidth<=5)
+    // Set minimap offsets
+    switch (map.customzoom)
     {
-        //4x map
-        for(int j2=0; j2<mapheight; j2++)
+    case 4:
+        map.custommmxoff = 24 * (5 - mapwidth);
+        map.custommmyoff = 18 * (5 - mapheight);
+        break;
+    case 2:
+        map.custommmxoff = 12 * (10 - mapwidth);
+        map.custommmyoff = 9 * (10 - mapheight);
+        break;
+    default:
+        map.custommmxoff = 6 * (20 - mapwidth);
+        map.custommmyoff = int(4.5 * (20 - mapheight));
+        break;
+    }
+
+    map.custommmxsize = 240 - (map.custommmxoff * 2);
+    map.custommmysize = 180 - (map.custommmyoff * 2);
+
+    // Start drawing the minimap
+
+    SDL_Texture* target = SDL_GetRenderTarget(gameScreen.m_renderer);
+    graphics.set_render_target(graphics.images[IMAGE_CUSTOMMINIMAP]);
+    graphics.clear();
+
+    // Scan over the map size
+    for (int j2 = 0; j2 < mapheight; j2++)
+    {
+        for (int i2 = 0; i2 < mapwidth; i2++)
         {
-            for(int i2=0; i2<mapwidth; i2++)
+            int tm;
+            if (getroomprop(i2, j2)->tileset == 1)
             {
-                //Ok, now scan over each square
-                tm=196;
-                if(getroomprop(i2, j2)->tileset==1) tm=96;
+                tm = 96;
+            }
+            else
+            {
+                tm = 196;
+            }
 
-                for(int j=0; j<36; j++)
+            // Ok, now scan over each square
+            for (int j = 0; j < 9 * map.customzoom; j++)
+            {
+                for (int i = 0; i < 12 * map.customzoom; i++)
                 {
-                    for(int i=0; i<48; i++)
+                    int tile;
+                    switch (map.customzoom)
                     {
-                        temp=absfree(int(i*0.83) + (i2*40),int(j*0.83)+(j2*30));
-                        if(temp>=1)
-                        {
-                            //Fill in this pixel
-                            FillRect(graphics.images[12], (i2*48)+i, (j2*36)+j, 1, 1, graphics.getRGB(tm, tm, tm));
-                        }
+                    case 4:
+                        tile = absfree(
+                            int(i * 0.83) + (i2 * 40),
+                            int(j * 0.83) + (j2 * 30)
+                        );
+                        break;
+                    case 2:
+                        tile = absfree(
+                            int(i * 1.6) + (i2 * 40),
+                            int(j * 1.6) + (j2 * 30)
+                        );
+                        break;
+                    default:
+                        tile = absfree(
+                            3 + (i * 3) + (i2 * 40),
+                            (j * 3) + (j2 * 30)
+                        );
+                        break;
+                    }
+
+                    if (tile >= 1)
+                    {
+                        // Fill in this pixel
+                        graphics.fill_rect(
+                            (i2 * 12 * map.customzoom) + i,
+                            (j2 * 9 * map.customzoom) + j,
+                            1, 1,
+                            graphics.getRGB(tm, tm, tm)
+                        );
                     }
                 }
             }
         }
     }
-    else if(mapheight<=10 && mapwidth<=10)
-    {
-        //2x map
-        for(int j2=0; j2<mapheight; j2++)
-        {
-            for(int i2=0; i2<mapwidth; i2++)
-            {
-                //Ok, now scan over each square
-                tm=196;
-                if(getroomprop(i2, j2)->tileset==1) tm=96;
 
-                for(int j=0; j<18; j++)
-                {
-                    for(int i=0; i<24; i++)
-                    {
-                        temp=absfree(int(i*1.6) + (i2*40),int(j*1.6)+(j2*30));
-                        if(temp>=1)
-                        {
-                            //Fill in this pixel
-                            FillRect(graphics.images[12], (i2*24)+i, (j2*18)+j, 1, 1, graphics.getRGB(tm, tm, tm));
-                        }
-                    }
-                }
-            }
-        }
-    }
-    else
-    {
-        for(int j2=0; j2<mapheight; j2++)
-        {
-            for(int i2=0; i2<mapwidth; i2++)
-            {
-                //Ok, now scan over each square
-                tm=196;
-                if(getroomprop(i2, j2)->tileset==1) tm=96;
-
-                for(int j=0; j<9; j++)
-                {
-                    for(int i=0; i<12; i++)
-                    {
-                        temp=absfree(3+(i*3) + (i2*40),(j*3)+(j2*30));
-                        if(temp>=1)
-                        {
-                            //Fill in this pixel
-                            FillRect(graphics.images[12], (i2*12)+i, (j2*9)+j, 1, 1, graphics.getRGB(tm, tm, tm));
-                        }
-                    }
-                }
-            }
-        }
-    }
+    graphics.set_render_target(target);
 }
 
 // Return a graphics-ready color based off of the given tileset and tilecol
 // Much kudos to Dav999 for saving me a lot of work, because I stole these colors from const.lua in Ved! -Info Teddy
-Uint32 customlevelclass::getonewaycol(const int rx, const int ry)
+SDL_Color customlevelclass::getonewaycol(const int rx, const int ry)
 {
     const RoomProperty* const room = getroomprop(rx, ry);
     switch (room->tileset) {
@@ -1761,7 +1902,7 @@ Uint32 customlevelclass::getonewaycol(const int rx, const int ry)
 }
 
 // This version detects the room automatically
-Uint32 customlevelclass::getonewaycol(void)
+SDL_Color customlevelclass::getonewaycol(void)
 {
 #ifndef NO_EDITOR
     if (game.gamestate == EDITORMODE)

@@ -1,11 +1,14 @@
-#include "GraphicsUtil.h"
-
 #include <SDL.h>
 #include <stddef.h>
 #include <stdlib.h>
 
+#include "Alloc.h"
+#include "Constants.h"
 #include "Graphics.h"
 #include "Maths.h"
+#include "Screen.h"
+#include "UtilityClass.h"
+#include "Vlogging.h"
 
 
 
@@ -53,20 +56,6 @@ static SDL_Surface* RecreateSurfaceWithDimensions(
     return retval;
 }
 
-static SDL_Surface* RecreateSurface(SDL_Surface* surface)
-{
-    if (surface == NULL)
-    {
-        return NULL;
-    }
-
-    return RecreateSurfaceWithDimensions(
-        surface,
-        surface->w,
-        surface->h
-    );
-}
-
 SDL_Surface* GetSubSurface( SDL_Surface* metaSurface, int x, int y, int width, int height )
 {
     // Create an SDL_Rect with the area of the _surface
@@ -90,206 +79,46 @@ SDL_Surface* GetSubSurface( SDL_Surface* metaSurface, int x, int y, int width, i
     return preSurface;
 }
 
-static void DrawPixel( SDL_Surface *_surface, int x, int y, Uint32 pixel )
+void DrawPixel(SDL_Surface* surface, const int x, const int y, const SDL_Color color)
 {
-    int bpp = _surface->format->BytesPerPixel;
-    /* Here p is the address to the pixel we want to set */
-    Uint8 *p = (Uint8 *)_surface->pixels + y * _surface->pitch + x * bpp;
+    const SDL_PixelFormat* fmt = surface->format;
+    const int bpp = fmt->BytesPerPixel;
+    Uint32* pixel = (Uint32*) ((Uint8*) surface->pixels + y * surface->pitch + x * bpp);
 
-    switch(bpp)
+    switch (bpp)
     {
     case 1:
-        *p = pixel;
-        break;
-
     case 2:
-        *(Uint16 *)p = pixel;
-        break;
-
     case 3:
-        p[0] = (pixel >> 16) & 0xff;
-        p[1] = (pixel >> 8) & 0xff;
-        p[2] = pixel & 0xff;
+        SDL_assert(0 && "Non-32-bit colors not supported!");
+        return;
+
+    case 4:
+        *pixel = SDL_MapRGBA(fmt, color.r, color.g, color.b, color.a);
+    }
+}
+
+SDL_Color ReadPixel(const SDL_Surface* surface, const int x, const int y)
+{
+    const SDL_PixelFormat* fmt = surface->format;
+    const int bpp = surface->format->BytesPerPixel;
+    const Uint32* pixel = (Uint32*) ((Uint8*) surface->pixels + y * surface->pitch + x * bpp);
+    SDL_Color color = {0, 0, 0, 0};
+
+    switch (bpp)
+    {
+    case 1:
+    case 2:
+    case 3:
+        SDL_assert(0 && "Non-32-bit colors not supported!");
         break;
 
     case 4:
-        *(Uint32 *)p = pixel;
-        break;
+        SDL_GetRGBA(*pixel, fmt, &color.r, &color.g, &color.b, &color.a);
     }
+
+    return color;
 }
-
-Uint32 ReadPixel( SDL_Surface *_surface, int x, int y )
-{
-    int bpp = _surface->format->BytesPerPixel;
-    /* Here p is the address to the pixel we want to retrieve */
-    Uint8 *p = (Uint8 *)_surface->pixels + y * _surface->pitch + x * bpp;
-
-    switch(bpp)
-    {
-    case 1:
-        return *p;
-        break;
-
-    case 2:
-        return *(Uint16 *)p;
-        break;
-
-    case 3:
-        return p[0] | p[1] << 8 | p[2] << 16;
-
-    case 4:
-        return *(Uint32 *)p;
-        break;
-
-    default:
-        return 0;       /* shouldn't happen, but avoids warnings */
-    }
-}
-
-SDL_Surface * ScaleSurface( SDL_Surface *_surface, int Width, int Height, SDL_Surface * Dest )
-{
-    if(!_surface || !Width || !Height)
-        return 0;
-
-    SDL_Surface *_ret;
-    if(Dest == NULL)
-    {
-        _ret = RecreateSurfaceWithDimensions(_surface, Width, Height);
-        if(_ret == NULL)
-        {
-            return NULL;
-        }
-
-    }
-    else
-    {
-        _ret = Dest;
-    }
-
-    SDL_BlitScaled(_surface, NULL, _ret, NULL);
-
-    return _ret;
-}
-
-SDL_Surface *  FlipSurfaceVerticle(SDL_Surface* _src)
-{
-    SDL_Surface * ret = RecreateSurface(_src);
-    if(ret == NULL)
-    {
-        return NULL;
-    }
-
-    for(Sint32 y = 0; y < _src->h; y++)
-    {
-        for(Sint32 x = 0; x < _src->w; x++)
-        {
-            DrawPixel(ret, x ,(_src->h-1) - y ,ReadPixel(_src, x, y));
-        }
-
-
-    }
-
-    return ret;
-}
-
-void BlitSurfaceStandard( SDL_Surface* _src, SDL_Rect* _srcRect, SDL_Surface* _dest, SDL_Rect* _destRect )
-{
-    SDL_BlitSurface( _src, _srcRect, _dest, _destRect );
-}
-
-void BlitSurfaceColoured(
-    SDL_Surface* _src,
-    SDL_Rect* _srcRect,
-    SDL_Surface* _dest,
-    SDL_Rect* _destRect,
-    colourTransform& ct
-) {
-    SDL_Rect *tempRect = _destRect;
-
-    const SDL_PixelFormat& fmt = *(_src->format);
-
-    SDL_Surface* tempsurface =  RecreateSurface(_src);
-
-    for(int x = 0; x < tempsurface->w; x++)
-    {
-        for(int y = 0; y < tempsurface->h; y++)
-        {
-            Uint32 pixel = ReadPixel(_src, x, y);
-            Uint32 Alpha = pixel & fmt.Amask;
-            Uint32 result = ct.colour & 0x00FFFFFF;
-            Uint32 CTAlpha = ct.colour & fmt.Amask;
-            float div1 = ((Alpha >> 24) / 255.0f);
-            float div2 = ((CTAlpha >> 24) / 255.0f);
-            Uint32 UseAlpha = (div1 * div2) * 255.0f;
-            DrawPixel(tempsurface, x, y, result | (UseAlpha << 24));
-        }
-    }
-
-    SDL_BlitSurface(tempsurface, _srcRect, _dest, tempRect);
-    SDL_FreeSurface(tempsurface);
-}
-
-void BlitSurfaceTinted(
-    SDL_Surface* _src,
-    SDL_Rect* _srcRect,
-    SDL_Surface* _dest,
-    SDL_Rect* _destRect,
-    colourTransform& ct
-) {
-    SDL_Rect *tempRect = _destRect;
-
-    const SDL_PixelFormat& fmt = *(_src->format);
-
-    SDL_Surface* tempsurface =  RecreateSurface(_src);
-
-    for (int x = 0; x < tempsurface->w; x++) {
-        for (int y = 0; y < tempsurface->h; y++) {
-            Uint32 pixel = ReadPixel(_src, x, y);
-
-            Uint8 pixred = (pixel & _src->format->Rmask) >> 16;
-            Uint8 pixgreen = (pixel & _src->format->Gmask) >> 8;
-            Uint8 pixblue = (pixel & _src->format->Bmask) >> 0;
-
-            double temp_pixred = pixred * 0.299;
-            double temp_pixgreen = pixgreen * 0.587;
-            double temp_pixblue = pixblue * 0.114;
-
-            double gray = SDL_floor((temp_pixred + temp_pixgreen + temp_pixblue + 0.5));
-
-            Uint8 ctred = (ct.colour & graphics.backBuffer->format->Rmask) >> 16;
-            Uint8 ctgreen = (ct.colour & graphics.backBuffer->format->Gmask) >> 8;
-            Uint8 ctblue = (ct.colour & graphics.backBuffer->format->Bmask) >> 0;
-
-            temp_pixred = gray * ctred / 255.0;
-            temp_pixgreen = gray * ctgreen / 255.0;
-            temp_pixblue = gray * ctblue / 255.0;
-
-            if (temp_pixred > 255)
-                temp_pixred = 255;
-            if (temp_pixgreen > 255)
-                temp_pixgreen = 255;
-            if (temp_pixblue > 255)
-                temp_pixblue = 255;
-
-            pixred = temp_pixred;
-            pixgreen = temp_pixgreen;
-            pixblue = temp_pixblue;
-
-            Uint32 Alpha = pixel & fmt.Amask;
-            Uint32 result = (pixred << 16) + (pixgreen << 8) + (pixblue << 0);
-            Uint32 CTAlpha = ct.colour & fmt.Amask;
-            float div1 = ((Alpha >> 24) / 255.0f);
-            float div2 = ((CTAlpha >> 24) / 255.0f);
-            Uint32 UseAlpha = (div1 * div2) * 255.0f;
-
-            DrawPixel(tempsurface, x, y, result | (UseAlpha << 24));
-        }
-    }
-
-    SDL_BlitSurface(tempsurface, _srcRect, _dest, tempRect);
-    SDL_FreeSurface(tempsurface);
-}
-
 
 static int oldscrollamount = 0;
 static int scrollamount = 0;
@@ -315,29 +144,48 @@ void UpdateFilter(void)
     }
 }
 
-SDL_Surface* ApplyFilter( SDL_Surface* _src )
+void ApplyFilter(SDL_Surface* src, SDL_Surface* dest)
 {
-    SDL_Surface* _ret = RecreateSurface(_src);
-
-    int redOffset = rand() % 4;
-
-    for(int x = 0; x < _src->w; x++)
+    if (src == NULL)
     {
-        for(int y = 0; y < _src->h; y++)
+        src = SDL_CreateRGBSurface(0, SCREEN_WIDTH_PIXELS, SCREEN_HEIGHT_PIXELS, 32, 0, 0, 0, 0);
+    }
+    if (dest == NULL)
+    {
+        dest = SDL_CreateRGBSurface(0, SCREEN_WIDTH_PIXELS, SCREEN_HEIGHT_PIXELS, 32, 0, 0, 0, 0);
+    }
+    if (src == NULL || dest == NULL)
+    {
+        return;
+    }
+
+    const int result = SDL_RenderReadPixels(gameScreen.m_renderer, NULL, 0, src->pixels, src->pitch);
+    if (result != 0)
+    {
+        SDL_FreeSurface(src);
+        WHINE_ONCE_ARGS(("Could not read pixels from renderer: %s", SDL_GetError()));
+        return;
+    }
+
+    const int red_offset = rand() % 4;
+
+    for (int x = 0; x < src->w; x++)
+    {
+        for (int y = 0; y < src->h; y++)
         {
-            int sampley = (y + (int) graphics.lerp(oldscrollamount, scrollamount) )% 240;
+            const int sampley = (y + (int) graphics.lerp(oldscrollamount, scrollamount)) % 240;
 
-            Uint32 pixel = ReadPixel(_src, x,sampley);
+            const SDL_Color pixel = ReadPixel(src, x, sampley);
 
-            Uint8 green = (pixel & _src->format->Gmask) >> 8;
-            Uint8 blue = (pixel & _src->format->Bmask) >> 0;
+            Uint8 green = pixel.g;
+            Uint8 blue = pixel.b;
 
-            Uint32 pixelOffset = ReadPixel(_src, SDL_min(x+redOffset, 319), sampley) ;
-            Uint8 red = (pixelOffset & _src->format->Rmask) >> 16 ;
+            const SDL_Color pixel_offset = ReadPixel(src, SDL_min(x + red_offset, 319), sampley);
+            Uint8 red = pixel_offset.r;
 
             double mult;
             int tmp; /* needed to avoid char overflow */
-            if(isscrolling && sampley > 220 && ((rand() %10) < 4))
+            if (isscrolling && sampley > 220 && ((rand() % 10) < 4))
             {
                 mult = 0.6;
             }
@@ -353,143 +201,24 @@ SDL_Surface* ApplyFilter( SDL_Surface* _src )
             tmp = blue + fRandom() * mult * 254;
             blue = SDL_min(tmp, 255);
 
-            if(y % 2 == 0)
+            if (y % 2 == 0)
             {
-                red = static_cast<Uint8>(red / 1.2f);
-                green = static_cast<Uint8>(green / 1.2f);
-                blue =  static_cast<Uint8>(blue / 1.2f);
+                red = (Uint8) (red / 1.2f);
+                green = (Uint8) (green / 1.2f);
+                blue = (Uint8) (blue / 1.2f);
             }
 
-            int distX =  static_cast<int>((SDL_abs (160.0f -x ) / 160.0f) *16);
-            int distY =  static_cast<int>((SDL_abs (120.0f -y ) / 120.0f)*32);
+            int distX = (int) ((SDL_abs(160.0f - x) / 160.0f) * 16);
+            int distY = (int) ((SDL_abs(120.0f - y) / 120.0f) * 32);
 
-            red = SDL_max(red - ( distX +distY), 0);
-            green = SDL_max(green - ( distX +distY), 0);
-            blue = SDL_max(blue - ( distX +distY), 0);
+            red = SDL_max(red - (distX + distY), 0);
+            green = SDL_max(green - (distX + distY), 0);
+            blue = SDL_max(blue - (distX + distY), 0);
 
-            Uint32 finalPixel = ((red<<16) + (green<<8) + (blue<<0)) | (pixel &_src->format->Amask);
-            DrawPixel(_ret,x,y,  finalPixel);
-
+            const SDL_Color color = {red, green, blue, pixel.a};
+            DrawPixel(dest, x, y, color);
         }
     }
-    return _ret;
-}
 
-void FillRect( SDL_Surface* _surface, const int _x, const int _y, const int _w, const int _h, const int r, int g, int b )
-{
-    SDL_Rect rect = {_x, _y, _w, _h};
-    Uint32 color = SDL_MapRGB(_surface->format, r, g, b);
-    SDL_FillRect(_surface, &rect, color);
-}
-
-void FillRect( SDL_Surface* _surface, const int r, int g, int b )
-{
-    Uint32 color = SDL_MapRGB(_surface->format, r, g, b);
-    SDL_FillRect(_surface, NULL, color);
-}
-
-void FillRect( SDL_Surface* _surface, const int color )
-{
-    SDL_FillRect(_surface, NULL, color);
-}
-
-void FillRect( SDL_Surface* _surface, const int x, const int y, const int w, const int h, int rgba )
-{
-    SDL_Rect rect = {x, y, w, h};
-    SDL_FillRect(_surface, &rect, rgba);
-}
-
-void FillRect( SDL_Surface* _surface, SDL_Rect& _rect, const int r, int g, int b )
-{
-    Uint32 color = SDL_MapRGB(_surface->format, r, g, b);
-    SDL_FillRect(_surface, &_rect, color);
-}
-
-void FillRect( SDL_Surface* _surface, SDL_Rect rect, int rgba )
-{
-    SDL_FillRect(_surface, &rect, rgba);
-}
-
-void ClearSurface(SDL_Surface* surface)
-{
-    SDL_FillRect(surface, NULL, 0x00000000);
-}
-
-void ScrollSurface( SDL_Surface* _src, int _pX, int _pY )
-{
-    SDL_Surface* part1 = NULL;
-
-    SDL_Rect rect1;
-    SDL_Rect rect2;
-    //scrolling up;
-    if(_pY < 0)
-    {
-        setRect(rect2, 0, 0, _src->w,  _src->h - _pY);
-
-        part1 = GetSubSurface(_src, rect2.x, rect2.y, rect2.w, rect2.h);
-
-        SDL_Rect destrect1;
-
-        SDL_SetSurfaceBlendMode(part1, SDL_BLENDMODE_NONE);
-
-        setRect(destrect1, 0,  _pY, _pX, _src->h);
-
-        SDL_BlitSurface (part1, NULL, _src, &destrect1);
-    }
-
-    else if(_pY > 0)
-    {
-
-        setRect(rect1, 0, 0, _src->w, _src->h - _pY);
-
-        part1 = GetSubSurface(_src, rect1.x, rect1.y, rect1.w, rect1.h);
-
-        SDL_Rect destrect1;
-
-        SDL_SetSurfaceBlendMode(part1, SDL_BLENDMODE_NONE);
-
-        setRect(destrect1, _pX, _pY, _src->w, _src->h - _pY);
-
-        SDL_BlitSurface (part1, NULL, _src, &destrect1);
-
-    }
-
-    //Right
-    else if(_pX <= 0)
-    {
-        setRect(rect2, 0, 0, _src->w - _pX,  _src->h );
-
-        part1 = GetSubSurface(_src, rect2.x, rect2.y, rect2.w, rect2.h);
-
-        SDL_Rect destrect1;
-
-        SDL_SetSurfaceBlendMode(part1, SDL_BLENDMODE_NONE);
-
-        setRect(destrect1, _pX,  0, _src->w - _pX, _src->h);
-
-        SDL_BlitSurface (part1, NULL, _src, &destrect1);
-    }
-
-    else if(_pX > 0)
-    {
-
-        setRect(rect1, _pX, 0, _src->w - _pX, _src->h );
-
-        part1 = GetSubSurface(_src, rect1.x, rect1.y, rect1.w, rect1.h);
-
-        SDL_Rect destrect1;
-
-        SDL_SetSurfaceBlendMode(part1, SDL_BLENDMODE_NONE);
-
-        setRect(destrect1, 0, 0, _src->w - _pX, _src->h);
-
-        SDL_BlitSurface (part1, NULL, _src, &destrect1);
-
-    }
-    //Cleanup temp surface
-    if (part1)
-    {
-        SDL_FreeSurface(part1);
-    }
-
+    SDL_UpdateTexture(graphics.gameTexture, NULL, dest->pixels, dest->pitch);
 }

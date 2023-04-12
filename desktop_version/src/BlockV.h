@@ -2,6 +2,7 @@
 #define BLOCKV_H
 
 #include <SDL.h>
+#include <stdint.h>
 #include <string>
 
 class blockclass
@@ -21,7 +22,8 @@ public:
     int xp, yp, wp, hp;
     std::string script, prompt;
     int r, g, b;
-    int activity_x, activity_y;
+    int activity_y;
+    uint32_t print_flags;
 };
 
 #endif /* BLOCKV_H */

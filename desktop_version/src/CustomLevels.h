@@ -10,6 +10,7 @@
 class CustomEntity
 {
 public:
+    int rx, ry;
     int x, y, t;
     //parameters
     int p1, p2, p3, p4, p5, p6;
@@ -58,6 +59,15 @@ struct LevelMetaData
     std::string timeModified;
 
     int version;
+
+    /* true if a system "Untitled Level"/"Unknown"
+     * was stored in this struct (for the levels list) */
+    bool title_is_gettext;
+    bool creator_is_gettext;
+
+    /* This is for the metadata in the levels list,
+     * so it will only be a main font (no custom ones). */
+    uint8_t level_main_font_idx;
 };
 
 struct CliPlaytestArgs
@@ -127,7 +137,7 @@ public:
 
     int absfree(int x, int y);
 
-    bool load(std::string& _path);
+    bool load(std::string _path);
 #ifndef NO_EDITOR
     bool save(const std::string& _path);
 #endif
@@ -153,12 +163,18 @@ public:
     int levmusic;
     int mapwidth, mapheight; //Actual width and height of stage
 
+    std::string level_font_name;
+
     int version;
 
-    Uint32 getonewaycol(const int rx, const int ry);
-    Uint32 getonewaycol(void);
+    SDL_Color getonewaycol(int rx, int ry);
+    SDL_Color getonewaycol(void);
     bool onewaycol_override;
 };
+
+std::string translate_title(const std::string& title, bool* is_gettext);
+
+std::string translate_creator(const std::string& creator, bool* is_gettext);
 
 #ifndef CL_DEFINITION
 extern customlevelclass cl;

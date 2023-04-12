@@ -127,6 +127,11 @@ static void gotoroom_wrapper(const int rx, const int ry)
 
 void gamelogic(void)
 {
+    if (game.physics_frozen())
+    {
+        return;
+    }
+
     bool roomchange = false;
 #define GOTOROOM(rx, ry) \
     gotoroom_wrapper(rx, ry); \
@@ -464,7 +469,9 @@ void gamelogic(void)
                 if (graphics.fademode == FADE_FULLY_BLACK)
                 {
                     game.copyndmresults();
-                    script.resetgametomenu();
+                    obj.entities.clear();
+                    game.quittomenu();
+                    game.createmenu(Menu::gameover);
                 }
             }
             else
@@ -1399,15 +1406,18 @@ void gamelogic(void)
     if (map.finalmode && map.final_colormode)
     {
         map.final_aniframedelay--;
-        if(map.final_aniframedelay==0)
+        if (map.final_aniframedelay == 0)
         {
-            graphics.foregrounddrawn=false;
+            graphics.foregrounddrawn = false;
         }
-        if (map.final_aniframedelay <= 0) {
+        if (map.final_aniframedelay <= 0)
+        {
             map.final_aniframedelay = 2;
             map.final_aniframe++;
             if (map.final_aniframe >= 4)
+            {
                 map.final_aniframe = 0;
+            }
         }
     }
 
@@ -1417,15 +1427,15 @@ void gamelogic(void)
     && INBOUNDS_VEC(game.activeactivity, obj.blocks))
     {
         game.activity_lastprompt = obj.blocks[game.activeactivity].prompt;
+        game.activity_print_flags = obj.blocks[game.activeactivity].print_flags;
         game.activity_r = obj.blocks[game.activeactivity].r;
         game.activity_g = obj.blocks[game.activeactivity].g;
         game.activity_b = obj.blocks[game.activeactivity].b;
-        game.activity_x = obj.blocks[game.activeactivity].activity_x;
         game.activity_y = obj.blocks[game.activeactivity].activity_y;
     }
 
     game.oldreadytotele = game.readytotele;
-    if (game.activetele && game.hascontrol && !script.running && !game.intimetrial)
+    if (game.activetele && game.hascontrol && !script.running && (!game.intimetrial || game.translator_exploring_allowtele))
     {
         int i = obj.getplayer();
         SDL_Rect temprect = SDL_Rect();

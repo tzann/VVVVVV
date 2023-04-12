@@ -2,10 +2,10 @@
 #define MAPGAME_H
 
 #include <vector>
+#include <string>
 
 #include "Finalclass.h"
 #include "Labclass.h"
-#include "Maths.h"
 #include "Otherlevel.h"
 #include "Spacestation2.h"
 #include "Tower.h"
@@ -18,10 +18,34 @@ struct Roomtext
     const char* text;
 };
 
+enum RoomnameType
+{
+    RoomnameType_STATIC,
+    RoomnameType_GLITCH,
+    RoomnameType_TRANSFORM
+};
+
+struct Roomname
+{
+    int x;
+    int y;
+    bool loop;
+    int flag;
+    RoomnameType type;
+    std::vector<std::string> text;
+    int progress;
+    int delay;
+};
+
 class mapclass
 {
 public:
     mapclass(void);
+    void destroy(void);
+
+    int getwidth(void);
+
+    int getheight(void);
 
     int intpol(int a, int b, float c);
 
@@ -29,16 +53,17 @@ public:
 
     void settrinket(int x, int y);
 
+    void setroomname(const char* name);
+
     void resetmap(void);
 
-    void resetnames(void);
-
-    void transformname(int t);
-
-    const char* getglitchname(int x, int y);
+    void updateroomnames(void);
 
     void initmapdata(void);
     void initcustommapdata(void);
+
+    void roomnamechange(int x, int y, const char** lines, size_t size);
+    void roomnameglitch(int x, int y, const char* name, const char* glitch);
 
     int finalat(int x, int y);
 
@@ -107,7 +132,11 @@ public:
 
 
     const char* roomname;
+    bool roomname_special;
+    bool roomnameset;
     const char* hiddenname;
+
+    std::vector<Roomname> specialroomnames;
 
     //Special tower stuff
     bool towermode;
@@ -129,15 +158,9 @@ public:
     //Variables for playing custom levels
     bool custommode;
     bool custommodeforreal;
-    int customwidth, customheight;
     int custommmxoff, custommmyoff, custommmxsize, custommmysize;
     int customzoom;
     bool customshowmm;
-
-    const char* specialnames[8];
-    int glitchmode;
-    int glitchdelay;
-    const char* glitchname;
 
     //final level colour cycling stuff
     bool final_colormode;
@@ -147,8 +170,8 @@ public:
     int final_colorframe, final_colorframedelay;
 
     //Teleporters and Trinkets on the map
-    std::vector<point> teleporters;
-    std::vector<point> shinytrinkets;
+    std::vector<SDL_Point> teleporters;
+    std::vector<SDL_Point> shinytrinkets;
 
     bool showteleporters, showtargets, showtrinkets;
 

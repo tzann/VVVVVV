@@ -7,7 +7,7 @@ cmake_minimum_required(VERSION 2.8.12)
 option(ENABLE_WARNINGS "Enable compilation warnings" ON)
 option(ENABLE_WERROR "Treat compilation warnings as errors" OFF)
 
-option(BUNDLE_DEPENDENCIES "Use bundled TinyXML-2, PhysicsFS, FAudio, and UTF8-CPP (if disabled, TinyXML-2, PhysicsFS, and FAudio will be dynamically linked, LodePNG and UTF8-CPP will still be statically linked)" ON)
+option(BUNDLE_DEPENDENCIES "Use bundled TinyXML-2, PhysicsFS, and FAudio (if disabled, TinyXML-2, PhysicsFS, and FAudio will be dynamically linked; LodePNG and C-HashMap will still be statically linked)" ON)
 
 set(CUSTOM_LEVEL_SUPPORT ENABLED CACHE STRING "Optionally disable playing and/or editing of custom levels")
 set_property(CACHE CUSTOM_LEVEL_SUPPORT PROPERTY STRINGS ENABLED NO_EDITOR DISABLED)
@@ -71,11 +71,13 @@ endif()
 set(VVV_SRC
     src/BinaryBlob.cpp
     src/BlockV.cpp
+    src/ButtonGlyphs.cpp
     src/CWrappers.cpp
     src/Ent.cpp
     src/Entity.cpp
     src/FileSystemUtils.cpp
     src/Finalclass.cpp
+    src/Font.cpp
     src/Game.cpp
     src/Graphics.cpp
     src/GraphicsResources.cpp
@@ -83,6 +85,9 @@ set(VVV_SRC
     src/Input.cpp
     src/KeyPoll.cpp
     src/Labclass.cpp
+    src/Localization.cpp
+    src/LocalizationMaint.cpp
+    src/LocalizationStorage.cpp
     src/Logic.cpp
     src/Map.cpp
     src/Music.cpp
@@ -90,6 +95,7 @@ set(VVV_SRC
     src/preloader.cpp
     src/Render.cpp
     src/RenderFixed.cpp
+    src/RoomnameTranslator.cpp
     src/Screen.cpp
     src/Script.cpp
     src/Scripts.cpp
@@ -105,7 +111,9 @@ set(VVV_SRC
     src/DeferCallbacks.c
     src/GlitchrunnerMode.c
     src/Network.c
+    src/Textbook.c
     src/ThirdPartyDeps.c
+    src/UTF8.c
     src/VFormat.c
     src/Vlogging.c
     src/Xoshiro.c
@@ -136,11 +144,12 @@ if(BUNDLE_DEPENDENCIES)
     target_include_directories(
         VVVVVV PRIVATE
         src
+        ../third_party
         ../third_party/tinyxml2
         ../third_party/physfs/src
         ../third_party/physfs/extras
         ../third_party/lodepng
-        ../third_party/utfcpp/source
+        ../third_party/c-hashmap
         ../third_party/FAudio/include
         ../third_party/FAudio/src
     )
@@ -148,8 +157,10 @@ else()
     target_include_directories(
         VVVVVV PRIVATE
         src
+        ../third_party
         ../third_party/lodepng
         ../third_party/physfs/extras
+        ../third_party/c-hashmap
         ../third_party/FAudio/src
     )
 endif()
@@ -192,6 +203,7 @@ if(APPLE)
     set(PFS_SRC ${PFS_SRC} ../third_party/physfs/src/physfs_platform_apple.m)
 endif()
 set(PNG_SRC src/lodepng_wrapper.c)
+set(CHM_SRC ../third_party/c-hashmap/map.c)
 
 if(NOT OFFICIAL_BUILD)
     # Add interim commit hash and its date to the build
@@ -266,6 +278,13 @@ if(MSVC)
     target_compile_options(VVVVVV PRIVATE /wd4244)
 endif()
 
+# Disable warnings about `long long` in C++03 (from including PhysFS)
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    target_compile_options(VVVVVV PRIVATE -Wno-long-long)
+elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    target_compile_options(VVVVVV PRIVATE -Wno-c++11-long-long)
+endif()
+
 if(MSVC)
     # MSVC doesn't have /std:c99 or /std:c++98 switches!
 
@@ -301,10 +320,12 @@ target_compile_definitions(lodepng-static PRIVATE
     -DLODEPNG_NO_COMPILE_ENCODER
 )
 
+add_library(c-hashmap-static STATIC ${CHM_SRC})
+
 if(BUNDLE_DEPENDENCIES)
-    list(APPEND STATIC_LIBRARIES physfs-static tinyxml2-static lodepng-static faudio-static)
+    list(APPEND STATIC_LIBRARIES physfs-static tinyxml2-static lodepng-static c-hashmap-static faudio-static)
 else()
-    list(APPEND STATIC_LIBRARIES lodepng-static)
+    list(APPEND STATIC_LIBRARIES lodepng-static c-hashmap-static)
 endif()
 
 if(BUNDLE_DEPENDENCIES)
@@ -330,8 +351,9 @@ endif()
 
 
 if(MSVC)
-    # Statically link Microsoft's runtime library so end users don't have to install it
-    list(APPEND GLOBAL_COMPILE_FLAGS /MT)
+    # Statically link Microsoft's runtime library so end users don't have to install it (/MT)
+    # Also, build with multiple processors (/MP)
+    list(APPEND GLOBAL_COMPILE_FLAGS /MT /MP)
 endif()
 
 

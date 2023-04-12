@@ -1,16 +1,22 @@
+#include "FileSystemUtils.h"
+
 #include <physfs.h>
 #include <SDL.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <tinyxml2.h>
 
+#include "Alloc.h"
 #include "BinaryBlob.h"
+#include "Constants.h"
 #include "Exit.h"
 #include "Graphics.h"
+#include "Localization.h"
 #include "Maths.h"
 #include "Screen.h"
 #include "Unused.h"
 #include "UtilityClass.h"
+#include "VFormat.h"
 #include "Vlogging.h"
 
 /* These are needed for PLATFORM_* crap */
@@ -39,8 +45,11 @@ static bool isInit = false;
 
 static const char* pathSep = NULL;
 static char* basePath = NULL;
+static char writeDir[MAX_PATH] = {'\0'};
 static char saveDir[MAX_PATH] = {'\0'};
 static char levelDir[MAX_PATH] = {'\0'};
+static char mainLangDir[MAX_PATH] = {'\0'};
+static bool isMainLangDirFromRepo = false;
 
 static char assetDir[MAX_PATH] = {'\0'};
 static char virtualMountPath[MAX_PATH] = {'\0'};
@@ -65,7 +74,105 @@ static const PHYSFS_Allocator allocator = {
     SDL_free
 };
 
-int FILESYSTEM_init(char *argvZero, char* baseDir, char *assetsPath)
+static void mount_pre_datazip(
+    char* out_path,
+    const char* real_dirname,
+    const char* mount_point,
+    const char* user_path
+)
+{
+    /* Find and mount a directory (like the main language directory) in front of data.zip.
+     * This directory, if not user-supplied, can be either next to data.zip,
+     * or otherwise in desktop_version/ if that's found in the base path.
+     *
+     * out_path is assumed to be either NULL, or MAX_PATH long. If it isn't, boom */
+
+    if (user_path != NULL)
+    {
+        if (PHYSFS_mount(user_path, mount_point, 1))
+        {
+            if (out_path != NULL)
+            {
+                SDL_strlcpy(out_path, user_path, MAX_PATH);
+            }
+        }
+        else
+        {
+            vlog_warn("User-supplied %s directory is invalid!", real_dirname);
+        }
+        return;
+    }
+
+    /* Try to detect the directory, it's next to data.zip in distributed builds */
+    bool dir_found = false;
+    char buffer[MAX_PATH];
+
+    SDL_snprintf(buffer, sizeof(buffer), "%s%s%s",
+        basePath,
+        real_dirname,
+        pathSep
+    );
+    if (PHYSFS_mount(buffer, mount_point, 1))
+    {
+        dir_found = true;
+    }
+    else
+    {
+        /* If you're a developer, you probably want to use the language files/fonts
+         * from the repo, otherwise it's a pain to keep everything in sync.
+         * And who knows how deep in build folders our binary is. */
+        size_t buf_reserve = SDL_strlen(real_dirname)+1;
+        SDL_strlcpy(buffer, basePath, sizeof(buffer)-buf_reserve);
+
+        char needle[32];
+        SDL_snprintf(needle, sizeof(needle), "%sdesktop_version%s",
+            pathSep,
+            pathSep
+        );
+
+        /* We want the last match */
+        char* match_last = NULL;
+        char* match = buffer;
+        while ((match = SDL_strstr(match, needle)))
+        {
+            match_last = match;
+            match = &match[1];
+        }
+
+        if (match_last != NULL)
+        {
+            /* strstr only gives us a pointer and not a remaining buffer length, but that's
+             * why we pretended the buffer was `buf_reserve` chars shorter than it was! */
+            SDL_strlcpy(&match_last[SDL_strlen(needle)], real_dirname, buf_reserve);
+            SDL_strlcat(buffer, pathSep, sizeof(buffer));
+
+            if (PHYSFS_mount(buffer, mount_point, 1))
+            {
+                dir_found = true;
+
+                if (SDL_strcmp(real_dirname, "lang") == 0)
+                {
+                    loc::show_translator_menu = true;
+                    isMainLangDirFromRepo = true;
+                }
+            }
+        }
+    }
+
+    if (dir_found)
+    {
+        if (out_path != NULL)
+        {
+            SDL_strlcpy(out_path, buffer, MAX_PATH);
+        }
+    }
+    else
+    {
+        vlog_warn("Cannot find the %s directory anywhere!", real_dirname);
+    }
+}
+
+int FILESYSTEM_init(char *argvZero, char* baseDir, char *assetsPath, char* langDir, char* fontsDir)
 {
     char output[MAX_PATH];
 
@@ -101,29 +208,30 @@ int FILESYSTEM_init(char *argvZero, char* baseDir, char *assetsPath)
     }
 
     /* Mount our base user directory */
-    if (!PHYSFS_mount(output, NULL, 0))
+    SDL_strlcpy(writeDir, output, sizeof(writeDir));
+    if (!PHYSFS_mount(writeDir, NULL, 0))
     {
         vlog_error(
             "Could not mount %s: %s",
-            output,
+            writeDir,
             PHYSFS_getErrorByCode(PHYSFS_getLastErrorCode())
         );
         return 0;
     }
-    if (!PHYSFS_setWriteDir(output))
+    if (!PHYSFS_setWriteDir(writeDir))
     {
         vlog_error(
             "Could not set write dir to %s: %s",
-            output,
+            writeDir,
             PHYSFS_getErrorByCode(PHYSFS_getLastErrorCode())
         );
         return 0;
     }
-    vlog_info("Base directory: %s", output);
+    vlog_info("Base directory: %s", writeDir);
 
     /* Store full save directory */
     SDL_snprintf(saveDir, sizeof(saveDir), "%s%s%s",
-        output,
+        writeDir,
         "saves",
         pathSep
     );
@@ -132,7 +240,7 @@ int FILESYSTEM_init(char *argvZero, char* baseDir, char *assetsPath)
 
     /* Store full level directory */
     SDL_snprintf(levelDir, sizeof(levelDir), "%s%s%s",
-        output,
+        writeDir,
         "levels",
         pathSep
     );
@@ -146,6 +254,11 @@ int FILESYSTEM_init(char *argvZero, char* baseDir, char *assetsPath)
         vlog_warn("Unable to determine base path, falling back to current directory");
         basePath = SDL_strdup("./");
     }
+
+    mount_pre_datazip(mainLangDir, "lang", "lang/", langDir);
+    vlog_info("Languages directory: %s", mainLangDir);
+
+    mount_pre_datazip(NULL, "fonts", "graphics/", fontsDir);
 
     /* Mount the stock content last */
     if (assetsPath)
@@ -201,13 +314,8 @@ void FILESYSTEM_deinit(void)
     {
         PHYSFS_deinit();
     }
-    if (stdin_buffer != NULL)
-    {
-        SDL_free(stdin_buffer);
-        stdin_buffer = NULL;
-    }
-    SDL_free(basePath);
-    basePath = NULL;
+    VVV_free(stdin_buffer);
+    VVV_free(basePath);
     isInit = false;
 }
 
@@ -221,7 +329,40 @@ char *FILESYSTEM_getUserLevelDirectory(void)
     return levelDir;
 }
 
-bool FILESYSTEM_isFile(const char* filename)
+char *FILESYSTEM_getUserMainLangDirectory(void)
+{
+    return mainLangDir;
+}
+
+bool FILESYSTEM_isMainLangDirFromRepo(void)
+{
+    return isMainLangDirFromRepo;
+}
+
+bool FILESYSTEM_restoreWriteDir(void)
+{
+    return PHYSFS_setWriteDir(writeDir);
+}
+
+bool FILESYSTEM_setLangWriteDir(void)
+{
+    const char* realLangDir = PHYSFS_getRealDir("lang");
+    if (realLangDir == NULL || SDL_strcmp(mainLangDir, realLangDir) != 0)
+    {
+        vlog_error("Not setting language write dir: %s overrules %s when loading",
+            realLangDir, mainLangDir
+        );
+        return false;
+    }
+    if (!PHYSFS_setWriteDir(mainLangDir))
+    {
+        FILESYSTEM_restoreWriteDir();
+        return false;
+    }
+    return true;
+}
+
+bool FILESYSTEM_isFileType(const char* filename, PHYSFS_FileType filetype)
 {
     PHYSFS_Stat stat;
 
@@ -239,8 +380,18 @@ bool FILESYSTEM_isFile(const char* filename)
     /* We unfortunately cannot follow symlinks (PhysFS limitation).
      * Let the caller deal with them.
      */
-    return stat.filetype == PHYSFS_FILETYPE_REGULAR
+    return stat.filetype == filetype
     || stat.filetype == PHYSFS_FILETYPE_SYMLINK;
+}
+
+bool FILESYSTEM_isFile(const char* filename)
+{
+    return FILESYSTEM_isFileType(filename, PHYSFS_FILETYPE_REGULAR);
+}
+
+bool FILESYSTEM_isDirectory(const char* filename)
+{
+    return FILESYSTEM_isFileType(filename, PHYSFS_FILETYPE_DIRECTORY);
 }
 
 bool FILESYSTEM_isMounted(const char* filename)
@@ -286,7 +437,7 @@ static void generateVirtualMountPath(char* path, const size_t path_size)
     );
 }
 
-static char levelDirError[256] = {'\0'};
+static char levelDirError[6*SCREEN_WIDTH_CHARS + 1] = {'\0'};
 
 static bool levelDirHasError = false;
 
@@ -305,20 +456,16 @@ const char* FILESYSTEM_getLevelDirError(void)
     return levelDirError;
 }
 
-static int setLevelDirError(const char* text, ...)
+static void setLevelDirError(const char* text, const char* args_index, ...)
 {
-    va_list list;
-    int retval;
-
     levelDirHasError = true;
 
-    va_start(list, text);
-    retval = SDL_vsnprintf(levelDirError, sizeof(levelDirError), text, list);
+    va_list list;
+    va_start(list, args_index);
+    vformat_buf_valist(levelDirError, sizeof(levelDirError), text, args_index, list);
     va_end(list);
 
     vlog_error("%s", levelDirError);
-
-    return retval;
 }
 
 static bool FILESYSTEM_mountAssetsFrom(const char *fname)
@@ -329,7 +476,8 @@ static bool FILESYSTEM_mountAssetsFrom(const char *fname)
     if (real_dir == NULL)
     {
         setLevelDirError(
-            "Could not mount %s: real directory doesn't exist",
+            loc::gettext("Could not mount {path}: real directory doesn't exist"),
+            "path:str",
             fname
         );
         return false;
@@ -374,8 +522,6 @@ void FILESYSTEM_loadZip(const char* filename)
         );
     }
 }
-
-void FILESYSTEM_unmountAssets(void);
 
 bool FILESYSTEM_mountAssets(const char* path)
 {
@@ -505,7 +651,30 @@ bool FILESYSTEM_isAssetMounted(const char* filename)
     return SDL_strcmp(assetDir, realDir) == 0;
 }
 
-void FILESYSTEM_freeMemory(unsigned char **mem);
+bool FILESYSTEM_areAssetsInSameRealDir(const char* filenameA, const char* filenameB)
+{
+    char pathA[MAX_PATH];
+    char pathB[MAX_PATH];
+
+    getMountedPath(pathA, sizeof(pathA), filenameA);
+    getMountedPath(pathB, sizeof(pathB), filenameB);
+
+    const char* realDirA = PHYSFS_getRealDir(pathA);
+    const char* realDirB = PHYSFS_getRealDir(pathB);
+
+    /* Both NULL, or both the same pointer? */
+    if (realDirA == realDirB)
+    {
+        return true;
+    }
+
+    if (realDirA == NULL || realDirB == NULL)
+    {
+        return false;
+    }
+
+    return SDL_strcmp(realDirA, realDirB) == 0;
+}
 
 static void load_stdin(void)
 {
@@ -528,8 +697,7 @@ static void load_stdin(void)
         bool end = ch == EOF;
         if (end)
         {
-            /* Add null terminator. There's no observable change in
-             * behavior if addnull is always true, but not vice versa. */
+            /* Always add null terminator. */
             ch = '\0';
         }
 
@@ -560,8 +728,7 @@ static void load_stdin(void)
 void FILESYSTEM_loadFileToMemory(
     const char *name,
     unsigned char **mem,
-    size_t *len,
-    bool addnull
+    size_t *len
 ) {
     PHYSFS_File *handle;
     PHYSFS_sint64 length;
@@ -616,27 +783,18 @@ void FILESYSTEM_loadFileToMemory(
         }
         *len = length;
     }
-    if (addnull)
+
+    *mem = (unsigned char *) SDL_malloc(length + 1);
+    if (*mem == NULL)
     {
-        *mem = (unsigned char *) SDL_malloc(length + 1);
-        if (*mem == NULL)
-        {
-            VVV_exit(1);
-        }
-        (*mem)[length] = 0;
+        VVV_exit(1);
     }
-    else
-    {
-        *mem = (unsigned char*) SDL_malloc(length);
-        if (*mem == NULL)
-        {
-            VVV_exit(1);
-        }
-    }
+    (*mem)[length] = 0;
+
     success = PHYSFS_readBytes(handle, *mem, length);
     if (success == -1)
     {
-        FILESYSTEM_freeMemory(mem);
+        VVV_free(*mem);
     }
     PHYSFS_close(handle);
     return;
@@ -655,20 +813,13 @@ fail:
 void FILESYSTEM_loadAssetToMemory(
     const char* name,
     unsigned char** mem,
-    size_t* len,
-    const bool addnull
+    size_t* len
 ) {
     char path[MAX_PATH];
 
     getMountedPath(path, sizeof(path), name);
 
-    FILESYSTEM_loadFileToMemory(path, mem, len, addnull);
-}
-
-void FILESYSTEM_freeMemory(unsigned char **mem)
-{
-    SDL_free(*mem);
-    *mem = NULL;
+    FILESYSTEM_loadFileToMemory(path, mem, len);
 }
 
 bool FILESYSTEM_loadBinaryBlob(binaryBlob* blob, const char* filename)
@@ -811,13 +962,27 @@ bool FILESYSTEM_loadTiXml2Document(const char *name, tinyxml2::XMLDocument& doc)
 {
     /* XMLDocument.LoadFile doesn't account for Unicode paths, PHYSFS does */
     unsigned char *mem;
-    FILESYSTEM_loadFileToMemory(name, &mem, NULL, true);
+    FILESYSTEM_loadFileToMemory(name, &mem, NULL);
     if (mem == NULL)
     {
         return false;
     }
     doc.Parse((const char*) mem);
-    FILESYSTEM_freeMemory(&mem);
+    VVV_free(mem);
+    return true;
+}
+
+bool FILESYSTEM_loadAssetTiXml2Document(const char *name, tinyxml2::XMLDocument& doc)
+{
+    /* Same as FILESYSTEM_loadTiXml2Document except for possible custom assets */
+    unsigned char *mem;
+    FILESYSTEM_loadAssetToMemory(name, &mem, NULL);
+    if (mem == NULL)
+    {
+        return false;
+    }
+    doc.Parse((const char*) mem);
+    VVV_free(mem);
     return true;
 }
 
@@ -863,6 +1028,98 @@ void FILESYSTEM_enumerateLevelDirFileNames(
             PHYSFS_getErrorByCode(PHYSFS_getLastErrorCode())
         );
     }
+}
+
+const char* FILESYSTEM_enumerate(const char* folder, EnumHandle* handle)
+{
+    /* List all files in a folder with PHYSFS_enumerateFiles.
+     *
+     * Doing it this way means we can decide and filter
+     * what's in the lists (in wrapper functions).
+     *
+     * Called like this:
+     *
+     *  EnumHandle handle = {};
+     *  const char* item;
+     *  while ((item = FILESYSTEM_enumerate("graphics", &handle)) != NULL)
+     *  {
+     *      puts(item);
+     *  }
+     *  FILESYSTEM_freeEnumerate(&handle);
+     */
+
+    if (handle->physfs_list == NULL)
+    {
+        // First iteration, set things up
+        handle->physfs_list = PHYSFS_enumerateFiles(folder);
+        handle->_item = handle->physfs_list;
+    }
+
+    /* Return the next item, and increment the pointer.
+     * (once we return NULL, handle->_item points to 1 past end of array) */
+    return *(handle->_item++);
+}
+
+const char* FILESYSTEM_enumerateAssets(const char* folder, EnumHandle* handle)
+{
+    /* This function enumerates ONLY level-specific assets.
+     * If there are only global assets and no level-specific ones,
+     * we want an empty list.
+     *
+     * This function is called the same way as FILESYSTEM_enumerate, see above. */
+
+    if (!FILESYSTEM_isAssetMounted(folder))
+    {
+        return NULL;
+    }
+
+    char mounted_path[MAX_PATH];
+    getMountedPath(mounted_path, sizeof(mounted_path), folder);
+
+    const char* item;
+    while ((item = FILESYSTEM_enumerate(mounted_path, handle)) != NULL)
+    {
+        char full_name[128];
+        SDL_snprintf(full_name, sizeof(full_name), "%s/%s", mounted_path, item);
+        if (FILESYSTEM_isFile(full_name) && item[0] != '.')
+        {
+            return item;
+        }
+    }
+
+    return NULL;
+}
+
+const char* FILESYSTEM_enumerateLanguageCodes(EnumHandle* handle)
+{
+    /* This function enumerates all the language codes.
+     *
+     * This function is called the same way as FILESYSTEM_enumerate, see above. */
+
+    const char* item;
+    while ((item = FILESYSTEM_enumerate("lang", handle)) != NULL)
+    {
+        char full_name[128];
+        SDL_snprintf(full_name, sizeof(full_name), "lang/%s", item);
+
+        if (FILESYSTEM_isDirectory(full_name) && item[0] != '.')
+        {
+            return item;
+        }
+    }
+
+    return NULL;
+}
+
+void FILESYSTEM_freeEnumerate(EnumHandle* handle)
+{
+    /* Call this function after enumerating with FILESYSTEM_enumerate or friends. */
+    if (handle == NULL)
+    {
+        return;
+    }
+
+    PHYSFS_freeList(handle->physfs_list);
 }
 
 static int PLATFORM_getOSDirectory(char* output, const size_t output_size)

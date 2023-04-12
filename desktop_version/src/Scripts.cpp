@@ -2,18 +2,19 @@
 
 #include <SDL.h>
 
-void scriptclass::load(const std::string& name)
+bool scriptclass::load(const std::string& name)
 {
     //loads script name t into the array
     position = 0;
     commands.clear();
+    scriptname = name;
     running = true;
 
     const char* t = name.c_str();
 
     if (SDL_strncmp(t, "custom_", 7) == 0)
     {
-        loadcustom(name);
+        return loadcustom(name);
     }
     else if (SDL_strcmp(t, "intro") == 0)
     {
@@ -419,7 +420,6 @@ void scriptclass::load(const std::string& name)
         "untilbars()",
         };
         filllines(lines);
-        return;
     }
     if (SDL_strcmp(t, "communicationstation") == 0)
     {
@@ -1568,6 +1568,7 @@ void scriptclass::load(const std::string& name)
         "delay(45)",
 
         "squeak(cry)",
+        "textcase(1)",
         "text(blue,0,0,1)",
         "Waaaa!",
         "position(blue,above)",
@@ -1595,6 +1596,7 @@ void scriptclass::load(const std::string& name)
         "speak_active",
 
         "squeak(cry)",
+        "textcase(2)",
         "text(blue,0,0,1)",
         "Waaaa!",
         "position(blue,above)",
@@ -2722,7 +2724,7 @@ void scriptclass::load(const std::string& name)
         "speak_active",
 
         "squeak(yellow)",
-        "changedir(yellow,0)",
+        "changeai(yellow,faceleft)", // changedir(yellow,0) doesn't work
         "text(yellow,0,0,3)",
         "We shouldn't really be able",
         "to move between dimensions",
@@ -2731,7 +2733,6 @@ void scriptclass::load(const std::string& name)
         "speak_active",
 
         "squeak(yellow)",
-        "changedir(yellow,0)",
         "text(yellow,0,0,2)",
         "Maybe this isn't a proper",
         "dimension at all?",
@@ -2739,7 +2740,6 @@ void scriptclass::load(const std::string& name)
         "speak_active",
 
         "squeak(yellow)",
-        "changedir(yellow,0)",
         "text(yellow,0,0,4)",
         "Maybe it's some kind of",
         "polar dimension? Something",
@@ -2749,7 +2749,7 @@ void scriptclass::load(const std::string& name)
         "speak_active",
 
         "squeak(yellow)",
-        "changedir(yellow,1)",
+        "changeai(yellow,0)", // Make him face right again
         "text(yellow,0,0,2)",
         "I can't wait to get back to the",
         "ship. I have a lot of tests to run!",
@@ -5054,9 +5054,10 @@ void scriptclass::load(const std::string& name)
 
         "squeak(purple)",
         "text(purple,0,0,2)",
-        "Remember that you can press ENTER",
+        "Remember that you can press {b_map}",
         "to check where you are on the map!",
         "position(purple,above)",
+        "textbuttons()",
         "speak_active",
 
         "squeak(purple)",
@@ -5946,26 +5947,31 @@ void scriptclass::load(const std::string& name)
         "delay(1)",
         "squeak(green)",
 
+        "textcase(1)",
         "text(purple,0,0,1)",
         "Captain!        ",
         "position(purple,above)",
         "backgroundtext",
         "speak",
+        "textcase(2)",
         "text(yellow,0,0,1)",
         "Captain!      ",
         "position(yellow,above)",
         "backgroundtext",
         "speak",
+        "textcase(3)",
         "text(red,0,0,1)",
         "Captain!    ",
         "position(red,above)",
         "backgroundtext",
         "speak",
+        "textcase(4)",
         "text(green,0,0,1)",
         "Captain!  ",
         "position(green,above)",
         "backgroundtext",
         "speak",
+        "textcase(5)",
         "text(blue,0,0,1)",
         "Captain!",
         "position(blue,above)",
@@ -6536,31 +6542,37 @@ void scriptclass::load(const std::string& name)
         "changemood(player,0)",
         "changemood(green,0)",
         "changemood(purple,0)",
+        "textcase(1)",
         "text(player,0,0,1)",
         "COMBINE!",
         "position(player,above)",
         "backgroundtext",
         "speak",
+        "textcase(2)",
         "text(purple,0,0,1)",
         "COMBINE!",
         "position(purple,above)",
         "backgroundtext",
         "speak",
+        "textcase(3)",
         "text(yellow,0,0,1)",
         "COMBINE!",
         "position(yellow,above)",
         "backgroundtext",
         "speak",
+        "textcase(4)",
         "text(red,0,0,1)",
         "COMBINE!",
         "position(red,above)",
         "backgroundtext",
         "speak",
+        "textcase(5)",
         "text(green,0,0,1)",
         "COMBINE!",
         "position(green,above)",
         "backgroundtext",
         "speak",
+        "textcase(6)",
         "text(blue,0,0,1)",
         "COMBINE!",
         "position(blue,above)",
@@ -6749,4 +6761,5 @@ void scriptclass::load(const std::string& name)
         loadother(t);
     }
 
+    return !commands.empty();
 }

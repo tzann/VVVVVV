@@ -1,4 +1,5 @@
 #include <tinyxml2.h>
+#include <vector>
 
 #include "Credits.h"
 #include "CustomLevels.h"
@@ -9,10 +10,15 @@
 #include "Game.h"
 #include "GlitchrunnerMode.h"
 #include "Graphics.h"
+#include "GraphicsUtil.h"
 #include "KeyPoll.h"
+#include "Localization.h"
+#include "LocalizationMaint.h"
+#include "LocalizationStorage.h"
 #include "MakeAndPlay.h"
 #include "Map.h"
 #include "Music.h"
+#include "RoomnameTranslator.h"
 #include "Screen.h"
 #include "Script.h"
 #include "UtilityClass.h"
@@ -279,9 +285,9 @@ static void toggleflipmode(void)
 
 static bool fadetomode = false;
 static int fadetomodedelay = 0;
-static int gotomode = 0;
+static enum StartMode gotomode = Start_MAINGAME;
 
-static void startmode(const int mode)
+static void startmode(const enum StartMode mode)
 {
     gotomode = mode;
     graphics.fademode = FADE_START_FADEOUT;
@@ -361,24 +367,47 @@ static void slidermodeinput(void)
 
 static void menuactionpress(void)
 {
+    if (game.menutestmode)
+    {
+        music.playef(6);
+        Menu::MenuName nextmenu = (Menu::MenuName) (game.currentmenuname + 1);
+        game.returnmenu();
+        game.createmenu(nextmenu);
+        return;
+    }
+
     switch (game.currentmenuname)
     {
     case Menu::mainmenu:
-#if defined(MAKEANDPLAY)
-#define MPOFFSET -1
-#else
-#define MPOFFSET 0
+    {
+        int option_id = -1;
+        int option_seq = 0; /* option number in YOUR configuration */
+#define OPTION_ID(id) \
+        if (option_seq == game.currentmenuoption) \
+        { \
+            option_id = id; \
+        } \
+        option_seq++;
+#if !defined(MAKEANDPLAY)
+        OPTION_ID(0) /* play */
 #endif
-
-#if defined(NO_CUSTOM_LEVELS)
-#define NOCUSTOMSOFFSET -1
-#else
-#define NOCUSTOMSOFFSET 0
+#if !defined(NO_CUSTOM_LEVELS)
+        OPTION_ID(1) /* levels */
 #endif
+        OPTION_ID(2) /* options */
+        if (loc::show_translator_menu)
+        {
+            OPTION_ID(3) /* translator */
+        }
+#if !defined(MAKEANDPLAY)
+        OPTION_ID(4) /* credits */
+#endif
+        OPTION_ID(5) /* quit */
 
-#define OFFSET (MPOFFSET+NOCUSTOMSOFFSET)
+#undef OPTION_ID
 
-        switch (game.currentmenuoption)
+
+        switch (option_id)
         {
 #if !defined(MAKEANDPLAY)
         case 0:
@@ -387,7 +416,7 @@ static void menuactionpress(void)
             {
                 //No saves exist, just start a new game
                 music.playef(11);
-                startmode(0);
+                startmode(Start_MAINGAME);
             }
             else
             {
@@ -399,40 +428,41 @@ static void menuactionpress(void)
             break;
 #endif
 #if !defined(NO_CUSTOM_LEVELS)
-        case OFFSET+1:
+        case 1:
             //Bring you to the normal playmenu
             music.playef(11);
             game.createmenu(Menu::playerworlds);
             map.nexttowercolour();
             break;
 #endif
-        case OFFSET+2:
+        case 2:
             //Options
             music.playef(11);
             game.createmenu(Menu::options);
             map.nexttowercolour();
             break;
+        case 3:
+            //Translator
+            music.playef(11);
+            game.createmenu(Menu::translator_main);
+            map.nexttowercolour();
+            break;
 #if !defined(MAKEANDPLAY)
-        case OFFSET+3:
+        case 4:
             //Credits
             music.playef(11);
             game.createmenu(Menu::credits);
             map.nexttowercolour();
             break;
-#else
- #undef MPOFFSET
- #define MPOFFSET -2
 #endif
-        case OFFSET+4:
+        case 5:
             music.playef(11);
             game.createmenu(Menu::youwannaquit);
             map.nexttowercolour();
             break;
-#undef OFFSET
-#undef NOCUSTOMSOFFSET
-#undef MPOFFSET
         }
         break;
+    }
 #if !defined(NO_CUSTOM_LEVELS)
     case Menu::levellist:
     {
@@ -475,7 +505,7 @@ static void menuactionpress(void)
             std::string name = "saves/" + cl.ListOfMetaData[game.playcustomlevel].filename.substr(7) + ".vvv";
             tinyxml2::XMLDocument doc;
             if (!FILESYSTEM_loadTiXml2Document(name.c_str(), doc)){
-                startmode(22);
+                startmode(Start_CUSTOM);
             }else{
                 game.createmenu(Menu::quickloadlevel);
                 map.nexttowercolour();
@@ -489,11 +519,11 @@ static void menuactionpress(void)
         {
         case 0: //continue save
             music.playef(11);
-            startmode(23);
+            startmode(Start_CUSTOM_QUICKSAVE);
             break;
         case 1:
             music.playef(11);
-            startmode(22);
+            startmode(Start_CUSTOM);
             break;
         case 2:
             music.playef(11);
@@ -550,7 +580,7 @@ static void menuactionpress(void)
         case 1:
             //LEVEL EDITOR HOOK
             music.playef(11);
-            startmode(20);
+            startmode(Start_EDITOR);
             ed.filename="";
             break;
  #endif
@@ -682,7 +712,7 @@ static void menuactionpress(void)
         case 0:
             //bye!
             music.playef(2);
-            startmode(100);
+            startmode(Start_QUIT);
             break;
         default:
             music.playef(11);
@@ -1010,6 +1040,14 @@ static void menuactionpress(void)
             game.createmenu(Menu::accessibility);
             map.nexttowercolour();
             break;
+        case 5:
+            //language options
+            music.playef(11);
+            loc::loadlanguagelist();
+            game.createmenu(Menu::language);
+            game.currentmenuoption = loc::languagelist_curlang;
+            map.nexttowercolour();
+            break;
         default:
             /* Return */
             music.playef(11);
@@ -1064,6 +1102,300 @@ static void menuactionpress(void)
             map.nexttowercolour();
             music.playef(11);
         }
+        break;
+    case Menu::language:
+    {
+        music.playef(11);
+
+        bool show_title = !loc::lang_set;
+
+        if (loc::languagelist.size() != 0 && (unsigned)game.currentmenuoption < loc::languagelist.size())
+        {
+            loc::lang = loc::languagelist[game.currentmenuoption].code;
+            loc::loadtext(false);
+            loc::lang_set = true;
+        }
+
+        if (show_title)
+        {
+            /* Make the title screen appear, we haven't seen it yet */
+            game.menustart = false;
+            game.createmenu(Menu::mainmenu);
+            game.currentmenuoption = 0;
+        }
+        else
+        {
+            game.returnmenu();
+        }
+        map.nexttowercolour();
+        game.savestatsandsettings_menu();
+
+        break;
+    }
+    case Menu::translator_main:
+        switch (game.currentmenuoption)
+        {
+        case 0:
+            // translator options
+            music.playef(11);
+            game.createmenu(Menu::translator_options);
+            map.nexttowercolour();
+            break;
+        case 1:
+            // maintenance
+            music.playef(11);
+            game.createmenu(Menu::translator_maintenance);
+            map.nexttowercolour();
+            break;
+        case 2:
+            // open lang folder
+            if (FILESYSTEM_openDirectoryEnabled()
+            && FILESYSTEM_openDirectory(FILESYSTEM_getUserMainLangDirectory()))
+            {
+                music.playef(11);
+                SDL_MinimizeWindow(gameScreen.m_window);
+            }
+            else
+            {
+                music.playef(2);
+            }
+            break;
+        default:
+            // return
+            music.playef(11);
+            game.returnmenu();
+            map.nexttowercolour();
+            break;
+        }
+        break;
+    case Menu::translator_options:
+        switch (game.currentmenuoption)
+        {
+        case 0:
+            // language statistics
+            music.playef(11);
+            game.createmenu(Menu::translator_options_stats);
+            map.nexttowercolour();
+            break;
+        case 1:
+            // translate room names
+            music.playef(11);
+            roomname_translator::set_enabled(!roomname_translator::enabled);
+            game.savestatsandsettings_menu();
+            break;
+        case 2:
+            // explore game
+            music.playef(11);
+            game.createmenu(Menu::translator_options_exploregame);
+            map.nexttowercolour();
+            break;
+        case 3:
+            // menu test
+            music.playef(18);
+            game.menutestmode = true;
+            game.createmenu((Menu::MenuName) 0);
+            map.nexttowercolour();
+            break;
+        case 4:
+            // cutscene test
+            if (loc::lang == "en")
+            {
+                music.playef(2);
+            }
+            else
+            {
+                music.playef(11);
+                game.cutscenetest_menu_page = 0;
+                loc::populate_testable_script_ids();
+                game.createmenu(Menu::translator_options_cutscenetest);
+                map.nexttowercolour();
+            }
+            break;
+        case 5:
+            // limits check
+            music.playef(11);
+            loc::local_limits_check();
+            game.createmenu(Menu::translator_options_limitscheck);
+            map.nexttowercolour();
+            break;
+        default:
+            // return
+            music.playef(11);
+            game.returnmenu();
+            map.nexttowercolour();
+            break;
+        }
+        break;
+    case Menu::translator_options_limitscheck:
+        switch (game.currentmenuoption)
+        {
+        case 0:
+            // next
+            if (loc::limitscheck_current_overflow < loc::text_overflows.size())
+            {
+                music.playef(11);
+                loc::limitscheck_current_overflow++;
+            }
+            break;
+        default:
+            // return
+            music.playef(11);
+            game.returnmenu();
+            map.nexttowercolour();
+            break;
+        }
+        break;
+    case Menu::translator_options_stats:
+        music.playef(11);
+        game.returnmenu();
+        map.nexttowercolour();
+        break;
+    case Menu::translator_options_exploregame:
+        music.playef(11);
+        switch (game.currentmenuoption)
+        {
+        case 0:
+            game.start_translator_exploring = true;
+            startmode(Start_TIMETRIAL_SPACESTATION1);
+            break;
+        case 1:
+            game.start_translator_exploring = true;
+            startmode(Start_TIMETRIAL_LABORATORY);
+            break;
+        case 2:
+            game.start_translator_exploring = true;
+            startmode(Start_TIMETRIAL_TOWER);
+            break;
+        case 3:
+            game.start_translator_exploring = true;
+            startmode(Start_TIMETRIAL_SPACESTATION2);
+            break;
+        case 4:
+            game.start_translator_exploring = true;
+            startmode(Start_TIMETRIAL_WARPZONE);
+            break;
+        case 5:
+            game.createmenu(Menu::playint1);
+            game.start_translator_exploring = true;
+            map.nexttowercolour();
+            break;
+        case 6:
+            game.createmenu(Menu::playint2);
+            game.start_translator_exploring = true;
+            map.nexttowercolour();
+            break;
+        case 7:
+            game.start_translator_exploring = true;
+            startmode(Start_TIMETRIAL_FINALLEVEL);
+            break;
+        default:
+            // return
+            game.returnmenu();
+            map.nexttowercolour();
+            break;
+        }
+        break;
+    case Menu::translator_options_cutscenetest:
+        if (game.currentmenuoption == (int)game.menuoptions.size()-4)
+        {
+            // next page
+            music.playef(11);
+            if ((size_t) ((game.cutscenetest_menu_page*14)+14) >= loc::testable_script_ids.size())
+            {
+                game.cutscenetest_menu_page = 0;
+            }
+            else
+            {
+                game.cutscenetest_menu_page++;
+            }
+            game.createmenu(Menu::translator_options_cutscenetest, true);
+            game.currentmenuoption=game.menuoptions.size()-4;
+            map.nexttowercolour();
+        }
+        else if (game.currentmenuoption == (int)game.menuoptions.size()-3)
+        {
+            // previous page
+            music.playef(11);
+            if (game.cutscenetest_menu_page == 0)
+            {
+                game.cutscenetest_menu_page = (loc::testable_script_ids.size()-1)/14;
+            }
+            else
+            {
+                game.cutscenetest_menu_page--;
+            }
+            game.createmenu(Menu::translator_options_cutscenetest, true);
+            game.currentmenuoption=game.menuoptions.size()-3;
+            map.nexttowercolour();
+        }
+        else if (game.currentmenuoption == (int)game.menuoptions.size()-2)
+        {
+            // play the cutscene, from clipboard
+            game.cutscenetest_menu_play_id = std::string(SDL_GetClipboardText());
+            startmode(Start_CUTSCENETEST);
+        }
+        else if (game.currentmenuoption == (int)game.menuoptions.size()-1)
+        {
+            // go back to menu
+            music.playef(11);
+            game.returnmenu();
+            map.nexttowercolour();
+        }
+        else
+        {
+            // play the cutscene!
+            game.cutscenetest_menu_play_id = loc::testable_script_ids[(game.cutscenetest_menu_page*14)+game.currentmenuoption];
+            startmode(Start_CUTSCENETEST);
+        }
+        break;
+    case Menu::translator_maintenance:
+        music.playef(11);
+        switch (game.currentmenuoption)
+        {
+        case 0:
+            // sync languages
+            game.createmenu(Menu::translator_maintenance_sync);
+            map.nexttowercolour();
+            break;
+        case 1:
+            // global statistics
+            // TODO
+            map.nexttowercolour();
+            break;
+        case 2:
+            // global limits check
+            loc::global_limits_check();
+            game.createmenu(Menu::translator_options_limitscheck);
+            map.nexttowercolour();
+            break;
+        default:
+            // return
+            game.returnmenu();
+            map.nexttowercolour();
+            break;
+        }
+        break;
+    case Menu::translator_maintenance_sync:
+    {
+        music.playef(11);
+        bool sync_success = true;
+        if (game.currentmenuoption == 0)
+        {
+            // yes, sync files
+            sync_success = loc::sync_lang_files();
+        }
+        game.returnmenu();
+        map.nexttowercolour();
+        if (!sync_success)
+        {
+            game.createmenu(Menu::translator_error_setlangwritedir);
+        }
+        break;
+    }
+    case Menu::translator_error_setlangwritedir:
+        music.playef(11);
+        game.returnmenu();
+        map.nexttowercolour();
         break;
     case Menu::unlockmenutrials:
         switch (game.currentmenuoption)
@@ -1433,19 +1765,19 @@ static void menuactionpress(void)
             {
                 //You have no saves but have something unlocked, or you couldn't have gotten here
                 music.playef(11);
-                startmode(0);
+                startmode(Start_MAINGAME);
             }
             else if (game.telesummary == "")
             {
                 //You at least have a quicksave, or you couldn't have gotten here
                 music.playef(11);
-                startmode(2);
+                startmode(Start_MAINGAME_QUICKSAVE);
             }
             else if (game.quicksummary == "")
             {
                 //You at least have a telesave, or you couldn't have gotten here
                 music.playef(11);
-                startmode(1);
+                startmode(Start_MAINGAME_TELESAVE);
             }
             else
             {
@@ -1458,7 +1790,7 @@ static void menuactionpress(void)
         else if (game.currentmenuoption == 1 && game.unlock[8])
         {
             music.playef(11);
-            startmode(11);
+            startmode(Start_SECRETLAB);
         }
         else if (game.currentmenuoption == sloffset+2)
         {
@@ -1489,7 +1821,7 @@ static void menuactionpress(void)
         case 0:
             //yep
             music.playef(11);
-            startmode(0);
+            startmode(Start_MAINGAME);
             game.deletequick();
             game.deletetele();
             break;
@@ -1561,7 +1893,7 @@ static void menuactionpress(void)
         map.nexttowercolour();
         break;
     case Menu::playmodes:
-        if (game.currentmenuoption == 0 && !game.nocompetitive())   //go to the time trial menu
+        if (game.currentmenuoption == 0 && !game.nocompetitive_unless_translator())   //go to the time trial menu
         {
             music.playef(11);
             game.createmenu(Menu::timetrials);
@@ -1602,11 +1934,11 @@ static void menuactionpress(void)
         {
         case 0:   //start no death mode, disabling cutscenes
             music.playef(11);
-            startmode(10);
+            startmode(Start_NODEATHMODE_NOCUTSCENES);
             break;
         case 1:
             music.playef(11);
-            startmode(9);
+            startmode(Start_NODEATHMODE_WITHCUTSCENES);
             break;
         case 2:
             //back
@@ -1621,11 +1953,11 @@ static void menuactionpress(void)
         {
         case 0:
             music.playef(11);
-            startmode(1);
+            startmode(Start_MAINGAME_TELESAVE);
             break;
         case 1:
             music.playef(11);
-            startmode(2);
+            startmode(Start_MAINGAME_QUICKSAVE);
             break;
         case 2:
             //back
@@ -1663,19 +1995,19 @@ static void menuactionpress(void)
         {
         case 0:
             music.playef(11);
-            startmode(12);
+            startmode(Start_INTERMISSION1_VITELLARY);
             break;
         case 1:
             music.playef(11);
-            startmode(13);
+            startmode(Start_INTERMISSION1_VERMILION);
             break;
         case 2:
             music.playef(11);
-            startmode(14);
+            startmode(Start_INTERMISSION1_VERDIGRIS);
             break;
         case 3:
             music.playef(11);
-            startmode(15);
+            startmode(Start_INTERMISSION1_VICTORIA);
             break;
         case 4:
             //back
@@ -1690,19 +2022,19 @@ static void menuactionpress(void)
         {
         case 0:
             music.playef(11);
-            startmode(16);
+            startmode(Start_INTERMISSION2_VITELLARY);
             break;
         case 1:
             music.playef(11);
-            startmode(17);
+            startmode(Start_INTERMISSION2_VERMILION);
             break;
         case 2:
             music.playef(11);
-            startmode(18);
+            startmode(Start_INTERMISSION2_VERDIGRIS);
             break;
         case 3:
             music.playef(11);
-            startmode(19);
+            startmode(Start_INTERMISSION2_VICTORIA);
             break;
         case 4:
             //back
@@ -1730,37 +2062,37 @@ static void menuactionpress(void)
         map.nexttowercolour();
         break;
     case Menu::timetrials:
-        if (game.currentmenuoption == 0 && game.unlock[9])   //space station 1
+        if (game.currentmenuoption == 0 && game.unlock[9])
         {
             music.playef(11);
-            startmode(3);
+            startmode(Start_TIMETRIAL_SPACESTATION1);
         }
-        else if (game.currentmenuoption == 1 && game.unlock[10])    //lab
+        else if (game.currentmenuoption == 1 && game.unlock[10])
         {
             music.playef(11);
-            startmode(4);
+            startmode(Start_TIMETRIAL_LABORATORY);
         }
-        else if (game.currentmenuoption == 2 && game.unlock[11])    //tower
+        else if (game.currentmenuoption == 2 && game.unlock[11])
         {
             music.playef(11);
-            startmode(5);
+            startmode(Start_TIMETRIAL_TOWER);
         }
-        else if (game.currentmenuoption == 3 && game.unlock[12])    //station 2
+        else if (game.currentmenuoption == 3 && game.unlock[12])
         {
             music.playef(11);
-            startmode(6);
+            startmode(Start_TIMETRIAL_SPACESTATION2);
         }
-        else if (game.currentmenuoption == 4 && game.unlock[13])    //warp
+        else if (game.currentmenuoption == 4 && game.unlock[13])
         {
             music.playef(11);
-            startmode(7);
+            startmode(Start_TIMETRIAL_WARPZONE);
         }
-        else if (game.currentmenuoption == 5 && game.unlock[14])    //final
+        else if (game.currentmenuoption == 5 && game.unlock[14])
         {
             music.playef(11);
-            startmode(8);
+            startmode(Start_TIMETRIAL_FINALLEVEL);
         }
-        else if (game.currentmenuoption == 6)    //go to the time trial menu
+        else if (game.currentmenuoption == 6)
         {
             //back
             music.playef(11);
@@ -1784,37 +2116,9 @@ static void menuactionpress(void)
             map.nexttowercolour();
             break;
         case 1:
-            //duplicate the above based on given time trial level!
-            if (game.timetriallevel == 0)   //space station 1
-            {
-                music.playef(11);
-                startmode(3);
-            }
-            else if (game.timetriallevel == 1)    //lab
-            {
-                music.playef(11);
-                startmode(4);
-            }
-            else if (game.timetriallevel == 2)    //tower
-            {
-                music.playef(11);
-                startmode(5);
-            }
-            else if (game.timetriallevel == 3)    //station 2
-            {
-                music.playef(11);
-                startmode(6);
-            }
-            else if (game.timetriallevel == 4)    //warp
-            {
-                music.playef(11);
-                startmode(7);
-            }
-            else if (game.timetriallevel == 5)    //final
-            {
-                music.playef(11);
-                startmode(8);
-            }
+            /* Replay time trial */
+            music.playef(11);
+            startmode((enum StartMode) (game.timetriallevel + Start_FIRST_TIMETRIAL));
             break;
         }
         break;
@@ -1856,10 +2160,29 @@ void titleinput(void)
     game.press_map = false;
     game.press_interact = false;
 
+    bool lang_press_horizontal = false;
+
     if (graphics.flipmode)
     {
         if (key.isDown(KEYBOARD_LEFT) || key.isDown(KEYBOARD_DOWN) || key.isDown(KEYBOARD_a) ||  key.isDown(KEYBOARD_s) || key.controllerWantsRight(true)) game.press_left = true;
         if (key.isDown(KEYBOARD_RIGHT) || key.isDown(KEYBOARD_UP)  || key.isDown(KEYBOARD_d) ||  key.isDown(KEYBOARD_w) || key.controllerWantsLeft(true)) game.press_right = true;
+    }
+    else if (game.currentmenuname == Menu::language)
+    {
+        if (key.isDown(KEYBOARD_UP) || key.isDown(KEYBOARD_w) || key.controllerWantsUp())
+        {
+            game.press_left = true;
+        }
+        if (key.isDown(KEYBOARD_DOWN) || key.isDown(KEYBOARD_s) || key.controllerWantsDown())
+        {
+            game.press_right = true;
+        }
+        if (key.isDown(KEYBOARD_LEFT) || key.isDown(KEYBOARD_a) || key.controllerWantsLeft(false)
+        || key.isDown(KEYBOARD_RIGHT) || key.isDown(KEYBOARD_d) || key.controllerWantsRight(false))
+        {
+            lang_press_horizontal = true;
+            game.press_right = true;
+        }
     }
     else
     {
@@ -1891,8 +2214,23 @@ void titleinput(void)
         && game.menucountdown <= 0
         && (key.isDown(27) || key.isDown(game.controllerButton_esc)))
         {
-            music.playef(11);
-            if (game.currentmenuname == Menu::mainmenu)
+            if (game.currentmenuname == Menu::language && !loc::lang_set)
+            {
+                /* Don't exit from the initial language screen,
+                 * you can't do this on the loading/title screen either. */
+                return;
+            }
+            else
+            {
+                music.playef(11);
+            }
+            if (game.menutestmode)
+            {
+                game.menutestmode = false;
+                game.returnmenu();
+                map.nexttowercolour();
+            }
+            else if (game.currentmenuname == Menu::mainmenu)
             {
                 game.createmenu(Menu::youwannaquit);
                 map.nexttowercolour();
@@ -1936,7 +2274,63 @@ void titleinput(void)
         {
             if (game.slidermode == SLIDER_NONE)
             {
-                if (game.press_left)
+                if (game.currentmenuname == Menu::language)
+                {
+                    /* The language screen has two columns and navigation in four directions.
+                     * The second column may have one less option than the first. */
+                    int n_options = game.menuoptions.size();
+                    int twocol_voptions = n_options - (n_options/2);
+
+                    if (lang_press_horizontal)
+                    {
+                        if (game.currentmenuoption < twocol_voptions)
+                        {
+                            game.currentmenuoption += twocol_voptions;
+                            if (game.currentmenuoption >= n_options)
+                            {
+                                game.currentmenuoption = n_options - 1;
+                            }
+                        }
+                        else
+                        {
+                            game.currentmenuoption -= twocol_voptions;
+                        }
+                    }
+                    else
+                    {
+                        /* Vertical movement */
+                        int min_option;
+                        int max_option;
+                        if (game.currentmenuoption < twocol_voptions)
+                        {
+                            min_option = 0;
+                            max_option = twocol_voptions-1;
+                        }
+                        else
+                        {
+                            min_option = twocol_voptions;
+                            max_option = n_options-1;
+                        }
+
+                        if (game.press_left) /* Up, lol */
+                        {
+                            game.currentmenuoption--;
+                            if (game.currentmenuoption < min_option)
+                            {
+                                game.currentmenuoption = max_option;
+                            }
+                        }
+                        else if (game.press_right) /* Down, lol */
+                        {
+                            game.currentmenuoption++;
+                            if (game.currentmenuoption > max_option)
+                            {
+                                game.currentmenuoption = min_option;
+                            }
+                        }
+                    }
+                }
+                else if (game.press_left)
                 {
                     game.currentmenuoption--;
                 }
@@ -1972,6 +2366,7 @@ void titleinput(void)
         if (    game.currentmenuname == Menu::controller &&
                 game.currentmenuoption > 0 &&
                 game.currentmenuoption < 6 &&
+                (game.separate_interact || game.currentmenuoption < 5) &&
                 key.controllerButtonDown()      )
         {
             updatebuttonmappings(game.currentmenuoption);
@@ -1995,6 +2390,11 @@ void gameinput(void)
 
     if(!script.running)
     {
+        if (roomname_translator::enabled && roomname_translator::overlay_input())
+        {
+            return;
+        }
+
         game.press_left = false;
         game.press_right = false;
         game.press_action = false;
@@ -2074,11 +2474,11 @@ void gameinput(void)
         game.interactheld = false;
     }
 
-    if (game.intimetrial && graphics.fademode == FADE_FULLY_BLACK && game.quickrestartkludge)
+    if (game.intimetrial && graphics.fademode == FADE_FULLY_BLACK && game.quickrestartkludge && !game.translator_exploring)
     {
         //restart the time trial
         game.quickrestartkludge = false;
-        script.startgamemode(game.timetriallevel + 3);
+        script.startgamemode((enum StartMode) (game.timetriallevel + Start_FIRST_TIMETRIAL));
         game.deathseq = -1;
         game.completestop = false;
         game.hascontrol = false;
@@ -2110,8 +2510,6 @@ void gameinput(void)
     bool has_control = false;
     bool enter_pressed = game.press_map && !game.mapheld;
     bool enter_already_processed = false;
-    bool any_onground = false;
-    bool any_onroof = false;
     bool interact_pressed;
     if (game.separate_interact)
     {
@@ -2139,7 +2537,7 @@ void gameinput(void)
 
                 if (interact_pressed && !script.running)
                 {
-                    if (game.activetele && game.readytotele > 20 && !game.intimetrial)
+                    if (game.activetele && game.readytotele > 20 && (!game.intimetrial || game.translator_exploring_allowtele))
                     {
                         enter_already_processed = true;
                         if(int(SDL_fabsf(obj.entities[ie].vx))<=1 && int(obj.entities[ie].vy)==0)
@@ -2167,10 +2565,10 @@ void gameinput(void)
                                     obj.entities[teleporter].colour = 102;
                                 }
                                 //which teleporter script do we use? it depends on the companion!
-                                game.state = 4000;
-                                game.statedelay = 0;
+                                game.setstate(4000);
+                                game.setstatedelay(0);
                             }
-                            else if (game.companion == 0)
+                            else if (game.companion == 0 && !game.translator_exploring_allowtele)
                             {
                                 //Alright, normal teleporting
                                 game.mapmenuchange(TELEPORTERMODE, true);
@@ -2200,8 +2598,8 @@ void gameinput(void)
                                     obj.entities[teleporter].colour = 102;
                                 }
                                 //which teleporter script do we use? it depends on the companion!
-                                game.state = 3000;
-                                game.statedelay = 0;
+                                game.setstate(3000);
+                                game.setstatedelay(0);
                             }
                         }
                     }
@@ -2227,15 +2625,6 @@ void gameinput(void)
                     obj.entities[ie].ax = 3;
                     obj.entities[ie].dir = 1;
                 }
-            }
-
-            if (obj.entities[ie].onground > 0)
-            {
-                any_onground = true;
-            }
-            if (obj.entities[ie].onroof > 0)
-            {
-                any_onroof = true;
             }
         }
     }
@@ -2297,33 +2686,51 @@ void gameinput(void)
             game.jumpheld = true;
         }
 
-        if (game.jumppressed > 0)
+        std::vector<size_t> player_entities;
+        for (size_t ie = 0; ie < obj.entities.size(); ie++)
         {
+            if (obj.entities[ie].rule == 0)
+            {
+                player_entities.push_back(ie);
+            }
+        }
+
+        for (size_t ie = 0; ie < obj.entities.size(); ie++)
+        {
+            const bool process_flip = obj.entities[ie].rule == 0 &&
+                game.jumppressed > 0;
+            if (!process_flip)
+            {
+                continue;
+            }
+
             game.jumppressed--;
-            if (any_onground && game.gravitycontrol == 0)
+            if (obj.entities[ie].onground > 0 && game.gravitycontrol == 0)
             {
                 game.gravitycontrol = 1;
-                for (size_t ie = 0; ie < obj.entities.size(); ++ie)
+                for (size_t j = 0; j < player_entities.size(); j++)
                 {
-                    if (obj.entities[ie].rule == 0 && (obj.entities[ie].onground > 0 || obj.entities[ie].onroof > 0))
+                    const size_t e = player_entities[j];
+                    if (obj.entities[e].onground > 0 || obj.entities[e].onroof > 0)
                     {
-                        obj.entities[ie].vy = -4;
-                        obj.entities[ie].ay = -3;
+                        obj.entities[e].vy = -4;
+                        obj.entities[e].ay = -3;
                     }
                 }
                 music.playef(0);
                 game.jumppressed = 0;
                 game.totalflips++;
             }
-            if (any_onroof && game.gravitycontrol == 1)
+            if (obj.entities[ie].onroof > 0 && game.gravitycontrol == 1)
             {
                 game.gravitycontrol = 0;
-                for (size_t ie = 0; ie < obj.entities.size(); ++ie)
+                for (size_t j = 0; j < player_entities.size(); j++)
                 {
-                    if (obj.entities[ie].rule == 0 && (obj.entities[ie].onground > 0 || obj.entities[ie].onroof > 0))
+                    const size_t e = player_entities[j];
+                    if (obj.entities[e].onground > 0 || obj.entities[e].onroof > 0)
                     {
-                        obj.entities[ie].vy = 4;
-                        obj.entities[ie].ay = 3;
+                        obj.entities[e].vy = 4;
+                        obj.entities[e].ay = 3;
                     }
                 }
                 music.playef(1);
@@ -2367,7 +2774,7 @@ void gameinput(void)
         game.gamesavefailed = false;
         game.menupage = 20; // The Map Page
     }
-    else if (game.intimetrial && graphics.fademode == FADE_NONE)
+    else if (game.intimetrial && graphics.fademode == FADE_NONE && !game.translator_exploring)
     {
         //Quick restart of time trial
         graphics.fademode = FADE_START_FADEOUT;
@@ -2375,9 +2782,13 @@ void gameinput(void)
         music.fadeout();
         game.quickrestartkludge = true;
     }
-    else if (game.intimetrial)
+    else if (game.intimetrial && !game.translator_exploring)
     {
         //Do nothing if we're in a Time Trial but a fade animation is playing
+    }
+    else if (map.custommode && !map.custommodeforreal)
+    {
+        // We're playtesting in the editor so don't do anything
     }
     else
     {
@@ -2453,8 +2864,8 @@ void mapinput(void)
 
         if (game.menupage >= 20 && game.menupage <= 21)
         {
-            game.state = 96;
-            game.statedelay = 0;
+            game.setstate(96);
+            game.setstatedelay(0);
         }
         else
         {
@@ -2462,8 +2873,8 @@ void mapinput(void)
             script.running = false;
             graphics.textboxes.clear();
 
-            game.state = 80;
-            game.statedelay = 0;
+            game.setstate(80);
+            game.setstatedelay(0);
         }
     }
 
@@ -2628,8 +3039,9 @@ static void mapmenuactionpress(const bool version2_2)
         }
 
         //which teleporter script do we use? it depends on the companion!
-        game.state = 4000;
-        game.statedelay = 0;
+        game.setstate(4000);
+        game.setstatedelay(0);
+        game.lockstate();
     }
         break;
     case 3:
@@ -2643,7 +3055,7 @@ static void mapmenuactionpress(const bool version2_2)
         game.savearea = map.currentarea(map.area(game.roomx, game.roomy));
         game.savetrinkets = game.trinkets();
 
-        if (game.roomx >= 102 && game.roomx <= 104 && game.roomy >= 110 && game.roomy <= 111) game.savearea = "The Ship";
+        if (game.roomx >= 102 && game.roomx <= 104 && game.roomy >= 110 && game.roomy <= 111) game.savearea = loc::gettext_roomname_special("The Ship");
 
         bool success;
 #if !defined(NO_CUSTOM_LEVELS)
@@ -2669,9 +3081,6 @@ static void mapmenuactionpress(const bool version2_2)
     case 11:
         //quit to menu
 
-        //Kill contents of offset render buffer, since we do that for some reason.
-        //This fixes an apparent frame flicker.
-        ClearSurface(graphics.tempBuffer);
         graphics.fademode = FADE_START_FADEOUT;
         music.fadeout();
         map.nexttowercolour();
@@ -2795,7 +3204,7 @@ void teleporterinput(void)
         {
             for (size_t i = 0; i < map.teleporters.size(); i++)
             {
-                point& tele = map.teleporters[i];
+                SDL_Point& tele = map.teleporters[i];
 
                 if (map.isexplored(tele.x, tele.y))
                 {
@@ -2862,8 +3271,8 @@ void teleporterinput(void)
                     obj.entities[i].colour = 102;
                 }
                 //which teleporter script do we use? it depends on the companion!
-                game.state = 4000;
-                game.statedelay = 0;
+                game.setstate(4000);
+                game.setstatedelay(0);
             }
         }
     }

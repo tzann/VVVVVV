@@ -13,6 +13,8 @@ const short* finalclass::loadlevel(int rx, int ry)
     warpx = false;
     warpy = false;
 
+    roomname_special = false;
+
     switch(t)
     {
 #if !defined(MAKEANDPLAY)
@@ -155,7 +157,8 @@ const short* finalclass::loadlevel(int rx, int ry)
         obj.createentity(192, 116, 11, 64);  // (horizontal gravity line)
 
         warpy = true;
-        roomname = "glitch";
+        roomname = "The Untouchables";
+        roomname_special = true;
         result = contents;
         break;
     }
@@ -205,7 +208,8 @@ const short* finalclass::loadlevel(int rx, int ry)
         obj.createentity(32, 48, 10, 1, 51481);  // (savepoint)
 
         warpy = true;
-        roomname = "glitch";
+        roomname = "On the Waterfront";
+        roomname_special = true;
         result = contents;
         break;
     }
@@ -253,7 +257,8 @@ const short* finalclass::loadlevel(int rx, int ry)
         obj.createentity(128, 56, 10, 1, 51471);  // (savepoint)
 
         warpy = true;
-        roomname = "change";
+        roomname = "Gvnsmoke";
+        roomname_special = true;
         result = contents;
         break;
     }
@@ -303,7 +308,8 @@ const short* finalclass::loadlevel(int rx, int ry)
         obj.createentity(288, 120, 1, 2, 4);  // Enemy
 
         warpy = true;
-        roomname = "change";
+        roomname = "Vwitched";
+        roomname_special = true;
         result = contents;
         break;
     }
@@ -350,7 +356,8 @@ const short* finalclass::loadlevel(int rx, int ry)
         obj.createentity(176, 96, 10, 0, 51451);  // (savepoint)
 
         warpy = true;
-        roomname = "change";
+        roomname = "Television Newsveel";
+        roomname_special = true;
         result = contents;
         break;
     }
@@ -507,7 +514,8 @@ const short* finalclass::loadlevel(int rx, int ry)
         obj.createentity(24, 148, 11, 120);  // (horizontal gravity line)
 
         warpy = true;
-        roomname = "glitch";
+        roomname = "Rear Window";
+        roomname_special = true;
         result = contents;
         break;
     }
@@ -603,7 +611,7 @@ const short* finalclass::loadlevel(int rx, int ry)
 
         if(!obj.flags[72])
         {
-            if (game.intimetrial || game.nocutscenes)
+            if ((game.intimetrial || game.nocutscenes) && !game.translator_exploring)
             {
                 obj.createblock(1, 152 - 4, 112, 20, 16, 85);
             }
@@ -953,7 +961,8 @@ const short* finalclass::loadlevel(int rx, int ry)
         obj.createentity(120 + 4, 160 - 4, 1, 1, 5);  // Enemy
 
         warpx = true;
-        roomname = "change";
+        roomname = "Please enjoy these repeats";
+        roomname_special = true;
         result = contents;
         break;
     }
@@ -1003,7 +1012,8 @@ const short* finalclass::loadlevel(int rx, int ry)
         obj.createentity(224, 52, 11, 80);  // (horizontal gravity line)
 
         warpx = true;
-        roomname = "change";
+        roomname = "Try Jiggling the Antenna";
+        roomname_special = true;
         result = contents;
         break;
     }
@@ -1359,7 +1369,11 @@ const short* finalclass::loadlevel(int rx, int ry)
         obj.createblock(0, 315, 0, 5, 240);
 
 
-        if(game.intimetrial)
+        if (game.translator_exploring)
+        {
+            obj.createblock(1, 0, 0, 320, 120, 3091);
+        }
+        else if(game.intimetrial)
         {
             obj.createblock(1, 0, 0, 320, 120, 82);
         }
@@ -1631,7 +1645,7 @@ const short* finalclass::loadlevel(int rx, int ry)
         obj.createentity(16, 112, 10, 1, 50520);  // (savepoint)
         roomname = "Seeing Red";
 
-        if(!game.intimetrial)
+        if(!game.intimetrial || game.translator_exploring)
         {
             if(game.companion==0 && !obj.flags[8] && !game.crewstats[3])   //also need to check if he's rescued in a previous game
             {
@@ -2603,6 +2617,7 @@ const short* finalclass::loadlevel(int rx, int ry)
     {
         static const short contents[1200] = {0};
         roomname = "Outer Space";
+        roomname_special = true;
 
         //game.test = true;
         //game.teststring = "ERROR: Map not found in Final Area";
