@@ -347,7 +347,23 @@ namespace Solver {
             static int frames_to_advance = 94;
             */
         }
-    };
+    }
+
+    namespace WZ {
+        namespace CORNERS {
+            namespace THIS_IS_HOW_IT_IS {
+                const corner FLIP_UP(114, 101, 122, 46, UP_RIGHT);
+                const corner GO_RIGHT(114, 101, 174, 161, RIGHT_UP);
+            }
+
+            namespace BISECTED_SPIRAL {
+                const corner FLIP_UP(115, 101, 222, 158, UP_LEFT);
+            }
+        }
+        namespace SCENARIOS {
+
+        }
+    }
 
     // TODO: make these not global?
     // TODO: std::unordered_map<std::size_t, cacheentry> cache;
@@ -381,8 +397,8 @@ namespace Solver {
 
         // Solve
         // stateful_solver(scenario);
-        // cached_stateful_solver(scenario);
-        stateless_solver(scenario);
+        cached_stateful_solver(scenario);
+        // stateless_solver(scenario, true);
     }
 
     void squish_test() {
@@ -444,7 +460,7 @@ namespace Solver {
                 SDL_Delay(680);
             }*/
 
-
+            /* vertical squish clip into ground
             map.resetplayer();
             map.gotoroom(105, 107);
             map.initmapdata();
@@ -468,6 +484,58 @@ namespace Solver {
                 do_game_step(true);
                 SDL_Delay(340);
             }
+            */
+
+            /* levitating viridian
+            map.resetplayer();
+            map.gotoroom(105, 107);
+            map.initmapdata();
+
+            graphics.fademode = FADE_NONE;
+            game.jumppressed = false;
+
+            key.keymap.clear();
+
+            game.gravitycontrol = 0;
+            obj.entities[0].xp = 100;
+            obj.entities[0].yp = 57;
+            obj.createentity(100, 264, 2, 1, 12, 0, -100, 320, 340);
+            obj.createentity(64, 120, 2, 3, 1);
+            obj.createentity(64, 100, 2, 3, 1);
+            obj.createentity(64, 90, 2, 3, 1);
+
+            for (int i = 0; i < 20; i++) {
+                key.keymap.clear();
+                key.keymap[KEYBOARD_v] = false;
+                do_game_step(true);
+                SDL_Delay(340);
+            } */
+
+
+            map.resetplayer();
+            map.gotoroom(105, 107);
+            map.initmapdata();
+
+            graphics.fademode = FADE_NONE;
+            game.jumppressed = false;
+
+            key.keymap.clear();
+
+            game.gravitycontrol = 0;
+            obj.entities[0].xp = 100;
+            obj.entities[0].yp = 100;
+            obj.createentity(100, 240, 2, 1, 6, 0, 132, 320, 340);
+            obj.createentity(0, 100, 11, 320);
+
+            for (int i = 0; i < 25; i++) {
+                key.keymap.clear();
+                key.keymap[KEYBOARD_v] = i == 10 || i == 20;
+                obj.entities[0].dir = key.keymap[KEYBOARD_v];
+                game.deathcounts = obj.entities[0].onground;
+                game.hours = obj.entities[0].yp;
+                do_game_step(true);
+                SDL_Delay(340);
+            }
         }
     }
 
@@ -479,7 +547,7 @@ namespace Solver {
         std::size_t initial_hash = hash_naivestate(initial_state);
 
         std::set<std::size_t> hash_set;
-        std::unordered_map<std::size_t, stateinfo, modified_hash> prev_state_map;
+        std::unordered_map<std::size_t, stateinfo> prev_state_map;
         naivestate s;
         { // start q scope
             std::priority_queue<naivestate, std::vector<naivestate>, std::function<bool(naivestate, naivestate)>> q(compare_naive_states);
@@ -562,11 +630,12 @@ namespace Solver {
                     }
                 }
             }
-
+            /*
             while (!q.empty()) {
                 q.pop();
             }
             q = {};
+            */
         } // end q scope
 
         game.hours = s.f_count;
@@ -628,7 +697,7 @@ namespace Solver {
         std::size_t initial_hash = hash_cached_naivestate(initial_state);
 
         std::set<std::size_t> hash_set;
-        std::unordered_map<std::size_t, stateinfo, modified_hash> prev_state_map;
+        std::unordered_map<std::size_t, stateinfo> prev_state_map;
         cachednaivestate s;
         { // start q scope
             std::priority_queue<cachednaivestate, std::vector<cachednaivestate>, std::function<bool(cachednaivestate, cachednaivestate)>> q(compare_cached_naivestates);
@@ -780,7 +849,7 @@ namespace Solver {
         }
     }
     
-    void stateless_solver(Scenario scenario) {
+    void stateless_solver(Scenario scenario, bool debug_checks) {
         load_scenario(scenario);
 
         naivestate initial_state = create_naive_state();
@@ -789,7 +858,7 @@ namespace Solver {
         std::size_t initial_hash = hash_naivestate(initial_state);
 
         std::set<std::size_t> hash_set;
-        std::unordered_map<std::size_t, stateinfo, modified_hash> prev_state_map;
+        std::unordered_map<std::size_t, stateinfo> prev_state_map;
 
         statehash s = statehash(initial_state.h, initial_hash, 0, 0);
         std::vector<int8_t> inputs;
@@ -817,7 +886,7 @@ namespace Solver {
                 // What inputs got us to this state
                 while (tmp_h != initial_hash) {
                     if (prev_state_map.find(tmp_h) == prev_state_map.end()) {
-                        VVV_exit(690000);
+                        VVV_exit(69000);
                     }
 
                     stateinfo i = prev_state_map.at(tmp_h);
@@ -838,7 +907,19 @@ namespace Solver {
                     key.keymap[KEYBOARD_RIGHT] = i & 2;
                     key.keymap[KEYBOARD_v] = i & 4;
                     do_game_step(false);
-                    // do_game_step(true); SDL_Delay(34);
+                    // do_game_step(true); // SDL_Delay(34);
+
+                    // Debug consistency check, comment out if going for efficiency
+                    if (debug_checks) {
+                        naivestate temp = create_naive_state();
+                        std::size_t temp_hash = hash_naivestate(temp);
+                        if (prev_state_map.find(temp_hash) == prev_state_map.end()) {
+                            VVV_exit(69001);
+                        }
+                        if (prev_state_map.at(temp_hash).input != i) {
+                            VVV_exit(69002);
+                        }
+                    }
                 }
                 inputs.clear();
                 
@@ -850,9 +931,17 @@ namespace Solver {
                 // Memory usage:
                 game.deathcounts = (q.size() / 1024 * sizeof(statehash) + prev_state_map.size() / 1024 * (sizeof(stateinfo) + sizeof(std::size_t)) + hash_set.size() / 1024 * (sizeof(std::size_t))) / 1024;
 
+                game.hours = obj.entities[0].invis;
+
                 naivestate restore_point = create_naive_state();
                 bool can_flip = (restore_point.player.onground > 0 && restore_point.game.gravitycontrol == 0 || restore_point.player.onroof > 0 && restore_point.game.gravitycontrol == 1);
                 int max = can_flip ? 8 : 4;
+
+                if (debug_checks) {
+                    if (s.hash != hash_naivestate(restore_point)) {
+                        VVV_exit(69003);
+                    }
+                }
 
                 for (int8_t i = 0; i < max; i++) {
                     if (i > 0) {
@@ -861,7 +950,7 @@ namespace Solver {
                     key.keymap[KEYBOARD_LEFT] = i & 1;
                     key.keymap[KEYBOARD_RIGHT] = i & 2;
                     key.keymap[KEYBOARD_v] = i & 4;
-                    do_game_step(hash_set.size() > 77000);
+                    do_game_step(hash_set.size() % 1000 == 0);
                     // do_game_step(true);//   SDL_Delay(34);
 
                     // Oops we died, skip this branch then
@@ -1061,8 +1150,8 @@ namespace Solver {
         s.game.press_left = game.press_left;
 
         // Any value greater than 5 is equivalent to 5
-        int8_t effective_tapright = SDL_min(s.game.tapright, 5);
-        int8_t effective_tapleft = SDL_min(s.game.tapleft, 5);
+        int8_t effective_tapright = SDL_min(game.tapright, 5);
+        int8_t effective_tapleft = SDL_min(game.tapleft, 5);
         s.game.tapright = effective_tapright;
         s.game.tapleft = effective_tapleft;
 
@@ -1176,8 +1265,14 @@ namespace Solver {
         obj.entities[0].collisionframedelay = s.player.collisionframedelay;
         obj.entities[0].collisionwalkingframe = s.player.collisionwalkingframe;
 
-        obj.entities[0].newxp = s.player.newyp;
+        obj.entities[0].newxp = s.player.newxp;
         obj.entities[0].newyp = s.player.newyp;
+
+        // TODO: not these Hacky fixes
+        obj.entities[0].invis = false;
+        obj.entities[0].colour = 0;
+        obj.entities[0].type = 0;
+        game.hascontrol = true;
 
         // Load game data
         game.state = s.game.state;
@@ -1293,8 +1388,8 @@ namespace Solver {
         s.game.press_left = game.press_left;
 
         // Any value greater than 5 is equivalent to 5
-        int8_t effective_tapright = SDL_min(s.game.tapright, 5);
-        int8_t effective_tapleft = SDL_min(s.game.tapleft, 5);
+        int8_t effective_tapright = SDL_min(game.tapright, 5);
+        int8_t effective_tapleft = SDL_min(game.tapleft, 5);
         s.game.tapright = effective_tapright;
         s.game.tapleft = effective_tapleft;
 
@@ -1356,8 +1451,14 @@ namespace Solver {
         obj.entities[0].collisionframedelay = s.player.collisionframedelay;
         obj.entities[0].collisionwalkingframe = s.player.collisionwalkingframe;
 
-        obj.entities[0].newxp = s.player.newyp;
+        obj.entities[0].newxp = s.player.newxp;
         obj.entities[0].newyp = s.player.newyp;
+
+        // TODO: not these Hacky fixes
+        obj.entities[0].invis = false;
+        obj.entities[0].colour = 0;
+        obj.entities[0].type = 0;
+        game.hascontrol = true;
 
         // Load game data
         game.state = s.game.state;

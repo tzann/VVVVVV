@@ -203,7 +203,7 @@ namespace Solver {
 
     void cached_stateful_solver(Scenario scenario);
 
-    void stateless_solver(Scenario scenario);
+    void stateless_solver(Scenario scenario, bool debug_checks);
 
     void debug_test(Scenario scenario);
     void debug_test_cached(Scenario scenario);
