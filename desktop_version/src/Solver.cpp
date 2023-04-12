@@ -374,7 +374,7 @@ namespace Solver {
     void entrypoint() {
         // TODO is this really necessary
         // Get into GAMEMODE gracefully
-        script.startgamemode(11);
+        script.startgamemode(Start_SECRETLAB);
         // Give back trinkets
         for (int i = 0; i < 20; i++) {
             obj.collect[i] = false;
@@ -578,7 +578,7 @@ namespace Solver {
                 game.hours = s.h;
                 game.minutes = 0;
                 game.seconds = 0;
-                game.frames = hash_set.size() * 3 / 10;
+                game.frames = int(hash_set.size() * 3 / 10);
 
                 bool can_flip = (s.player.onground > 0 && s.game.gravitycontrol == 0 || s.player.onroof > 0 && s.game.gravitycontrol == 1);
                 int max = can_flip ? 8 : 4;
@@ -728,10 +728,10 @@ namespace Solver {
                 game.hours = s.h;
                 game.minutes = 0;
                 game.seconds = 0;
-                game.frames = hash_set.size() * 3 / 10;
+                game.frames = int(hash_set.size() * 3 / 10);
 
                 game.hours = sizeof(naiveplayerstate);
-                game.deathcounts = entitycache.size() + blockcache.size();
+                game.deathcounts = int(entitycache.size() + blockcache.size());
 
                 // TODO: does this work for line clips?
                 bool can_flip = (s.player.onground > 0 && s.game.gravitycontrol == 0 || s.player.onroof > 0 && s.game.gravitycontrol == 1);
@@ -928,9 +928,9 @@ namespace Solver {
                 game.hours = s.heuristic;
                 game.minutes = 0;
                 game.seconds = 0;
-                game.frames = hash_set.size() * 3 / 10;
+                game.frames = int(hash_set.size() * 3 / 10);
                 // Memory usage:
-                game.deathcounts = (q.size() / 1024 * sizeof(statehash) + prev_state_map.size() / 1024 * (sizeof(stateinfo) + sizeof(std::size_t)) + hash_set.size() / 1024 * (sizeof(std::size_t))) / 1024;
+                game.deathcounts = int((q.size() / 1024 * sizeof(statehash) + prev_state_map.size() / 1024 * (sizeof(stateinfo) + sizeof(std::size_t)) + hash_set.size() / 1024 * (sizeof(std::size_t))) / 1024);
 
                 game.hours = obj.entities[0].invis;
 
@@ -1027,7 +1027,7 @@ namespace Solver {
         naivestate tmp;
         int i = 0;
         while (true) {
-            game.hours = obj.entities.size();
+            game.hours = int(obj.entities.size());
             do_game_step(true);
             SDL_Delay(102);
             i++;
@@ -1046,7 +1046,7 @@ namespace Solver {
         cachednaivestate tmp;
         int i = 0;
         while (true) {
-            game.hours = obj.entities.size();
+            game.hours = int(obj.entities.size());
             do_game_step(true);
             SDL_Delay(102);
             i++;
@@ -1178,14 +1178,14 @@ namespace Solver {
                 e.state = obj.entities[i].state;
                 e.onwall = obj.entities[i].onwall;
                 // Any value less than -1 is equivalent to -1
-                int effective_statedelay = SDL_max(obj.entities[i].statedelay, -1);
+                int8_t effective_statedelay = SDL_max(obj.entities[i].statedelay, -1);
                 e.statedelay = effective_statedelay;
 
                 e.tile = obj.entities[i].tile;
                 e.animate = obj.entities[i].animate;
                 // Any value less than 0 is equivalent to 0
-                int effective_framedelay = SDL_max(obj.entities[i].framedelay, 0);
-                e.framedelay = effective_framedelay;
+                int8_t effective_framedelay_e = SDL_max(obj.entities[i].framedelay, 0);
+                e.framedelay = effective_framedelay_e;
                 e.walkingframe = obj.entities[i].walkingframe;
                 e.drawframe = obj.entities[i].drawframe;
 
@@ -1210,7 +1210,6 @@ namespace Solver {
                 b.r = obj.blocks[i].r;
                 b.g = obj.blocks[i].g;
                 b.b = obj.blocks[i].b;
-                b.activity_x = obj.blocks[i].activity_x;
                 b.activity_y = obj.blocks[i].activity_y;
 
                 // TODO emplace
@@ -1328,7 +1327,6 @@ namespace Solver {
             obj.blocks[i].r = s.blocks[i].r;
             obj.blocks[i].g = s.blocks[i].g;
             obj.blocks[i].b = s.blocks[i].b;
-            obj.blocks[i].activity_x = s.blocks[i].activity_x;
             obj.blocks[i].activity_y = s.blocks[i].activity_y;
         }
     }
@@ -1526,7 +1524,6 @@ namespace Solver {
             b.r = obj.blocks[i].r;
             b.g = obj.blocks[i].g;
             b.b = obj.blocks[i].b;
-            b.activity_x = obj.blocks[i].activity_x;
             b.activity_y = obj.blocks[i].activity_y;
 
             cache_entry.cached_blocks.push_back(cache_block(b));
@@ -1579,7 +1576,6 @@ namespace Solver {
             obj.blocks[i].r = b.r;
             obj.blocks[i].g = b.g;
             obj.blocks[i].b = b.b;
-            obj.blocks[i].activity_x = b.activity_x;
             obj.blocks[i].activity_y = b.activity_y;
         }
     }
@@ -1651,8 +1647,10 @@ namespace Solver {
         }
         // Skip rendering to improve runtime
         if (render) {
+            graphics.clear();
+            graphics.set_render_target(graphics.gameTexture);
             gamerender();
-            gameScreen.FlipScreen(graphics.flipmode);
+            gameScreen.RenderPresent();
         }
     }
 
@@ -1748,6 +1746,8 @@ namespace Solver {
     // TODO: refactor eventually
     // TODO: account for velocity (turning around takes time)
     // TODO: account for treadmills and moving platforms (higher max speed)
+    // TODO: account for warping rooms (WZ, intermissions, final)
+    // TODO: account for warp tokens (overworld, WZ)
     double get_heuristic(Scenario scenario, int next_corner, int room_x, int room_y, int player_x, int player_y) {
         int total_frames = 0;
 
@@ -1992,6 +1992,7 @@ namespace Solver {
         result = combine_hashes(result, h_i(p.x));
         result = combine_hashes(result, h_i(p.y));
 
+        // TODO: do we need to account for floating point errors? (precision loss)
         // vx is always multiple of 0.1, vy is always multiple of 0.25
         float effective_vx = SDL_roundf(10.0 * p.vx);
         float effective_vy = SDL_roundf(4.0 * p.vy);
@@ -2001,8 +2002,8 @@ namespace Solver {
         // Should always be integers
         float effective_ax = SDL_roundf(p.ax);
         float effective_ay = SDL_roundf(p.ay);
-        result = combine_hashes(result, h_f(p.ax));
-        result = combine_hashes(result, h_f(p.ay));
+        result = combine_hashes(result, h_f(effective_ax));
+        result = combine_hashes(result, h_f(effective_ay));
 
         // Any value less than 0 is equivalent to 0
         int effective_onground = SDL_max(p.onground, 0);
@@ -2093,7 +2094,6 @@ namespace Solver {
         b_hash = combine_hashes(b_hash, h_i(b.r));
         b_hash = combine_hashes(b_hash, h_i(b.g));
         b_hash = combine_hashes(b_hash, h_i(b.b));
-        b_hash = combine_hashes(b_hash, h_i(b.activity_x));
         b_hash = combine_hashes(b_hash, h_i(b.activity_y));
 
         return b_hash;
