@@ -17,6 +17,7 @@ namespace Solver {
         RIGHT_UP,
         RIGHT_DOWN,
         TRINKET,
+        WARP_TOKEN,
     };
 
     struct corner {
@@ -231,6 +232,11 @@ namespace Solver {
     bool compare_statehashes(statehash a, statehash b);
 
     void gotoroom(int rx, int ry);
+
+    int room_warps(int room_x, int room_y);
+    bool room_warpx(int room_x, int room_y);
+    bool room_warpy(int room_x, int room_y);
+    double get_stupid_heuristic(Scenario scenario, int next_corner, int room_x, int room_y, int player_x, int player_y);
 
     int room_adjusted_x(int rx, int x);
     int room_adjusted_y(int ry, int y);

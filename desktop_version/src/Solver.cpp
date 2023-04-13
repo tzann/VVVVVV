@@ -202,6 +202,17 @@ namespace Solver {
             }
         }
         namespace SCENARIOS {
+            const Scenario START_TO_FIRST_TRINKET(113, 105, 200, 161, 0, 0, {
+                CORNERS::SOLITUDE,
+                CORNERS::TRAFFIC_JAM::ENTRY_1,
+                CORNERS::TRAFFIC_JAM::ENTRY_2,
+                CORNERS::ATMOSPHERIC_FILTERING_UNIT::ENTRY_1,
+                CORNERS::ATMOSPHERIC_FILTERING_UNIT::ENTRY_2,
+                CORNERS::ITS_A_SECRET_TO_NOBODY::ENTRY,
+                CORNERS::ITS_A_SECRET_TO_NOBODY::TRINKET,
+                CORNERS::ITS_A_SECRET_TO_NOBODY::EXIT,
+                });
+
             const Scenario START(113, 105, 200, 161, 0, 0, { CORNERS::SOLITUDE });
             
             const Scenario TRAFFIC_JAM_TO_SECRET(115, 105, 57, 161, 0, 0, {
@@ -360,9 +371,23 @@ namespace Solver {
             namespace BISECTED_SPIRAL {
                 const corner FLIP_UP(115, 101, 222, 158, UP_LEFT);
             }
+
+            // TODO more corners
+
+            namespace I_LOVE_YOU {
+                // TODO more corners
+                const corner WARP_TOKEN(116, 100, 152, 112, WARP_TOKEN);
+            }
+            namespace THATS_WHY_I_HAVE_TO_KILL_YOU {
+                // TODO more corners
+                const corner WARP_TOKEN(114, 102, 152, 112, WARP_TOKEN);
+            }
         }
         namespace SCENARIOS {
-
+            const Scenario TWIHTKY_STUPID(116, 100, 40, 102, 1, 97, {
+                CORNERS::I_LOVE_YOU::WARP_TOKEN,
+                CORNERS::THATS_WHY_I_HAVE_TO_KILL_YOU::WARP_TOKEN,
+                });
         }
     }
 
@@ -370,6 +395,9 @@ namespace Solver {
     // TODO: std::unordered_map<std::size_t, cacheentry> cache;
     static std::unordered_map<std::size_t, naiveenemystate> entitycache;
     static std::unordered_map<std::size_t, naiveblockstate> blockcache;
+
+    // TODO: look into better hashing ideas - use what we know about the data to make it faster (without introducing collisions)
+    // TODO: naiveblockstate is not optimized
 
     void entrypoint() {
         // TODO is this really necessary
@@ -389,7 +417,7 @@ namespace Solver {
         game.muted = true;
         music.updatemutestate();
 
-        Scenario scenario = SS1::SCENARIOS::SECURITY_SWEEP;
+        Scenario scenario = WZ::SCENARIOS::TWIHTKY_STUPID;
 
         // Uncomment this to skip
         // debug_test(scenario);
@@ -631,12 +659,6 @@ namespace Solver {
                     }
                 }
             }
-            /*
-            while (!q.empty()) {
-                q.pop();
-            }
-            q = {};
-            */
         } // end q scope
 
         game.hours = s.f_count;
@@ -693,7 +715,7 @@ namespace Solver {
     void cached_stateful_solver(Scenario scenario) {
         load_scenario(scenario);
         cachednaivestate initial_state = create_cached_naivestate();
-        initial_state.h = get_heuristic(scenario, initial_state.next_corner, initial_state.game.roomx, initial_state.game.roomy, initial_state.player.x, initial_state.player.y);
+        initial_state.h = get_stupid_heuristic(scenario, initial_state.next_corner, initial_state.game.roomx, initial_state.game.roomy, initial_state.player.x, initial_state.player.y);
 
         std::size_t initial_hash = hash_cached_naivestate(initial_state);
 
@@ -730,7 +752,6 @@ namespace Solver {
                 game.seconds = 0;
                 game.frames = int(hash_set.size() * 3 / 10);
 
-                game.hours = sizeof(naiveplayerstate);
                 game.deathcounts = int(entitycache.size() + blockcache.size());
 
                 // TODO: does this work for line clips?
@@ -746,9 +767,9 @@ namespace Solver {
                     key.keymap[KEYBOARD_LEFT] = left;
                     key.keymap[KEYBOARD_RIGHT] = right;
                     key.keymap[KEYBOARD_v] = flip;
-                    do_game_step(hash_set.size() % 10000 == 0);
+                    do_game_step(hash_set.size() % 1000 == 0);
                     // do_game_step(true); SDL_Delay(34);
-                    // do_game_step(true); 
+                    // do_game_step(true);
 
                     // TODO when is dying useful and how can we tell
                     // Oops we died, skip this branch then
@@ -770,7 +791,7 @@ namespace Solver {
                         new_state.num_frames_in_room = s.num_frames_in_room + 1;
                     }
 
-                    new_state.h = new_state.f_count + get_heuristic(scenario, new_state.next_corner, new_state.game.roomx, new_state.game.roomy, new_state.player.x, new_state.player.y);
+                    new_state.h = new_state.f_count + get_stupid_heuristic(scenario, new_state.next_corner, new_state.game.roomx, new_state.game.roomy, new_state.player.x, new_state.player.y);
                     if (new_state.h < s.h) {
                         VVV_exit(69420); // Should hopefully not happen, means heuristic might be inadmissible
                     }
@@ -786,11 +807,6 @@ namespace Solver {
                     }
                 }
             }
-
-            while (!q.empty()) {
-                q.pop();
-            }
-            q = {};
         } // end q scope
 
         game.hours = s.f_count;
@@ -1701,14 +1717,215 @@ namespace Solver {
         map.gotoroom(rx, ry);
     }
 
+    // 0: No warps
+    // 1: X warps
+    // 2: Y warps
+    // 3: Both warps
+    const int wz_warp_map[] = {
+        2,2,3,3,2,1,3,
+        0,2,1,2,1,2,1,
+        0,3,2,1,3,1,2,
+        0,0,0,3,1,2,3,
+    };
+    int room_warps(int room_x, int room_y) {
+        // Super Gravitron: 119, 108
+        if (room_x >= 113 && room_x <= 119) {
+            if (room_y >= 100 && room_y <= 103) {
+                int i = room_x - 113 + (room_y - 100) * 7;
+                return wz_warp_map[i];
+            }
+        }
+        return 0;
+    }
+    bool room_warpx(int room_x, int room_y) {
+        return room_warps(room_x, room_y) & 1;
+    }
+    bool room_warpy(int room_x, int room_y) {
+        return room_warps(room_x, room_y) & 2;
+    }
+
+    double get_stupid_heuristic(Scenario scenario, int next_corner, int room_x, int room_y, int player_x, int player_y) {
+        if (next_corner == scenario.corners.size()) {
+            return 0;
+        }
+        int x_min = player_x;
+        int x_max = player_x;
+        int y_min = player_y;
+        int y_max = player_y;
+        int rx = room_x;
+        int ry = room_y;
+
+        int total_frames = 0;
+
+        if (next_corner > 0 && scenario.corners[next_corner - 1].dir == WARP_TOKEN && passed_next_corner(scenario, next_corner - 1, room_x, room_y, player_x, player_y)) {
+            // We are still touching the previous warp token and haven't warped yet
+            // Advance by one frame
+            total_frames++;
+            x_min = player_x - X_SPEED;
+            x_max = player_x + X_SPEED;
+            y_min = player_y - Y_SPEED;
+            y_max = player_y + Y_SPEED;
+            if (room_x == 116 && room_y == 100) {
+                // I Love You
+                x_min = 0;
+                x_max = 0;
+                rx = 114;
+                ry = 102;
+            }
+            else {
+                // unsupported warp token
+                VVV_exit(1231);
+            }
+        }
+
+        for (int c_idx = next_corner; c_idx < scenario.corners.size(); c_idx++) {
+            corner c = scenario.corners[c_idx];
+            if (c.rx != rx || c.ry != ry) {
+                // not in same room, hard to handle warping
+                VVV_exit(24);
+            }
+
+
+            int warps = room_warps(c.rx, c.ry);
+            bool warpx = warps & 1;
+            bool warpy = warps & 2;
+
+            int min_x_warp = (warps & 1) ? -1 : 0;
+            int max_x_warp = (warps & 1) ? 1 : 0;
+
+            if (c.rx == 114 && c.ry == 102) {
+                //TWIHTKY
+                if (x_min > 112) {
+                    // we are on right half, don't warp
+                    min_x_warp = 0;
+                    max_x_warp = 0;
+                }
+                else {
+                    // we are on left half, warp
+                    min_x_warp = -1;
+                    max_x_warp = -1;
+                }
+            }
+
+            int prev_x_min = x_min;
+            int prev_x_max = x_max;
+            int prev_y_min = y_min;
+            int prev_y_max = y_max;
+            int prev_rx = rx;
+            int prev_ry = ry;
+
+            int min_frame_count = 9999;
+            x_min = 1000;
+            x_max = -1000;
+            y_min = 1000;
+            y_max = -1000;
+
+            for (int x_warp = min_x_warp; x_warp <= max_x_warp; x_warp++) {
+                for (int y_warp = warpy ? -1 : 0; y_warp < (warpy ? 2 : 1); y_warp++) {
+                    int px = prev_x_max - (320 * x_warp);
+                    int py = prev_y_max - (232 * y_warp);
+
+                    if (c.x < px) {
+                        px = prev_x_min - (320 * x_warp);
+                        if (c.x > px) {
+                            px = c.x;
+                        }
+                    }
+                    if (c.y < py) {
+                        py = prev_y_min - (232 * y_warp);
+                        if (c.y > py) {
+                            py = c.y;
+                        }
+                    }
+
+                    int dx = px - c.x;
+                    int dy = py - c.y;
+
+                    if (c.dir != TRINKET && c.dir != WARP_TOKEN) {
+                        VVV_exit(25);
+                    }
+
+                    // Note that we touch the warp token / trinket in the range x [-17, 9], y [-22, 13]
+                    if (dx < -17) {
+                        dx += 17;
+                    }
+                    else if (dx > 9) {
+                        dx -= 9;
+                    }
+                    else {
+                        dx = 0;
+                    }
+                    if (dy < -22) {
+                        dy += 22;
+                    }
+                    else if (dy > 13) {
+                        dy -= 13;
+                    }
+                    else {
+                        dy = 0;
+                    }
+                    // At least how many frames will it take to reach the trinket?
+                    int x_frames = (SDL_abs(dx) + X_SPEED - 1) / X_SPEED;
+                    int y_frames = (SDL_abs(dy) + Y_SPEED - 1) / Y_SPEED;
+                    int frame_count = SDL_max(x_frames, y_frames);
+
+                    if (c.dir == WARP_TOKEN) {
+                        // What are the min and max positions reachable while still touching the warp token?
+                        int next_x_min = SDL_max(px - frame_count * X_SPEED, c.x - 17);
+                        int next_x_max = SDL_min(px + frame_count * X_SPEED, c.x + 9);
+
+                        int next_y_min = SDL_max(py - frame_count * Y_SPEED, c.y - 22);
+                        int next_y_max = SDL_min(py + frame_count * Y_SPEED, c.y + 13);
+
+                        if (c_idx < scenario.corners.size() - 1) {
+                            // Advance one frame
+                            frame_count++;
+                            next_x_min = next_x_min - X_SPEED;
+                            next_x_max = next_x_max + X_SPEED;
+                            next_y_min = next_y_min - Y_SPEED;
+                            next_y_max = next_y_max + Y_SPEED;
+
+                            // Find position after warp
+                            if (prev_rx == 116 && prev_ry == 100) {
+                                // I Love You
+                                next_x_min = 0;
+                                next_x_max = 0;
+                                rx = 114;
+                                ry = 102;
+                            }
+                            else {
+                                // unsupported warp token
+                                VVV_exit(1231);
+                            }
+                        }
+
+                        // Imprecision here, but i guess it's ok
+                        x_min = SDL_min(x_min, next_x_min);
+                        x_max = SDL_max(x_max, next_x_max);
+                        y_min = SDL_min(y_min, next_y_min);
+                        y_max = SDL_max(y_max, next_y_max);
+                    }
+                    else {
+                        VVV_exit(12381723);
+                    }
+
+                    min_frame_count = SDL_min(min_frame_count, frame_count);
+                    // x_min = SDL_min(x_min, next_x_min);
+                }
+            }
+
+            total_frames += min_frame_count;
+        }
+        return total_frames;
+    }
+
     int room_adjusted_x(int rx, int x) {
         return rx * 320 + x;
     }
-
     int room_adjusted_y(int ry, int y) {
         return ry * 240 + y;
     }
-    
+
     bool passed_next_corner(Scenario scenario, int next_corner, int room_x, int room_y, int player_x, int player_y) {
         int px = room_adjusted_x(room_x, player_x);
         int py = room_adjusted_y(room_y, player_y);
@@ -1737,6 +1954,9 @@ namespace Solver {
         case TRINKET:
             // Note that we can collect the trinket in the range x [-17, 9], y [-22, 13]
             return x_d >= -17 && x_d <= 9 && y_d >= -22 && y_d <= 13;
+        case WARP_TOKEN:
+            // Note that we touch the warp token in the range x [-17, 9], y [-22, 13]
+            return x_d >= -17 && x_d <= 9 && y_d >= -22 && y_d <= 13;
         }
         return false;
     }
@@ -1748,6 +1968,7 @@ namespace Solver {
     // TODO: account for treadmills and moving platforms (higher max speed)
     // TODO: account for warping rooms (WZ, intermissions, final)
     // TODO: account for warp tokens (overworld, WZ)
+    // TODO: account for differing room heights (232 if map.warpy)
     double get_heuristic(Scenario scenario, int next_corner, int room_x, int room_y, int player_x, int player_y) {
         int total_frames = 0;
 
@@ -1760,6 +1981,10 @@ namespace Solver {
             corner c = scenario.corners[c_idx];
             int cx = room_adjusted_x(c.rx, c.x);
             int cy = room_adjusted_y(c.ry, c.y);
+
+            bool in_same_room = room_x == c.rx && room_y == c.ry;
+            bool warpy = map.warpy;
+            bool warpx = map.warpx;
 
             int px = max_x;
             int py = max_y;
@@ -1913,7 +2138,7 @@ namespace Solver {
                 max_x = SDL_min(px + frame_count * X_SPEED, cx + 9);
 
                 min_y = SDL_max(py - frame_count * Y_SPEED, cy - 22);
-                max_y = SDL_max(py + frame_count * Y_SPEED, cy + 13);
+                max_y = SDL_min(py + frame_count * Y_SPEED, cy + 13);
             }
 
             total_frames += frame_count;
