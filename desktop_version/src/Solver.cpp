@@ -1792,6 +1792,8 @@ namespace Solver {
 
             int min_x_warp = (warps & 1) ? -1 : 0;
             int max_x_warp = (warps & 1) ? 1 : 0;
+            int min_y_warp = (warps & 1) ? -1 : 0;
+            int max_y_warp = (warps & 1) ? 1 : 0;
 
             if (c.rx == 114 && c.ry == 102) {
                 //TWIHTKY
@@ -1805,6 +1807,14 @@ namespace Solver {
                     min_x_warp = -1;
                     max_x_warp = -1;
                 }
+            }
+            else if (c.rx == 116 && c.ry == 100) {
+                // ILY
+                // TODO: fix this for later
+                min_x_warp = 0;
+                max_x_warp = 0;
+                min_y_warp = 0;
+                max_y_warp = 0;
             }
 
             int prev_x_min = x_min;
@@ -1821,7 +1831,7 @@ namespace Solver {
             y_max = -1000;
 
             for (int x_warp = min_x_warp; x_warp <= max_x_warp; x_warp++) {
-                for (int y_warp = warpy ? -1 : 0; y_warp < (warpy ? 2 : 1); y_warp++) {
+                for (int y_warp = min_y_warp; y_warp <= max_y_warp; y_warp++) {
                     int px = prev_x_max - (320 * x_warp);
                     int py = prev_y_max - (232 * y_warp);
 
