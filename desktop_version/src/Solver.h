@@ -84,7 +84,7 @@ namespace Solver {
         int8_t tapleft;         // 0 <= tapleft <= ??? (effective max is 5)
     };
 
-    // Reduced from 84 to ?? bytes
+    // Reduced from 84 to 48 bytes
     struct naiveplayerstate {
         int16_t x;      // -20 <= x <= 320
         int16_t y;      // -20 <= x <= 320
@@ -171,29 +171,31 @@ namespace Solver {
         int num_l_plus_r;
         int next_corner;
 
-        double h;
+        uint16_t h;
         int f_count;
     };
 
     struct cacheentry {
-        std::vector<std::size_t> cached_entities;
-        std::vector<std::size_t> cached_blocks;
+        std::size_t entity_set;
+        std::size_t block_set;
+
+        cacheentry() { }
+        cacheentry(std::size_t es, std::size_t bs) : entity_set(es), block_set(bs) { }
     };
 
+    // Initial size: 128 bytes -> 96 bytes
+    // Padding: 6 bytes
     struct cachednaivestate {
-        cacheentry cache_entry;
-        naivegamestate game;
-        naiveplayerstate player;
-        bool collect[20];
+        naiveplayerstate player;        // 48 bytes
+        cacheentry cache_entry;         // 16 bytes
+        naivegamestate game;            // 14 bytes
+        int32_t collect;                // 20 bytes -> 4 bytes
 
-        int i;
-
-        int num_frames_in_room;
-        int num_l_plus_r;
-        int next_corner;
-
-        double h;
-        int f_count;
+        uint16_t h;                     //  8 bytes -> 2 bytes
+        uint16_t num_frames_in_room;    //  4 bytes -> 2 bytes
+        uint8_t num_l_plus_r;           //  4 bytes -> 1 byte
+        uint8_t next_corner;            //  4 bytes -> 1 byte
+        uint16_t f_count;               //  4 bytes -> 2 bytes
     };
 
 	void entrypoint();
@@ -222,8 +224,13 @@ namespace Solver {
 
     std::size_t cache_entity(naiveenemystate entity);
     naiveenemystate get_cached_entity(std::size_t hash);
+    std::size_t cache_entity_set(std::vector<std::size_t> entities);
+    std::vector<std::size_t> get_cached_entity_set(std::size_t hash);
+
     std::size_t cache_block(naiveblockstate block);
     naiveblockstate get_cached_block(std::size_t hash);
+    std::size_t cache_block_set(std::vector<std::size_t> blocks);
+    std::vector<std::size_t> get_cached_block_set(std::size_t hash);
 
 	void do_game_step(bool render);
 
@@ -236,12 +243,12 @@ namespace Solver {
     int room_warps(int room_x, int room_y);
     bool room_warpx(int room_x, int room_y);
     bool room_warpy(int room_x, int room_y);
-    double get_stupid_heuristic(Scenario scenario, int next_corner, int room_x, int room_y, int player_x, int player_y);
+    uint16_t get_stupid_heuristic(Scenario scenario, int next_corner, int room_x, int room_y, int player_x, int player_y);
 
     int room_adjusted_x(int rx, int x);
     int room_adjusted_y(int ry, int y);
     bool passed_next_corner(Scenario scenario, int next_corner, int room_x, int room_y, int player_x, int player_y);
-    double get_heuristic(Scenario scenario, int next_corner, int room_x, int room_y, int player_x, int player_y);
+    uint16_t get_heuristic(Scenario scenario, int next_corner, int room_x, int room_y, int player_x, int player_y);
 
     std::size_t hash_naivestate(naivestate s);
     std::size_t hash_cached_naivestate(cachednaivestate s);

@@ -39,9 +39,6 @@ namespace Solver {
     const int X_SPEED = 6;
     const int Y_SPEED = 10;
 
-    static Uint64 timeout = 300;
-    static Uint64 index = 0;
-
     // TODO diagnostics to see if this is actually faster
     struct modified_hash {
         static uint64_t splitmix64(uint64_t x)
@@ -395,6 +392,8 @@ namespace Solver {
     // TODO: std::unordered_map<std::size_t, cacheentry> cache;
     static std::unordered_map<std::size_t, naiveenemystate> entitycache;
     static std::unordered_map<std::size_t, naiveblockstate> blockcache;
+    static std::unordered_map<std::size_t, std::vector<std::size_t>> entity_set_cache;
+    static std::unordered_map<std::size_t, std::vector<std::size_t>> block_set_cache;
 
     // TODO: look into better hashing ideas - use what we know about the data to make it faster (without introducing collisions)
     // TODO: naiveblockstate is not optimized
@@ -661,8 +660,6 @@ namespace Solver {
             }
         } // end q scope
 
-        game.hours = s.f_count;
-        game.frames = index * 3;
         std::vector<std::size_t> state_hashes;
         std::vector<int> inputs;
         std::size_t hash = hash_naivestate(s);
@@ -752,7 +749,7 @@ namespace Solver {
                 game.seconds = 0;
                 game.frames = int(hash_set.size() * 3 / 10);
 
-                game.deathcounts = int(entitycache.size() + blockcache.size());
+                game.deathcounts = int(sizeof(cachednaivestate));
 
                 // TODO: does this work for line clips?
                 bool can_flip = (s.player.onground > 0 && s.game.gravitycontrol == 0 || s.player.onroof > 0 && s.game.gravitycontrol == 1);
@@ -809,8 +806,6 @@ namespace Solver {
             }
         } // end q scope
 
-        game.hours = s.f_count;
-        game.frames = index * 3;
         std::vector<std::size_t> state_hashes;
         std::vector<int> inputs;
         std::size_t hash = hash_cached_naivestate(s);
@@ -1008,9 +1003,6 @@ namespace Solver {
         hash_set.clear();
         prev_state_map.clear();
 
-        game.hours = s.f_count;
-        game.frames = index * 3;
-
         int t = 0;
         while (true) {
             load_naive_state(initial_state);
@@ -1062,7 +1054,8 @@ namespace Solver {
         cachednaivestate tmp;
         int i = 0;
         while (true) {
-            game.hours = int(obj.entities.size());
+            game.hours = int(block_set_cache.size());
+            game.deathcounts = int(entity_set_cache.size());
             do_game_step(true);
             SDL_Delay(102);
             i++;
@@ -1237,8 +1230,6 @@ namespace Solver {
             s.collect[i] = obj.collect[i];
         }
 
-        s.i = index++;
-
         // Init everything else with zeroes
         s.f_count = 0;
         s.h = 0.0;
@@ -1255,7 +1246,7 @@ namespace Solver {
             obj.collect[i] = s.collect[i];
         }
 
-        // Load room
+        // Load room (this also deletes entities)
         gotoroom(s.game.roomx, s.game.roomy);
 
         // Load player data
@@ -1419,10 +1410,8 @@ namespace Solver {
         }
 
         for (int i = 0; i < 20; i++) {
-            s.collect[i] = obj.collect[i];
+            s.collect |= obj.collect[i] << i;
         }
-
-        s.i = index++;
 
         // Init everything else with zeroes
         s.f_count = 0;
@@ -1437,7 +1426,7 @@ namespace Solver {
     void load_cached_naivestate(cachednaivestate s) {
         // Restore trinkets first, because they affect room load
         for (int i = 0; i < 20; i++) {
-            obj.collect[i] = s.collect[i];
+            obj.collect[i] = (s.collect >> i) & 1;
         }
 
         // Load room
@@ -1493,8 +1482,14 @@ namespace Solver {
     }
 
     cacheentry fill_cache_entry() {
-        cacheentry cache_entry = cacheentry();
+        std::vector<std::size_t> entities;
+        entities.reserve(obj.entities.size());
         for (size_t i = 1; i < obj.entities.size(); i++) {
+            // Skip deleted entities
+            // TODO: is this safe? any unexpected side effects?
+            if (obj.entities[i].invis && obj.entities[i].size == -1 && obj.entities[i].type == -1 && obj.entities[i].rule == -1 && !obj.entities[i].isplatform) {
+                continue;
+            }
             naiveenemystate e = naiveenemystate();
             e.type = obj.entities[i].type;
             e.rule = obj.entities[i].rule;
@@ -1520,10 +1515,20 @@ namespace Solver {
             e.walkingframe = obj.entities[i].walkingframe;
             e.drawframe = obj.entities[i].drawframe;
 
-            cache_entry.cached_entities.push_back(cache_entity(e));
+            std::size_t e_hash = cache_entity(e);
+
+            entities.push_back(cache_entity(e));
         }
 
+        std::vector<std::size_t> blocks;
+        blocks.reserve(obj.blocks.size());
         for (size_t i = 0; i < obj.blocks.size(); i++) {
+            // Skip deleted blocks
+            // TODO: is this safe? any unexpected side effects?
+            if (obj.blocks[i].wp == 0 && obj.blocks[i].hp == 0 && obj.blocks[i].rect.w == 0 && obj.blocks[i].rect.h == 0) {
+                continue;
+            }
+
             naiveblockstate b = naiveblockstate();
             b.rect_x = obj.blocks[i].rect.x;
             b.rect_y = obj.blocks[i].rect.y;
@@ -1542,16 +1547,21 @@ namespace Solver {
             b.b = obj.blocks[i].b;
             b.activity_y = obj.blocks[i].activity_y;
 
-            cache_entry.cached_blocks.push_back(cache_block(b));
+            blocks.push_back(cache_block(b));
         }
 
-        return cache_entry;
+        std::size_t entity_set = cache_entity_set(entities);
+        std::size_t block_set = cache_block_set(blocks);
+
+        return cacheentry(entity_set, block_set);
     }
 
     void load_cache_entry(cacheentry cache_entry) {
+        std::vector<std::size_t> cached_entities = get_cached_entity_set(cache_entry.entity_set);
+        std::vector<std::size_t> cached_blocks = get_cached_block_set(cache_entry.block_set);
         // Load entity data
-        for (int i = 0; i < cache_entry.cached_entities.size(); i++) {
-            naiveenemystate e = get_cached_entity(cache_entry.cached_entities[i]);
+        for (int i = 0; i < cached_entities.size(); i++) {
+            naiveenemystate e = get_cached_entity(cached_entities[i]);
             // obj.entities[0] is player, don't overwrite it
             obj.entities[i + 1].type = e.type;
             obj.entities[i + 1].rule = e.rule;
@@ -1575,8 +1585,8 @@ namespace Solver {
         }
 
         // Load block data
-        for (int i = 0; i < cache_entry.cached_blocks.size(); i++) {
-            naiveblockstate b = get_cached_block(cache_entry.cached_blocks[i]);
+        for (int i = 0; i < cached_blocks.size(); i++) {
+            naiveblockstate b = get_cached_block(cached_blocks[i]);
             obj.blocks[i].rect.x = b.rect_x;
             obj.blocks[i].rect.y = b.rect_y;
             obj.blocks[i].rect.w = b.rect_w;
@@ -1614,6 +1624,26 @@ namespace Solver {
         return entitycache.at(hash);
     }
 
+    std::size_t cache_entity_set(std::vector<std::size_t> entities) {
+        std::size_t combined_entity_hash = combine_hashes(0, entities.size());
+        for (std::size_t e_hash : entities) {
+            combined_entity_hash = combine_hashes(combined_entity_hash, e_hash);
+        }
+
+        if (entity_set_cache.find(combined_entity_hash) == entity_set_cache.end()) {
+            entity_set_cache.emplace(combined_entity_hash, entities);
+        }
+
+        return combined_entity_hash;
+    }
+
+    std::vector<std::size_t> get_cached_entity_set(std::size_t hash) {
+        if (entity_set_cache.find(hash) == entity_set_cache.end()) {
+            VVV_exit(123348);
+        }
+        return entity_set_cache.at(hash);
+    }
+
     std::size_t cache_block(naiveblockstate block) {
         std::size_t block_hash = hash_block(block);
 
@@ -1630,6 +1660,26 @@ namespace Solver {
             VVV_exit(54321);
         }
         return blockcache.at(hash);
+    }
+
+    std::size_t cache_block_set(std::vector<std::size_t> blocks) {
+        std::size_t combined_block_hash = combine_hashes(0, blocks.size());
+        for (std::size_t e_hash : blocks) {
+            combined_block_hash = combine_hashes(combined_block_hash, e_hash);
+        }
+
+        if (block_set_cache.find(combined_block_hash) == block_set_cache.end()) {
+            block_set_cache.emplace(combined_block_hash, blocks);
+        }
+
+        return combined_block_hash;
+    }
+
+    std::vector<std::size_t> get_cached_block_set(std::size_t hash) {
+        if (block_set_cache.find(hash) == block_set_cache.end()) {
+            VVV_exit(112312231);
+        }
+        return block_set_cache.at(hash);
     }
 
     void do_game_step(bool render) {
@@ -1744,7 +1794,7 @@ namespace Solver {
         return room_warps(room_x, room_y) & 2;
     }
 
-    double get_stupid_heuristic(Scenario scenario, int next_corner, int room_x, int room_y, int player_x, int player_y) {
+    uint16_t get_stupid_heuristic(Scenario scenario, int next_corner, int room_x, int room_y, int player_x, int player_y) {
         if (next_corner == scenario.corners.size()) {
             return 0;
         }
@@ -1798,14 +1848,18 @@ namespace Solver {
             if (c.rx == 114 && c.ry == 102) {
                 //TWIHTKY
                 if (x_min > 112) {
-                    // we are on right half, don't warp
+                    // we are on right half, only warp up
                     min_x_warp = 0;
                     max_x_warp = 0;
+                    min_y_warp = 0;
+                    max_y_warp = -1;
                 }
                 else {
-                    // we are on left half, warp
+                    // we are on left half, warp left
                     min_x_warp = -1;
                     max_x_warp = -1;
+                    min_y_warp = 0;
+                    max_y_warp = 0;
                 }
             }
             else if (c.rx == 116 && c.ry == 100) {
@@ -1979,7 +2033,7 @@ namespace Solver {
     // TODO: account for warping rooms (WZ, intermissions, final)
     // TODO: account for warp tokens (overworld, WZ)
     // TODO: account for differing room heights (232 if map.warpy)
-    double get_heuristic(Scenario scenario, int next_corner, int room_x, int room_y, int player_x, int player_y) {
+    uint16_t get_heuristic(Scenario scenario, int next_corner, int room_x, int room_y, int player_x, int player_y) {
         int total_frames = 0;
 
         int min_x = room_adjusted_x(room_x, player_x);
@@ -2190,33 +2244,14 @@ namespace Solver {
             // Hack: if we're in top half of Gantry and Dolly, ignore entities
         }
         else {
-            // Entities hash
-            std::size_t entities_hash = 0;
-            entities_hash = combine_hashes(entities_hash, h_i(s.cache_entry.cached_entities.size()));
-
-            for (int i = 0; i < s.cache_entry.cached_entities.size(); i++) {
-                // The cache entry is the hash
-                entities_hash = combine_hashes(entities_hash, s.cache_entry.cached_entities[i]);
-            }
-
-            result = combine_hashes(result, entities_hash);
+            // The cache entry is the hash
+            result = combine_hashes(result, s.cache_entry.entity_set);
         }
-        {
-            // Blocks hash
-            std::size_t blocks_hash = 0;
-            blocks_hash = combine_hashes(blocks_hash, h_i(s.cache_entry.cached_blocks.size()));
+        // Blocks hash
+        result = combine_hashes(result, s.cache_entry.block_set);
 
-            for (int i = 0; i < s.cache_entry.cached_blocks.size(); i++) {
-                // The cache entry is the hash
-                blocks_hash = combine_hashes(blocks_hash, s.cache_entry.cached_blocks[i]);
-            }
-
-            result = combine_hashes(result, blocks_hash);
-        }
-
-        for (int i = 0; i < 20; i++) {
-            result = combine_hashes(result, h_b(s.collect[i]));
-        }
+        // Trinkets hash
+        result = combine_hashes(result, h_b(s.collect));
 
         return result;
     }
