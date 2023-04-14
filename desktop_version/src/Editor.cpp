@@ -2863,10 +2863,10 @@ void editorinput(void)
         ed.tiley = ed.tiley * 240 / screenheight;
     }
 
-    bool up_pressed = key.isDown(SDLK_UP) || key.isDown(SDL_CONTROLLER_BUTTON_DPAD_UP);
-    bool down_pressed = key.isDown(SDLK_DOWN) || key.isDown(SDL_CONTROLLER_BUTTON_DPAD_DOWN);
-    bool left_pressed = key.isDown(SDLK_LEFT) || key.isDown(SDL_CONTROLLER_BUTTON_DPAD_LEFT);
-    bool right_pressed = key.isDown(SDLK_RIGHT) || key.isDown(SDL_CONTROLLER_BUTTON_DPAD_RIGHT);
+    bool up_pressed = key.isDown(SDLK_UP);// || key.isDown(SDL_CONTROLLER_BUTTON_DPAD_UP);
+    bool down_pressed = key.isDown(SDLK_DOWN);// || key.isDown(SDL_CONTROLLER_BUTTON_DPAD_DOWN);
+    bool left_pressed = key.isDown(SDLK_LEFT);// || key.isDown(SDL_CONTROLLER_BUTTON_DPAD_LEFT);
+    bool right_pressed = key.isDown(SDLK_RIGHT);// || key.isDown(SDL_CONTROLLER_BUTTON_DPAD_RIGHT);
 
     game.press_left = false;
     game.press_right = false;
@@ -2874,15 +2874,15 @@ void editorinput(void)
     game.press_map = false;
     game.press_interact = false;
 
-    if (key.isDown(KEYBOARD_LEFT) || key.isDown(KEYBOARD_a) || key.controllerWantsLeft(false))
+    if (key.isDown(KEYBOARD_LEFT) || key.isDown(KEYBOARD_a)/* || key.controllerWantsLeft(false)*/)
     {
         game.press_left = true;
     }
-    if (key.isDown(KEYBOARD_RIGHT) || key.isDown(KEYBOARD_d) || key.controllerWantsRight(false))
+    if (key.isDown(KEYBOARD_RIGHT) || key.isDown(KEYBOARD_d)/* || key.controllerWantsRight(false)*/)
     {
         game.press_right = true;
     }
-    if (key.isDown(KEYBOARD_z) || key.isDown(KEYBOARD_SPACE) || key.isDown(KEYBOARD_v) || key.isDown(game.controllerButton_flip))
+    if (key.isDown(KEYBOARD_z) || key.isDown(KEYBOARD_SPACE) || key.isDown(KEYBOARD_v)/* || key.isDown(game.controllerButton_flip)*/)
     {
         game.press_action = true;
     };

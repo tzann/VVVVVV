@@ -409,8 +409,8 @@ namespace Solver {
         // Don't do cutscenes
         game.nocutscenes = true;
         game.intimetrial = true;
-        // Clear keymap
-        key.keymap.clear();
+        // Clear keys
+        key.clearKeys();
 
         // Save my ears from permanent damage
         game.muted = true;
@@ -452,7 +452,7 @@ namespace Solver {
             graphics.fademode = FADE_NONE;
             game.jumppressed = false;
 
-            key.keymap.clear();
+            key.clearKeys();
             obj.entities[0].xp = 262;
             obj.entities[0].yp = 200;
 
@@ -473,8 +473,8 @@ namespace Solver {
             graphics.fademode = FADE_NONE;
             game.jumppressed = false;
 
-            key.keymap.clear();
-            key.keymap[KEYBOARD_RIGHT] = true;
+            key.clearKeys();
+            key.setKey(KEYBOARD_RIGHT, true);
 
             game.gravitycontrol = 0;
             obj.entities[0].xp = 96;
@@ -496,7 +496,7 @@ namespace Solver {
             graphics.fademode = FADE_NONE;
             game.jumppressed = false;
 
-            key.keymap.clear();
+            key.clearKeys();
 
             game.gravitycontrol = 1;
             obj.entities[0].xp = 170;
@@ -505,8 +505,8 @@ namespace Solver {
             obj.createentity(160, 83, 2, 0, 4);
 
             for (int i = 0; i < 20; i++) {
-                key.keymap.clear();
-                key.keymap[KEYBOARD_v] = i == 6;
+                key.clearKeys();
+                key.setKey(KEYBOARD_v, i == 6);
                 game.hours = i == 3;
                 game.deathcounts = obj.entities[0].vy * 10;
                 do_game_step(true);
@@ -522,7 +522,7 @@ namespace Solver {
             graphics.fademode = FADE_NONE;
             game.jumppressed = false;
 
-            key.keymap.clear();
+            key.clearKeys();
 
             game.gravitycontrol = 0;
             obj.entities[0].xp = 100;
@@ -533,8 +533,8 @@ namespace Solver {
             obj.createentity(64, 90, 2, 3, 1);
 
             for (int i = 0; i < 20; i++) {
-                key.keymap.clear();
-                key.keymap[KEYBOARD_v] = false;
+                key.clearKeys();
+                key.setKey(KEYBOARD_v, false);
                 do_game_step(true);
                 SDL_Delay(340);
             } */
@@ -547,7 +547,7 @@ namespace Solver {
             graphics.fademode = FADE_NONE;
             game.jumppressed = false;
 
-            key.keymap.clear();
+            key.clearKeys();
 
             game.gravitycontrol = 0;
             obj.entities[0].xp = 100;
@@ -556,9 +556,9 @@ namespace Solver {
             obj.createentity(0, 100, 11, 320);
 
             for (int i = 0; i < 25; i++) {
-                key.keymap.clear();
-                key.keymap[KEYBOARD_v] = i == 10 || i == 20;
-                obj.entities[0].dir = key.keymap[KEYBOARD_v];
+                key.clearKeys();
+                key.setKey(KEYBOARD_v, i == 10 || i == 20);
+                obj.entities[0].dir = key.isDown(KEYBOARD_v);
                 game.deathcounts = obj.entities[0].onground;
                 game.hours = obj.entities[0].yp;
                 do_game_step(true);
@@ -615,10 +615,10 @@ namespace Solver {
                     bool flip = i & 4;
 
                     load_naive_state(s);
-                    key.keymap.clear();
-                    key.keymap[KEYBOARD_LEFT] = left;
-                    key.keymap[KEYBOARD_RIGHT] = right;
-                    key.keymap[KEYBOARD_v] = flip;
+                    key.clearKeys();
+                    key.setKey(KEYBOARD_LEFT, left);
+                    key.setKey(KEYBOARD_RIGHT, right);
+                    key.setKey(KEYBOARD_v, flip);
                     do_game_step(hash_set.size() % 10000 == 0);
                     //do_game_step(true);
 
@@ -698,10 +698,10 @@ namespace Solver {
                 game.seconds = right;
                 game.frames = flip;
 
-                key.keymap.clear();
-                key.keymap[KEYBOARD_LEFT] = left;
-                key.keymap[KEYBOARD_RIGHT] = right;
-                key.keymap[KEYBOARD_v] = flip;
+                key.clearKeys();
+                key.setKey(KEYBOARD_LEFT, left);
+                key.setKey(KEYBOARD_RIGHT, right);
+                key.setKey(KEYBOARD_v, flip);
                 do_game_step(true);
                 SDL_Delay((1 << t) * 34);
             }
@@ -760,10 +760,10 @@ namespace Solver {
                     bool flip = i & 4;
 
                     load_cached_naivestate(s);
-                    key.keymap.clear();
-                    key.keymap[KEYBOARD_LEFT] = left;
-                    key.keymap[KEYBOARD_RIGHT] = right;
-                    key.keymap[KEYBOARD_v] = flip;
+                    key.clearKeys();
+                    key.setKey(KEYBOARD_LEFT, left);
+                    key.setKey(KEYBOARD_RIGHT, right);
+                    key.setKey(KEYBOARD_v, flip);
                     do_game_step(hash_set.size() % 1000 == 0);
                     // do_game_step(true); SDL_Delay(34);
                     // do_game_step(true);
@@ -850,10 +850,10 @@ namespace Solver {
                 game.seconds = right;
                 game.frames = flip;
 
-                key.keymap.clear();
-                key.keymap[KEYBOARD_LEFT] = left;
-                key.keymap[KEYBOARD_RIGHT] = right;
-                key.keymap[KEYBOARD_v] = flip;
+                key.clearKeys();
+                key.setKey(KEYBOARD_LEFT, left);
+                key.setKey(KEYBOARD_RIGHT, right);
+                key.setKey(KEYBOARD_v, flip);
                 do_game_step(true);
                 SDL_Delay((1 << t) * 34);
             }
@@ -915,9 +915,9 @@ namespace Solver {
                 // Recreate the state from inputs
                 load_naive_state(initial_state);
                 for (int8_t i : inputs) {
-                    key.keymap[KEYBOARD_LEFT] = i & 1;
-                    key.keymap[KEYBOARD_RIGHT] = i & 2;
-                    key.keymap[KEYBOARD_v] = i & 4;
+                    key.setKey(KEYBOARD_LEFT, i & 1);
+                    key.setKey(KEYBOARD_RIGHT, i & 2);
+                    key.setKey(KEYBOARD_v, i & 4);
                     do_game_step(false);
                     // do_game_step(true); // SDL_Delay(34);
 
@@ -959,9 +959,9 @@ namespace Solver {
                     if (i > 0) {
                         load_naive_state(restore_point);
                     }
-                    key.keymap[KEYBOARD_LEFT] = i & 1;
-                    key.keymap[KEYBOARD_RIGHT] = i & 2;
-                    key.keymap[KEYBOARD_v] = i & 4;
+                    key.setKey(KEYBOARD_LEFT, i & 1);
+                    key.setKey(KEYBOARD_RIGHT, i & 2);
+                    key.setKey(KEYBOARD_v, i & 4);
                     do_game_step(hash_set.size() % 1000 == 0);
                     // do_game_step(true);//   SDL_Delay(34);
 
@@ -1019,10 +1019,10 @@ namespace Solver {
                 game.seconds = right;
                 game.frames = flip;
 
-                key.keymap.clear();
-                key.keymap[KEYBOARD_LEFT] = left;
-                key.keymap[KEYBOARD_RIGHT] = right;
-                key.keymap[KEYBOARD_v] = flip;
+                key.clearKeys();
+                key.setKey(KEYBOARD_LEFT, left);
+                key.setKey(KEYBOARD_RIGHT, right);
+                key.setKey(KEYBOARD_v, flip);
                 do_game_step(true);
                 SDL_Delay((1 << t) * 34);
             }
@@ -1096,12 +1096,12 @@ namespace Solver {
 
         // Hack: Advance frames to fix enemy cycles to right position
         for (int i = 0; i < scenario.frames_to_advance; i++) {
-            key.keymap.clear();
+            key.clearKeys();
             do_game_step(true);
             SDL_Delay(34);
         }
 
-        key.keymap.clear();
+        key.clearKeys();
     }
 
     naivestate create_naive_state() {
@@ -1515,8 +1515,6 @@ namespace Solver {
             e.walkingframe = obj.entities[i].walkingframe;
             e.drawframe = obj.entities[i].drawframe;
 
-            std::size_t e_hash = cache_entity(e);
-
             entities.push_back(cache_entity(e));
         }
 
@@ -1837,8 +1835,6 @@ namespace Solver {
 
 
             int warps = room_warps(c.rx, c.ry);
-            bool warpx = warps & 1;
-            bool warpy = warps & 2;
 
             int min_x_warp = (warps & 1) ? -1 : 0;
             int max_x_warp = (warps & 1) ? 1 : 0;
@@ -2045,10 +2041,6 @@ namespace Solver {
             corner c = scenario.corners[c_idx];
             int cx = room_adjusted_x(c.rx, c.x);
             int cy = room_adjusted_y(c.ry, c.y);
-
-            bool in_same_room = room_x == c.rx && room_y == c.ry;
-            bool warpy = map.warpy;
-            bool warpx = map.warpx;
 
             int px = max_x;
             int py = max_y;

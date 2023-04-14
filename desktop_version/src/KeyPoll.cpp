@@ -74,7 +74,7 @@ void KeyPoll::toggleFullscreen(void)
 {
     gameScreen.toggleFullScreen();
 
-    keymap.clear(); /* we lost the input due to a new window. */
+    // keymap.clear(); /* we lost the input due to a new window. */
     if (GlitchrunnerMode_less_than_or_equal(Glitchrunner2_2))
     {
         game.press_left = false;
@@ -148,7 +148,8 @@ void KeyPoll::Poll(void)
         /* Keyboard Input */
         case SDL_KEYDOWN:
         {
-            keymap[evt.key.keysym.sym] = true;
+            // keymap[evt.key.keysym.sym] = true;
+            setKey(evt.key.keysym.sym, true);
 
             if (evt.key.keysym.sym == SDLK_BACKSPACE)
             {
@@ -156,9 +157,9 @@ void KeyPoll::Poll(void)
             }
 
 #ifdef __APPLE__ /* OSX prefers the command keys over the alt keys. -flibit */
-            altpressed = keymap[SDLK_LGUI] || keymap[SDLK_RGUI];
+            altpressed = false; // keymap[SDLK_LGUI] || keymap[SDLK_RGUI];
 #else
-            altpressed = keymap[SDLK_LALT] || keymap[SDLK_RALT];
+            altpressed = false; // keymap[SDLK_LALT] || keymap[SDLK_RALT];
 #endif
             bool returnpressed = evt.key.keysym.sym == SDLK_RETURN;
             bool fpressed = evt.key.keysym.sym == SDLK_f;
@@ -188,7 +189,7 @@ void KeyPoll::Poll(void)
                     }
                 }
                 else if (    evt.key.keysym.sym == SDLK_v &&
-                        keymap[SDLK_LCTRL]    )
+                        false/*keymap[SDLK_LCTRL]*/    )
                 {
                     char* text = SDL_GetClipboardText();
                     if (text != NULL)
@@ -198,7 +199,7 @@ void KeyPoll::Poll(void)
                     }
                 }
                 else if (    evt.key.keysym.sym == SDLK_x &&
-                        keymap[SDLK_LCTRL]    )
+                        false/*keymap[SDLK_LCTRL]*/    )
                 {
                     if (SDL_SetClipboardText(keybuffer.c_str()) == 0)
                     {
@@ -209,7 +210,8 @@ void KeyPoll::Poll(void)
             break;
         }
         case SDL_KEYUP:
-            keymap[evt.key.keysym.sym] = false;
+            // keymap[evt.key.keysym.sym] = false;
+            setKey(evt.key.keysym.sym, false);
             if (evt.key.keysym.sym == SDLK_BACKSPACE)
             {
                 pressedbackspace = false;
@@ -224,10 +226,13 @@ void KeyPoll::Poll(void)
 
         /* Mouse Input */
         case SDL_MOUSEMOTION:
+            /*
             mx = evt.motion.x;
             my = evt.motion.y;
+            */
             break;
         case SDL_MOUSEBUTTONDOWN:
+            /*
             switch (evt.button.button)
             {
             case SDL_BUTTON_LEFT:
@@ -246,8 +251,10 @@ void KeyPoll::Poll(void)
                 middlebutton = 1;
                 break;
             }
+            */
             break;
         case SDL_MOUSEBUTTONUP:
+            /*
             switch (evt.button.button)
             {
             case SDL_BUTTON_LEFT:
@@ -266,18 +273,20 @@ void KeyPoll::Poll(void)
                 middlebutton=0;
                 break;
             }
+            */
             break;
 
         /* Controller Input */
         case SDL_CONTROLLERBUTTONDOWN:
-            buttonmap[(SDL_GameControllerButton) evt.cbutton.button] = true;
-            BUTTONGLYPHS_keyboard_set_active(false);
+            // buttonmap[(SDL_GameControllerButton) evt.cbutton.button] = true;
+            // BUTTONGLYPHS_keyboard_set_active(false);
             break;
         case SDL_CONTROLLERBUTTONUP:
-            buttonmap[(SDL_GameControllerButton) evt.cbutton.button] = false;
+            // buttonmap[(SDL_GameControllerButton) evt.cbutton.button] = false;
             break;
         case SDL_CONTROLLERAXISMOTION:
         {
+            /*
             const int threshold = getThreshold();
             switch (evt.caxis.axis)
             {
@@ -305,10 +314,12 @@ void KeyPoll::Poll(void)
                 break;
             }
             BUTTONGLYPHS_keyboard_set_active(false);
+            */
             break;
         }
         case SDL_CONTROLLERDEVICEADDED:
         {
+            /*
             SDL_GameController *toOpen = SDL_GameControllerOpen(evt.cdevice.which);
             vlog_info(
                 "Opened SDL_GameController ID #%i, %s",
@@ -317,10 +328,12 @@ void KeyPoll::Poll(void)
             );
             controllers[SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(toOpen))] = toOpen;
             BUTTONGLYPHS_keyboard_set_active(false);
+            */
             break;
         }
         case SDL_CONTROLLERDEVICEREMOVED:
         {
+            /*
             SDL_GameController *toClose = controllers[evt.cdevice.which];
             controllers.erase(evt.cdevice.which);
             vlog_info("Closing %s", SDL_GameControllerName(toClose));
@@ -329,6 +342,7 @@ void KeyPoll::Poll(void)
             {
                 BUTTONGLYPHS_keyboard_set_active(true);
             }
+            */
             break;
         }
 
@@ -444,9 +458,70 @@ void KeyPoll::Poll(void)
 
 bool KeyPoll::isDown(SDL_Keycode key)
 {
-    return keymap[key];
+    switch (key) {
+        case KEYBOARD_LEFT:
+            return keymap[0];
+        case KEYBOARD_RIGHT:
+            return keymap[1];
+        case KEYBOARD_v:
+            return keymap[2];
+        case KEYBOARD_e:
+            return keymap[3];
+        case SDLK_r:
+            return keymap[4];
+        case KEYBOARD_ENTER:
+            return keymap[5];
+        case 27:
+            return keymap[6];
+    }
+    return false;
 }
 
+void KeyPoll::setKey(SDL_Keycode key, bool input)
+{
+    switch (key) {
+        case KEYBOARD_LEFT:
+            keymap[0] = input;
+            return;
+        case KEYBOARD_RIGHT:
+            keymap[1] = input;
+            return;
+        case KEYBOARD_v:
+            keymap[2] = input;
+            return;
+        case KEYBOARD_e:
+            keymap[3] = input;
+            return;
+        case SDLK_r:
+            keymap[4] = input;
+            return;
+        case KEYBOARD_ENTER:
+            keymap[5] = input;
+            return;
+        case 27:
+            keymap[6] = input;
+            return;
+    }
+}
+
+void KeyPoll::clearKeys()
+{
+    for (int i = 0; i < 7; i++) {
+        keymap[i] = false;
+    }
+}
+
+/*
+KEYBOARD_LEFT
+KEYBOARD_RIGHT
+KEYBOARD_v
+KEYBOARD_e
+SDLK_r
+KEYBOARD_ENTER
+27 (escape)
+*/
+
+/*
 bool KeyPoll::isDown(std::vector<SDL_GameControllerButton> buttons)
 {
     for (size_t i = 0; i < buttons.size(); i += 1)
@@ -506,3 +581,4 @@ bool KeyPoll::controllerWantsDown(void)
 {
     return buttonmap[SDL_CONTROLLER_BUTTON_DPAD_DOWN] || yVel > 0;
 }
+*/
