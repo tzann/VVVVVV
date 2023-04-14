@@ -381,7 +381,10 @@ namespace Solver {
             }
         }
         namespace SCENARIOS {
-            const Scenario TWIHTKY_STUPID(116, 100, 40, 102, 1, 97, {
+            const Scenario TWIHTKY_STUPID(114, 102, 9, 120, 0, 0, {
+                CORNERS::THATS_WHY_I_HAVE_TO_KILL_YOU::WARP_TOKEN,
+                });
+            const Scenario TWIHTKY_STUPID_2(116, 100, 40, 102, 1, 97, {
                 CORNERS::I_LOVE_YOU::WARP_TOKEN,
                 CORNERS::THATS_WHY_I_HAVE_TO_KILL_YOU::WARP_TOKEN,
                 });
@@ -389,6 +392,7 @@ namespace Solver {
     }
 
     static Scenario scenario = WZ::SCENARIOS::TWIHTKY_STUPID;
+
     static std::unordered_map<std::size_t, naiveenemystate> entitycache;
     static std::unordered_map<std::size_t, naiveblockstate> blockcache;
     static std::unordered_map<std::size_t, std::vector<std::size_t>> entity_set_cache;
@@ -1848,8 +1852,8 @@ namespace Solver {
                     // we are on right half, only warp up
                     min_x_warp = 0;
                     max_x_warp = 0;
-                    min_y_warp = 0;
-                    max_y_warp = -1;
+                    min_y_warp = -1;
+                    max_y_warp = 0;
                 }
                 else {
                     // we are on left half, warp left
