@@ -390,10 +390,14 @@ namespace Solver {
     // Security Sweep:  0:31.1 (1.03M states visited)
     // The Yes Men:     3:49.4 (4.62M states visited)
     // Benchmarks after:
-    // Linear Collider: 0:42.08 (1.09M states visited)
-    // Security Sweep:  0:28.91 (1.03M states visited)
-    // The Yes Men:     3:30.25 (4.62M states visited)
-    static Scenario scenario = SS1::SCENARIOS::THE_YES_MEN;
+    // Linear Collider: 0:42.1 (1.09M states visited)
+    // Security Sweep:  0:28.9 (1.03M states visited)
+    // The Yes Men:     3:30.3 (4.62M states visited)
+    // Benchmarks after game optimizations and gotoroom elision:
+    // Linear Collider: 0:12.8 (1.09M states visited)
+    // Security Sweep:  0:28.9 (1.03M states visited)
+    // The Yes Men:     1:42.4 (4.62M states visited)
+    static Scenario scenario = SS1::SCENARIOS::SECURITY_SWEEP;
 
     static std::unordered_map<std::size_t, naiveenemystate, modified_hash> entitycache;
     static std::unordered_map<std::size_t, naiveblockstate, modified_hash> blockcache;
@@ -1446,7 +1450,10 @@ namespace Solver {
         }
 
         // Load room
-        gotoroom(s.game.roomx, s.game.roomy);
+        if (game.roomx != s.game.roomx || game.roomy != s.game.roomy) {
+            // Only load if it's necessary. this might behave weirdly in rooms where sprites are deleted?
+            gotoroom(s.game.roomx, s.game.roomy);
+        }
 
         // Load player data
         obj.entities[0].xp = s.player.x;
