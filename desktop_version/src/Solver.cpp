@@ -393,7 +393,7 @@ namespace Solver {
     // Linear Collider: 0:42.08 (1.09M states visited)
     // Security Sweep:  0:28.91 (1.03M states visited)
     // The Yes Men:     3:30.25 (4.62M states visited)
-    static Scenario scenario = SS1::SCENARIOS::SECURITY_SWEEP;
+    static Scenario scenario = SS1::SCENARIOS::THE_YES_MEN;
 
     static std::unordered_map<std::size_t, naiveenemystate, modified_hash> entitycache;
     static std::unordered_map<std::size_t, naiveblockstate, modified_hash> blockcache;
@@ -418,10 +418,16 @@ namespace Solver {
         key.clearKeys();
         // Don't poll the keyboard
         key.actually_poll = false;
+        // Make the game think it has focus
+        key.isActive = true;
 
         // Save my ears from permanent damage
         game.muted = true;
         music.updatemutestate();
+
+        // Turn off screen effects
+        game.colourblindmode = true;
+        game.noflashingmode = true;
 
         // Uncomment this to skip
         // debug_test();
@@ -730,9 +736,11 @@ namespace Solver {
             q.push(initial_state);
 
             while (q.size() > 0) {
+                // TODO: can make s a ptr
                 s = q.top();
                 q.pop();
 
+                // TODO: not rehash. we can probably just store the hash in the struct?
                 // Calculate state hash. If we have already seen the same hash, we can skip this branch.
                 std::size_t s_hash = hash_cached_naivestate(s);
                 if (hash_set.find(s_hash) != hash_set.end()) {
@@ -756,6 +764,7 @@ namespace Solver {
 
                 game.deathcounts = int(entity_set_cache.size());
 
+                // bool has_control = (s.game.hascontrol && s.game.deathseq == -1 && s.game.lifeseq <= 5);
                 // TODO: does this work for line clips? I think so
                 bool can_flip = (s.player.onground > 0 && s.game.gravitycontrol == 0 || s.player.onroof > 0 && s.game.gravitycontrol == 1);
                 int max = can_flip ? 8 : 4;
@@ -1692,7 +1701,7 @@ namespace Solver {
 
     void do_game_step(bool render) {
         {
-            graphics.renderfixedpost();
+            // graphics.renderfixedpost();
             // loop_end
             key.linealreadyemptykludge = false;
             // loop_begin
@@ -1700,23 +1709,26 @@ namespace Solver {
             // loop_run_active_funcs
             {
                 // gameinput
-                key.Poll();
-                key.isActive = true; // hack
+                if (key.actually_poll) {
+                    key.Poll();
+                }
                 gameinput();
                 // gamelogic
                 gamelogic();
                 // focused_end
                 // game.gameclock();
-                music.processmusic();
+                // music.processmusic();
                 graphics.processfade();
                 // focused_begin
                 map.nexttowercolour_set = false;
                 // run_script
-                script.run(); // TODO: can we ignore this
+                if (!script.running) {
+                    script.run();
+                }
                 // gamerenderfixed
                 gamerenderfixed();
                 // graphics.renderfixedpre
-                graphics.renderfixedpre();
+                // graphics.renderfixedpre();
             }
         }
         // Skip rendering to improve runtime

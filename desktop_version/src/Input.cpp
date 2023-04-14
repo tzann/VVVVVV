@@ -2728,7 +2728,7 @@ void gameinput(void)
                     obj.entities[first_player_entity].vy = -4;
                     obj.entities[first_player_entity].ay = -3;
                 }
-                music.playef(0);
+                // music.playef(0);
                 game.jumppressed = 0;
                 game.totalflips++;
             }
@@ -2749,7 +2749,7 @@ void gameinput(void)
                     obj.entities[first_player_entity].vy = 4;
                     obj.entities[first_player_entity].ay = 3;
                 }
-                music.playef(1);
+                // music.playef(1);
                 game.jumppressed = 0;
                 game.totalflips++;
             }

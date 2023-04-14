@@ -27,22 +27,25 @@ void gamerenderfixed(void)
     {
         for (size_t i = 0; i < obj.entities.size(); i++)
         {
-            if (obj.entitycollidefloor(i))
-            {
-                obj.entities[i].visualonground = 2;
-            }
-            else
-            {
-                --obj.entities[i].visualonground;
-            }
+            // Omit collision checks if we can
+            if (obj.entities[i].ishumanoid()) {
+                if (obj.entitycollidefloor(i))
+                {
+                    obj.entities[i].visualonground = 2;
+                }
+                else
+                {
+                    --obj.entities[i].visualonground;
+                }
 
-            if (obj.entitycollideroof(i))
-            {
-                obj.entities[i].visualonroof = 2;
-            }
-            else
-            {
-                --obj.entities[i].visualonroof;
+                if (obj.entitycollideroof(i))
+                {
+                    obj.entities[i].visualonroof = 2;
+                }
+                else
+                {
+                    --obj.entities[i].visualonroof;
+                }
             }
 
             //Animate the entities

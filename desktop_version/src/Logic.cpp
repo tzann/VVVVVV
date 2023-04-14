@@ -150,26 +150,29 @@ void gamelogic(void)
         size_t i;
         for (i = 0; i < obj.entities.size(); ++i)
         {
-            /* Is this entity on the ground? (needed for jumping) */
-            if (obj.entitycollidefloor(i))
-            {
-                obj.entities[i].onground = 2;
-            }
-            else
-            {
-                --obj.entities[i].onground;
-            }
+            // Omit collision checks if not necessary
+            if (obj.entities[i].ishumanoid()) {
+                /* Is this entity on the ground? (needed for jumping) */
+                if (obj.entitycollidefloor(i))
+                {
+                    obj.entities[i].onground = 2;
+                }
+                else
+                {
+                    --obj.entities[i].onground;
+                }
 
-            if (obj.entitycollideroof(i))
-            {
-                obj.entities[i].onroof = 2;
-            }
-            else
-            {
-                --obj.entities[i].onroof;
-            }
+                if (obj.entitycollideroof(i))
+                {
+                    obj.entities[i].onroof = 2;
+                }
+                else
+                {
+                    --obj.entities[i].onroof;
+                }
 
-            obj.animatehumanoidcollision(i);
+                obj.animatehumanoidcollision(i);
+            }
         }
     }
 
