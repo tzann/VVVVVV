@@ -29,7 +29,7 @@
 
 #include <queue>
 #include <functional>
-#include <set>
+#include <unordered_set>
 #include <unordered_map>
 #include <algorithm>
 #include <iostream>
@@ -41,7 +41,8 @@ namespace Solver {
 
     // TODO diagnostics to see if this is actually faster
     struct modified_hash {
-        static uint64_t splitmix64(uint64_t x)
+        /*
+        static std::size_t splitmix64(std::size_t x)
         {
 
             // 0x9e3779b97f4a7c15,
@@ -58,18 +59,11 @@ namespace Solver {
             x = (x ^ (x >> 27)) * 0x94d049bb133111eb;
             return x ^ (x >> 31);
         }
+        */
 
-        int operator()(uint64_t x) const
+        std::size_t operator()(std::size_t x) const
         {
-            static const uint64_t random = SDL_GetTicks64();
-
-            // The above line generates a
-            // random number using
-            // high precision clock
-            return splitmix64(
-
-                // It returns final hash value
-                x + random);
+            return x;
         }
     };
 
@@ -391,12 +385,20 @@ namespace Solver {
         }
     }
 
-    static Scenario scenario = WZ::SCENARIOS::TWIHTKY_STUPID;
+    // Benchmarks before map & set improvement:
+    // Linear Collider: 0:45.5 (1.09M states visited)
+    // Security Sweep:  0:31.1 (1.03M states visited)
+    // The Yes Men:     3:49.4 (4.62M states visited)
+    // Benchmarks after:
+    // Linear Collider: 0:42.08 (1.09M states visited)
+    // Security Sweep:  0:28.91 (1.03M states visited)
+    // The Yes Men:     3:30.25 (4.62M states visited)
+    static Scenario scenario = SS1::SCENARIOS::SECURITY_SWEEP;
 
-    static std::unordered_map<std::size_t, naiveenemystate> entitycache;
-    static std::unordered_map<std::size_t, naiveblockstate> blockcache;
-    static std::unordered_map<std::size_t, std::vector<std::size_t>> entity_set_cache;
-    static std::unordered_map<std::size_t, std::vector<std::size_t>> block_set_cache;
+    static std::unordered_map<std::size_t, naiveenemystate, modified_hash> entitycache;
+    static std::unordered_map<std::size_t, naiveblockstate, modified_hash> blockcache;
+    static std::unordered_map<std::size_t, std::vector<std::size_t>, modified_hash> entity_set_cache;
+    static std::unordered_map<std::size_t, std::vector<std::size_t>, modified_hash> block_set_cache;
 
     // TODO: look into better hashing ideas - use what we know about the data to make it faster (without introducing collisions)
     // TODO: naiveblockstate is not optimized
@@ -577,8 +579,8 @@ namespace Solver {
 
         std::size_t initial_hash = hash_naivestate(initial_state);
 
-        std::set<std::size_t> hash_set;
-        std::unordered_map<std::size_t, stateinfo> prev_state_map;
+        std::unordered_set<std::size_t, modified_hash> hash_set;
+        std::unordered_map<std::size_t, stateinfo, modified_hash> prev_state_map;
         naivestate s;
         { // start q scope
             std::priority_queue<naivestate, std::vector<naivestate>, std::function<bool(naivestate, naivestate)>> q(compare_naive_states);
@@ -622,7 +624,7 @@ namespace Solver {
                     key.setKey(KEYBOARD_LEFT, left);
                     key.setKey(KEYBOARD_RIGHT, right);
                     key.setKey(KEYBOARD_v, flip);
-                    do_game_step(hash_set.size() % 10000 == 0);
+                    do_game_step(i == 0 && hash_set.size() % 10000 == 0);
                     //do_game_step(true);
 
                     // TODO when is dying useful and how can we tell
@@ -715,12 +717,12 @@ namespace Solver {
     void cached_stateful_solver() {
         load_scenario();
         cachednaivestate initial_state = create_cached_naivestate();
-        initial_state.h = get_stupid_heuristic(initial_state.next_corner, initial_state.game.roomx, initial_state.game.roomy, initial_state.player.x, initial_state.player.y);
+        initial_state.h = get_heuristic(initial_state.next_corner, initial_state.game.roomx, initial_state.game.roomy, initial_state.player.x, initial_state.player.y);
 
         std::size_t initial_hash = hash_cached_naivestate(initial_state);
 
-        std::set<std::size_t> hash_set;
-        std::unordered_map<std::size_t, stateinfo> prev_state_map;
+        std::unordered_set<std::size_t, modified_hash> hash_set;
+        std::unordered_map<std::size_t, stateinfo, modified_hash> prev_state_map;
         cachednaivestate s;
         { // start q scope
             std::priority_queue<cachednaivestate, std::vector<cachednaivestate>, std::function<bool(cachednaivestate, cachednaivestate)>> q(compare_cached_naivestates);
@@ -767,7 +769,7 @@ namespace Solver {
                     key.setKey(KEYBOARD_LEFT, left);
                     key.setKey(KEYBOARD_RIGHT, right);
                     key.setKey(KEYBOARD_v, flip);
-                    do_game_step(hash_set.size() % 10000 == 0);
+                    do_game_step(i == 0 && hash_set.size() % 10000 == 0);
                     // do_game_step(true); SDL_Delay(34);
                     // do_game_step(true);
 
@@ -791,7 +793,7 @@ namespace Solver {
                         new_state.num_frames_in_room = s.num_frames_in_room + 1;
                     }
 
-                    new_state.h = new_state.f_count + get_stupid_heuristic(new_state.next_corner, new_state.game.roomx, new_state.game.roomy, new_state.player.x, new_state.player.y);
+                    new_state.h = new_state.f_count + get_heuristic(new_state.next_corner, new_state.game.roomx, new_state.game.roomy, new_state.player.x, new_state.player.y);
                     if (new_state.h < s.h) {
                         VVV_exit(69420); // Should hopefully not happen, means heuristic might be inadmissible
                     }
@@ -872,8 +874,8 @@ namespace Solver {
 
         std::size_t initial_hash = hash_naivestate(initial_state);
 
-        std::set<std::size_t> hash_set;
-        std::unordered_map<std::size_t, stateinfo> prev_state_map;
+        std::unordered_set<std::size_t, modified_hash> hash_set;
+        std::unordered_map<std::size_t, stateinfo, modified_hash> prev_state_map;
 
         statehash s = statehash(initial_state.h, initial_hash, 0, 0);
         std::vector<int8_t> inputs;
@@ -965,8 +967,8 @@ namespace Solver {
                     key.setKey(KEYBOARD_LEFT, i & 1);
                     key.setKey(KEYBOARD_RIGHT, i & 2);
                     key.setKey(KEYBOARD_v, i & 4);
-                    do_game_step(hash_set.size() % 1000 == 0);
-                    // do_game_step(true);//   SDL_Delay(34);
+                    do_game_step(i == 0 && hash_set.size() % 1000 == 0);
+                    // do_game_step(true);// SDL_Delay(34);
 
                     // Oops we died, skip this branch then
                     // TODO when is dying useful and how can we tell
@@ -1560,52 +1562,55 @@ namespace Solver {
     }
 
     void load_cache_entry(cacheentry cache_entry) {
-        std::vector<std::size_t> cached_entities = get_cached_entity_set(cache_entry.entity_set);
-        std::vector<std::size_t> cached_blocks = get_cached_block_set(cache_entry.block_set);
-        // Load entity data
-        for (int i = 0; i < cached_entities.size(); i++) {
-            naiveenemystate e = get_cached_entity(cached_entities[i]);
-            // obj.entities[0] is player, don't overwrite it
-            obj.entities[i + 1].type = e.type;
-            obj.entities[i + 1].rule = e.rule;
-            obj.entities[i + 1].xp = e.x;
-            obj.entities[i + 1].yp = e.y;
-            obj.entities[i + 1].vx = e.vx;
-            obj.entities[i + 1].vy = e.vy;
-            obj.entities[i + 1].ax = e.ax;
-            obj.entities[i + 1].ay = e.ay;
-            obj.entities[i + 1].behave = e.behave;
-            obj.entities[i + 1].para = e.para;
-            obj.entities[i + 1].state = e.state;
-            obj.entities[i + 1].onwall = e.onwall;
-            obj.entities[i + 1].statedelay = e.statedelay;
+        if (cache_entry.entity_set != 0) {
+            std::vector<std::size_t> cached_entities = get_cached_entity_set(cache_entry.entity_set);
+            // Load entity data
+            for (int i = 0; i < cached_entities.size(); i++) {
+                naiveenemystate e = get_cached_entity(cached_entities[i]);
+                // obj.entities[0] is player, don't overwrite it
+                obj.entities[i + 1].type = e.type;
+                obj.entities[i + 1].rule = e.rule;
+                obj.entities[i + 1].xp = e.x;
+                obj.entities[i + 1].yp = e.y;
+                obj.entities[i + 1].vx = e.vx;
+                obj.entities[i + 1].vy = e.vy;
+                obj.entities[i + 1].ax = e.ax;
+                obj.entities[i + 1].ay = e.ay;
+                obj.entities[i + 1].behave = e.behave;
+                obj.entities[i + 1].para = e.para;
+                obj.entities[i + 1].state = e.state;
+                obj.entities[i + 1].onwall = e.onwall;
+                obj.entities[i + 1].statedelay = e.statedelay;
 
-            obj.entities[i + 1].tile = e.tile;
-            obj.entities[i + 1].animate = e.animate;
-            obj.entities[i + 1].framedelay = e.framedelay;
-            obj.entities[i + 1].walkingframe = e.walkingframe;
-            obj.entities[i + 1].drawframe = e.drawframe;
+                obj.entities[i + 1].tile = e.tile;
+                obj.entities[i + 1].animate = e.animate;
+                obj.entities[i + 1].framedelay = e.framedelay;
+                obj.entities[i + 1].walkingframe = e.walkingframe;
+                obj.entities[i + 1].drawframe = e.drawframe;
+            }
         }
-
-        // Load block data
-        for (int i = 0; i < cached_blocks.size(); i++) {
-            naiveblockstate b = get_cached_block(cached_blocks[i]);
-            obj.blocks[i].rect.x = b.rect_x;
-            obj.blocks[i].rect.y = b.rect_y;
-            obj.blocks[i].rect.w = b.rect_w;
-            obj.blocks[i].rect.h = b.rect_h;
-            obj.blocks[i].type = b.type;
-            obj.blocks[i].trigger = b.trigger;
-            obj.blocks[i].xp = b.xp;
-            obj.blocks[i].yp = b.yp;
-            obj.blocks[i].wp = b.wp;
-            obj.blocks[i].hp = b.hp;
-            // obj.blocks[i].script = b.script;
-            // obj.blocks[i].prompt = b.prompt;
-            obj.blocks[i].r = b.r;
-            obj.blocks[i].g = b.g;
-            obj.blocks[i].b = b.b;
-            obj.blocks[i].activity_y = b.activity_y;
+        if (cache_entry.block_set != 0) {
+            std::vector<std::size_t> cached_blocks = get_cached_block_set(cache_entry.block_set);
+            // Load block data
+            for (int i = 0; i < cached_blocks.size(); i++) {
+                naiveblockstate b = get_cached_block(cached_blocks[i]);
+                obj.blocks[i].rect.x = b.rect_x;
+                obj.blocks[i].rect.y = b.rect_y;
+                obj.blocks[i].rect.w = b.rect_w;
+                obj.blocks[i].rect.h = b.rect_h;
+                obj.blocks[i].type = b.type;
+                obj.blocks[i].trigger = b.trigger;
+                obj.blocks[i].xp = b.xp;
+                obj.blocks[i].yp = b.yp;
+                obj.blocks[i].wp = b.wp;
+                obj.blocks[i].hp = b.hp;
+                // obj.blocks[i].script = b.script;
+                // obj.blocks[i].prompt = b.prompt;
+                obj.blocks[i].r = b.r;
+                obj.blocks[i].g = b.g;
+                obj.blocks[i].b = b.b;
+                obj.blocks[i].activity_y = b.activity_y;
+            }
         }
     }
 
@@ -1870,6 +1875,12 @@ namespace Solver {
                 max_x_warp = 0;
                 min_y_warp = 0;
                 max_y_warp = 0;
+                if (x_min > 160) {
+                    min_x_warp = 1;
+                    max_x_warp = 1;
+                    min_y_warp = 0;
+                    max_y_warp = 0;
+                }
             }
 
             int prev_x_min = x_min;
