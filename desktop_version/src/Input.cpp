@@ -2690,13 +2690,14 @@ void gameinput(void)
             game.jumpheld = true;
         }
 
-        // TODO: optimize this vector away
-        std::vector<size_t> player_entities;
+        //std::vector<size_t> player_entities;
+        int first_player_entity = -1;
         for (size_t ie = 0; ie < obj.entities.size(); ie++)
         {
             if (obj.entities[ie].rule == 0)
             {
-                player_entities.push_back(ie);
+                // player_entities.push_back(ie);
+                first_player_entity = ie;
             }
         }
 
@@ -2713,6 +2714,7 @@ void gameinput(void)
             if (obj.entities[ie].onground > 0 && game.gravitycontrol == 0)
             {
                 game.gravitycontrol = 1;
+                /*
                 for (size_t j = 0; j < player_entities.size(); j++)
                 {
                     const size_t e = player_entities[j];
@@ -2721,6 +2723,10 @@ void gameinput(void)
                         obj.entities[e].vy = -4;
                         obj.entities[e].ay = -3;
                     }
+                }*/
+                if (obj.entities[first_player_entity].onground > 0 || obj.entities[first_player_entity].onroof > 0) {
+                    obj.entities[first_player_entity].vy = -4;
+                    obj.entities[first_player_entity].ay = -3;
                 }
                 music.playef(0);
                 game.jumppressed = 0;
@@ -2729,6 +2735,7 @@ void gameinput(void)
             if (obj.entities[ie].onroof > 0 && game.gravitycontrol == 1)
             {
                 game.gravitycontrol = 0;
+                /*
                 for (size_t j = 0; j < player_entities.size(); j++)
                 {
                     const size_t e = player_entities[j];
@@ -2737,6 +2744,10 @@ void gameinput(void)
                         obj.entities[e].vy = 4;
                         obj.entities[e].ay = 3;
                     }
+                }*/
+                if (obj.entities[first_player_entity].onground > 0 || obj.entities[first_player_entity].onroof > 0) {
+                    obj.entities[first_player_entity].vy = 4;
+                    obj.entities[first_player_entity].ay = 3;
                 }
                 music.playef(1);
                 game.jumppressed = 0;

@@ -388,8 +388,7 @@ namespace Solver {
         }
     }
 
-    // TODO: make these not global?
-    // TODO: std::unordered_map<std::size_t, cacheentry> cache;
+    static Scenario scenario = WZ::SCENARIOS::TWIHTKY_STUPID;
     static std::unordered_map<std::size_t, naiveenemystate> entitycache;
     static std::unordered_map<std::size_t, naiveblockstate> blockcache;
     static std::unordered_map<std::size_t, std::vector<std::size_t>> entity_set_cache;
@@ -411,22 +410,22 @@ namespace Solver {
         game.intimetrial = true;
         // Clear keys
         key.clearKeys();
+        // Don't poll the keyboard
+        key.actually_poll = false;
 
         // Save my ears from permanent damage
         game.muted = true;
         music.updatemutestate();
 
-        Scenario scenario = WZ::SCENARIOS::TWIHTKY_STUPID;
-
         // Uncomment this to skip
-        // debug_test(scenario);
-        // debug_test_cached(scenario);
+        // debug_test();
+        // debug_test_cached();
         // squish_test();
 
         // Solve
-        // stateful_solver(scenario);
-        cached_stateful_solver(scenario);
-        // stateless_solver(scenario, true);
+        // stateful_solver();
+        cached_stateful_solver();
+        // stateless_solver(true);
     }
 
     void squish_test() {
@@ -567,10 +566,10 @@ namespace Solver {
         }
     }
 
-    void stateful_solver(Scenario scenario) {
-        load_scenario(scenario);
+    void stateful_solver() {
+        load_scenario();
         naivestate initial_state = create_naive_state();
-        initial_state.h = get_heuristic(scenario, initial_state.next_corner, initial_state.game.roomx, initial_state.game.roomy, initial_state.player.x, initial_state.player.y);
+        initial_state.h = get_heuristic(initial_state.next_corner, initial_state.game.roomx, initial_state.game.roomy, initial_state.player.x, initial_state.player.y);
 
         std::size_t initial_hash = hash_naivestate(initial_state);
 
@@ -632,7 +631,7 @@ namespace Solver {
                     new_state.f_count = s.f_count + 1;
                     new_state.num_l_plus_r = s.num_l_plus_r + (left && right ? 1 : 0);
                     new_state.next_corner = s.next_corner;
-                    if (passed_next_corner(scenario, new_state.next_corner, new_state.game.roomx, new_state.game.roomy, new_state.player.x, new_state.player.y)) {
+                    if (passed_next_corner(new_state.next_corner, new_state.game.roomx, new_state.game.roomy, new_state.player.x, new_state.player.y)) {
                         new_state.next_corner++;
                     }
                     if (new_state.game.roomx != s.game.roomx || new_state.game.roomy != s.game.roomy) {
@@ -642,7 +641,7 @@ namespace Solver {
                         new_state.num_frames_in_room = s.num_frames_in_room + 1;
                     }
 
-                    new_state.h = new_state.f_count + get_heuristic(scenario, new_state.next_corner, new_state.game.roomx, new_state.game.roomy, new_state.player.x, new_state.player.y);
+                    new_state.h = new_state.f_count + get_heuristic(new_state.next_corner, new_state.game.roomx, new_state.game.roomy, new_state.player.x, new_state.player.y);
                     if (new_state.h < s.h) {
                         VVV_exit(69420); // Should hopefully not happen, means heuristic might be inadmissible
                     }
@@ -709,10 +708,10 @@ namespace Solver {
         }
     }
 
-    void cached_stateful_solver(Scenario scenario) {
-        load_scenario(scenario);
+    void cached_stateful_solver() {
+        load_scenario();
         cachednaivestate initial_state = create_cached_naivestate();
-        initial_state.h = get_stupid_heuristic(scenario, initial_state.next_corner, initial_state.game.roomx, initial_state.game.roomy, initial_state.player.x, initial_state.player.y);
+        initial_state.h = get_stupid_heuristic(initial_state.next_corner, initial_state.game.roomx, initial_state.game.roomy, initial_state.player.x, initial_state.player.y);
 
         std::size_t initial_hash = hash_cached_naivestate(initial_state);
 
@@ -749,9 +748,9 @@ namespace Solver {
                 game.seconds = 0;
                 game.frames = int(hash_set.size() * 3 / 10);
 
-                game.deathcounts = int(sizeof(cachednaivestate));
+                game.deathcounts = int(entity_set_cache.size());
 
-                // TODO: does this work for line clips?
+                // TODO: does this work for line clips? I think so
                 bool can_flip = (s.player.onground > 0 && s.game.gravitycontrol == 0 || s.player.onroof > 0 && s.game.gravitycontrol == 1);
                 int max = can_flip ? 8 : 4;
                 for (int8_t i = 0; i < max; i++) {
@@ -764,7 +763,7 @@ namespace Solver {
                     key.setKey(KEYBOARD_LEFT, left);
                     key.setKey(KEYBOARD_RIGHT, right);
                     key.setKey(KEYBOARD_v, flip);
-                    do_game_step(hash_set.size() % 1000 == 0);
+                    do_game_step(hash_set.size() % 10000 == 0);
                     // do_game_step(true); SDL_Delay(34);
                     // do_game_step(true);
 
@@ -778,7 +777,7 @@ namespace Solver {
                     new_state.f_count = s.f_count + 1;
                     new_state.num_l_plus_r = s.num_l_plus_r + (left && right ? 1 : 0);
                     new_state.next_corner = s.next_corner;
-                    if (passed_next_corner(scenario, new_state.next_corner, new_state.game.roomx, new_state.game.roomy, new_state.player.x, new_state.player.y)) {
+                    if (passed_next_corner(new_state.next_corner, new_state.game.roomx, new_state.game.roomy, new_state.player.x, new_state.player.y)) {
                         new_state.next_corner++;
                     }
                     if (new_state.game.roomx != s.game.roomx || new_state.game.roomy != s.game.roomy) {
@@ -788,7 +787,7 @@ namespace Solver {
                         new_state.num_frames_in_room = s.num_frames_in_room + 1;
                     }
 
-                    new_state.h = new_state.f_count + get_stupid_heuristic(scenario, new_state.next_corner, new_state.game.roomx, new_state.game.roomy, new_state.player.x, new_state.player.y);
+                    new_state.h = new_state.f_count + get_stupid_heuristic(new_state.next_corner, new_state.game.roomx, new_state.game.roomy, new_state.player.x, new_state.player.y);
                     if (new_state.h < s.h) {
                         VVV_exit(69420); // Should hopefully not happen, means heuristic might be inadmissible
                     }
@@ -861,11 +860,11 @@ namespace Solver {
         }
     }
     
-    void stateless_solver(Scenario scenario, bool debug_checks) {
-        load_scenario(scenario);
+    void stateless_solver(bool debug_checks) {
+        load_scenario();
 
         naivestate initial_state = create_naive_state();
-        initial_state.h = get_heuristic(scenario, initial_state.next_corner, initial_state.game.roomx, initial_state.game.roomy, initial_state.player.x, initial_state.player.y);
+        initial_state.h = get_heuristic(initial_state.next_corner, initial_state.game.roomx, initial_state.game.roomy, initial_state.player.x, initial_state.player.y);
 
         std::size_t initial_hash = hash_naivestate(initial_state);
 
@@ -974,11 +973,11 @@ namespace Solver {
                     tmp_state = create_naive_state();
                     tmp_state.f_count = s.f_count + 1;
                     tmp_state.next_corner = s.next_corner;
-                    if (passed_next_corner(scenario, tmp_state.next_corner, tmp_state.game.roomx, tmp_state.game.roomy, tmp_state.player.x, tmp_state.player.y)) {
+                    if (passed_next_corner(tmp_state.next_corner, tmp_state.game.roomx, tmp_state.game.roomy, tmp_state.player.x, tmp_state.player.y)) {
                         tmp_state.next_corner++;
                     }
 
-                    tmp_state.h = tmp_state.f_count + get_heuristic(scenario, tmp_state.next_corner, tmp_state.game.roomx, tmp_state.game.roomy, tmp_state.player.x, tmp_state.player.y);
+                    tmp_state.h = tmp_state.f_count + get_heuristic(tmp_state.next_corner, tmp_state.game.roomx, tmp_state.game.roomy, tmp_state.player.x, tmp_state.player.y);
                     if (tmp_state.h < s.heuristic) {
                         VVV_exit(69420); // Should hopefully not happen, means heuristic might be inadmissible
                     }
@@ -1030,8 +1029,9 @@ namespace Solver {
         }
     }
     
-    void debug_test(Scenario scenario) {
-        load_scenario(scenario);
+    void debug_test() {
+        key.actually_poll = true;
+        load_scenario();
         naivestate tmp;
         int i = 0;
         while (true) {
@@ -1049,8 +1049,9 @@ namespace Solver {
         }
     }
 
-    void debug_test_cached(Scenario scenario) {
-        load_scenario(scenario);
+    void debug_test_cached() {
+        key.actually_poll = true;
+        load_scenario();
         cachednaivestate tmp;
         int i = 0;
         while (true) {
@@ -1069,7 +1070,7 @@ namespace Solver {
         }
     }
 
-    void load_scenario(Scenario scenario) {
+    void load_scenario() {
         game.savex = scenario.init_x;
         game.savey = scenario.init_y;
         game.saverx = scenario.init_rx;
@@ -1792,7 +1793,7 @@ namespace Solver {
         return room_warps(room_x, room_y) & 2;
     }
 
-    uint16_t get_stupid_heuristic(Scenario scenario, int next_corner, int room_x, int room_y, int player_x, int player_y) {
+    uint16_t get_stupid_heuristic(int next_corner, int room_x, int room_y, int player_x, int player_y) {
         if (next_corner == scenario.corners.size()) {
             return 0;
         }
@@ -1805,7 +1806,7 @@ namespace Solver {
 
         int total_frames = 0;
 
-        if (next_corner > 0 && scenario.corners[next_corner - 1].dir == WARP_TOKEN && passed_next_corner(scenario, next_corner - 1, room_x, room_y, player_x, player_y)) {
+        if (next_corner > 0 && scenario.corners[next_corner - 1].dir == WARP_TOKEN && passed_next_corner(next_corner - 1, room_x, room_y, player_x, player_y)) {
             // We are still touching the previous warp token and haven't warped yet
             // Advance by one frame
             total_frames++;
@@ -1986,7 +1987,7 @@ namespace Solver {
         return ry * 240 + y;
     }
 
-    bool passed_next_corner(Scenario scenario, int next_corner, int room_x, int room_y, int player_x, int player_y) {
+    bool passed_next_corner(int next_corner, int room_x, int room_y, int player_x, int player_y) {
         int px = room_adjusted_x(room_x, player_x);
         int py = room_adjusted_y(room_y, player_y);
 
@@ -2029,7 +2030,7 @@ namespace Solver {
     // TODO: account for warping rooms (WZ, intermissions, final)
     // TODO: account for warp tokens (overworld, WZ)
     // TODO: account for differing room heights (232 if map.warpy)
-    uint16_t get_heuristic(Scenario scenario, int next_corner, int room_x, int room_y, int player_x, int player_y) {
+    uint16_t get_heuristic(int next_corner, int room_x, int room_y, int player_x, int player_y) {
         int total_frames = 0;
 
         int min_x = room_adjusted_x(room_x, player_x);

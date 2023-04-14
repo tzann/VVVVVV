@@ -76,6 +76,8 @@ public:
 
     bool linealreadyemptykludge;
 
+    bool actually_poll;
+
 private:
     // std::map<SDL_JoystickID, SDL_GameController*> controllers;
     // std::map<SDL_GameControllerButton, bool> buttonmap;

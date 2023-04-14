@@ -87,7 +87,7 @@ namespace Solver {
     // Reduced from 84 to 48 bytes
     struct naiveplayerstate {
         int16_t x;      // -20 <= x <= 320
-        int16_t y;      // -20 <= x <= 320
+        int16_t y;      // -20 <= y <= 240
 
         // TODO: these floats can be packed better
         float vx;       // -6 <= vx <= 6
@@ -95,25 +95,31 @@ namespace Solver {
         float ax;       // ax in { -6, -3, 0, 3, 6 }
         float ay;       // ay in { -6, -3, 0, 3 }
 
-        int8_t onground;   // ?? <= onground <= 2 (effective min is 0)
-        int8_t onroof;     // ?? <= onroof <= 2 (effective min is 0)
-        bool dir;        // 0 <= dir <= 1
+        int8_t onground;    // ?? <= onground <= 2 (effective min is 0)
+        int8_t onroof;      // ?? <= onroof <= 2 (effective min is 0)
+        bool dir;           // 0 <= dir <= 1
 
-        // int rule;           // -1 <= rule <= 7
-        int16_t tile;           // 0 <= tile <= 711
-        int8_t framedelay;     // 0 <= framedelay <= 10
-        int16_t drawframe;      // -10 <= drawframe <= 721
-        int8_t walkingframe;   // -5 <= walkingframe <= 5
 
-        int8_t visualonground;     // ?? <= visualonground <= 2 (effective min is 0)
-        int8_t visualonroof;       // ?? <= visualonroof <= 2 (effective min is 0)
+        uint8_t tile;       // tile in { 0, 6, 144, 150 } (144 = sad, 6 = terminal, 150 = pacman)
+        int8_t framedelay;  // ?? <= framedelay <= 4 (effective min is 1)
+        uint8_t drawframe;  // drawframe in [0, 17] n [144, 161] (basically [tile, tile+11])
+        bool walkingframe;  // 0 <= walkingframe <= 1
+
+        int8_t visualonground;  // ?? <= visualonground <= 2 (effective min is 0)
+        int8_t visualonroof;    // ?? <= visualonroof <= 2 (effective min is 0)
         
-        int16_t collisiondrawframe;     // 0 <= drawframe <= 720
-        int8_t collisionframedelay;    // ?? <= framedelay <= 4  (effective min is 1)
-        bool collisionwalkingframe;  // 0 <= walkingframe <= 1
+        uint8_t collisiondrawframe; // collisiondrawframe in [0, 17] n [144, 161] (basically [tile, tile+11])
+        int8_t collisionframedelay; // ?? <= collisionframedelay <= 4  (effective min is 1)
+        bool collisionwalkingframe; // 0 <= walkingframe <= 1
 
+        // TODO: these floats can be packed better
         float newxp;    // newxp in { 0, 152, {x}, {x+vx} }
         float newyp;    // newyp in { 0, {y}, {y+vy} }
+
+        // TODO: add these variables maybe?
+        // int oldxp, oldyp;    // relevant for gravity lines
+        // int size;            // size in { 0, 13 } (13 = big viridian)
+        // int cx, cy, w, h;    // relevant for big viridian / gravitron zipping
     };
 
     struct naiveenemystate {
@@ -128,6 +134,7 @@ namespace Solver {
         float ax;               // ax in { -6, -3, 0, 3, 6 }
         float ay;               // ay in { -6, -3, 0, 3 }
 
+        // TODO: do we need actionframe?
         // TODO: don't we need onroof, onground, onxwall, onywall? for moving platforms
         int8_t behave;          // -1 <= behave <= 13
         float para;
@@ -135,7 +142,7 @@ namespace Solver {
         int8_t onwall;          // 0 <= onwall <= 3
         int8_t statedelay;      // 0 <= statedelay <= 120
 
-        int16_t tile;           // 0 <= tile <= 711
+        int16_t tile;           // 0 <= tile <= 1115
         int8_t animate;         // 0 <= animate <= 100
         int8_t framedelay;      // 0 <= framedelay <= 10
         int8_t walkingframe;    // -5 <= walkingframe <= 5
@@ -202,16 +209,16 @@ namespace Solver {
 
     void squish_test();
 
-    void stateful_solver(Scenario scenario);
+    void stateful_solver();
 
-    void cached_stateful_solver(Scenario scenario);
+    void cached_stateful_solver();
 
-    void stateless_solver(Scenario scenario, bool debug_checks);
+    void stateless_solver(bool debug_checks);
 
-    void debug_test(Scenario scenario);
-    void debug_test_cached(Scenario scenario);
+    void debug_test();
+    void debug_test_cached();
 
-	void load_scenario(Scenario scenario);
+	void load_scenario();
 
     naivestate create_naive_state();
 	void load_naive_state(naivestate s);
@@ -243,12 +250,12 @@ namespace Solver {
     int room_warps(int room_x, int room_y);
     bool room_warpx(int room_x, int room_y);
     bool room_warpy(int room_x, int room_y);
-    uint16_t get_stupid_heuristic(Scenario scenario, int next_corner, int room_x, int room_y, int player_x, int player_y);
+    uint16_t get_stupid_heuristic(int next_corner, int room_x, int room_y, int player_x, int player_y);
 
     int room_adjusted_x(int rx, int x);
     int room_adjusted_y(int ry, int y);
-    bool passed_next_corner(Scenario scenario, int next_corner, int room_x, int room_y, int player_x, int player_y);
-    uint16_t get_heuristic(Scenario scenario, int next_corner, int room_x, int room_y, int player_x, int player_y);
+    bool passed_next_corner(int next_corner, int room_x, int room_y, int player_x, int player_y);
+    uint16_t get_heuristic(int next_corner, int room_x, int room_y, int player_x, int player_y);
 
     std::size_t hash_naivestate(naivestate s);
     std::size_t hash_cached_naivestate(cachednaivestate s);

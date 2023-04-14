@@ -52,6 +52,8 @@ KeyPoll::KeyPoll(void)
     linealreadyemptykludge = false;
 
     isActive = true;
+
+    actually_poll = true;
 }
 
 void KeyPoll::enabletextentry(void)
@@ -135,11 +137,16 @@ static int changemousestate(
 
 void KeyPoll::Poll(void)
 {
+    if (!actually_poll) {
+        return;
+    }
+    /*
     static int mousetoggletimeout = 0;
     bool showmouse = false;
     bool hidemouse = false;
     bool altpressed = false;
     bool fullscreenkeybind = false;
+    */
     SDL_Event evt;
     while (SDL_PollEvent(&evt))
     {
@@ -151,12 +158,13 @@ void KeyPoll::Poll(void)
             // keymap[evt.key.keysym.sym] = true;
             setKey(evt.key.keysym.sym, true);
 
+            /*
             if (evt.key.keysym.sym == SDLK_BACKSPACE)
             {
                 pressedbackspace = true;
             }
 
-#ifdef __APPLE__ /* OSX prefers the command keys over the alt keys. -flibit */
+#ifdef __APPLE__ // OSX prefers the command keys over the alt keys. -flibit
             altpressed = false; // keymap[SDLK_LGUI] || keymap[SDLK_RGUI];
 #else
             altpressed = false; // keymap[SDLK_LALT] || keymap[SDLK_RALT];
@@ -171,13 +179,14 @@ void KeyPoll::Poll(void)
 
             if (loc::show_translator_menu && evt.key.keysym.sym == SDLK_F12 && !evt.key.repeat)
             {
-                /* Reload language files */
+                // Reload language files
                 loc::loadtext(false);
                 music.playef(4);
-            }
+            }*/
 
-            BUTTONGLYPHS_keyboard_set_active(true);
+            // BUTTONGLYPHS_keyboard_set_active(true);
 
+            /*
             if (textentry())
             {
                 if (evt.key.keysym.sym == SDLK_BACKSPACE && !keybuffer.empty())
@@ -189,7 +198,7 @@ void KeyPoll::Poll(void)
                     }
                 }
                 else if (    evt.key.keysym.sym == SDLK_v &&
-                        false/*keymap[SDLK_LCTRL]*/    )
+                        keymap[SDLK_LCTRL]    )
                 {
                     char* text = SDL_GetClipboardText();
                     if (text != NULL)
@@ -199,7 +208,7 @@ void KeyPoll::Poll(void)
                     }
                 }
                 else if (    evt.key.keysym.sym == SDLK_x &&
-                        false/*keymap[SDLK_LCTRL]*/    )
+                        keymap[SDLK_LCTRL]    )
                 {
                     if (SDL_SetClipboardText(keybuffer.c_str()) == 0)
                     {
@@ -207,21 +216,24 @@ void KeyPoll::Poll(void)
                     }
                 }
             }
+            */
             break;
         }
         case SDL_KEYUP:
             // keymap[evt.key.keysym.sym] = false;
             setKey(evt.key.keysym.sym, false);
+            /*
             if (evt.key.keysym.sym == SDLK_BACKSPACE)
             {
                 pressedbackspace = false;
-            }
+            }*/
             break;
         case SDL_TEXTINPUT:
+            /*
             if (!altpressed)
             {
                 keybuffer += evt.text.text;
-            }
+            }*/
             break;
 
         /* Mouse Input */
@@ -424,6 +436,7 @@ void KeyPoll::Poll(void)
             break;
         }
 
+        /*
         switch (evt.type)
         {
         case SDL_KEYDOWN:
@@ -442,8 +455,10 @@ void KeyPoll::Poll(void)
             showmouse = true;
             break;
         }
+        */
     }
 
+    /*
     mousetoggletimeout = changemousestate(
         mousetoggletimeout,
         showmouse,
@@ -453,7 +468,7 @@ void KeyPoll::Poll(void)
     if (fullscreenkeybind)
     {
         toggleFullscreen();
-    }
+    }*/
 }
 
 bool KeyPoll::isDown(SDL_Keycode key)
