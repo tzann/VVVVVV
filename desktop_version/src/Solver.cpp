@@ -397,7 +397,7 @@ namespace Solver {
     // Linear Collider: 0:12.8 (1.09M states visited)
     // Security Sweep:  0:28.9 (1.03M states visited)
     // The Yes Men:     1:42.4 (4.62M states visited)
-    static Scenario scenario = SS1::SCENARIOS::SECURITY_SWEEP;
+    static Scenario scenario = SS1::SCENARIOS::THE_YES_MEN;
 
     static std::unordered_map<std::size_t, naiveenemystate, modified_hash> entitycache;
     static std::unordered_map<std::size_t, naiveblockstate, modified_hash> blockcache;
@@ -841,6 +841,8 @@ namespace Solver {
         // Reverse order of inputs
         std::reverse(inputs.begin(), inputs.end());
 
+        int num_states = hash_set.size();
+
         state_hashes.clear();
         hash_set.clear();
         prev_state_map.clear();
@@ -856,6 +858,7 @@ namespace Solver {
         while (true) {
             load_naive_state(restore_point);
             game.hours = 0;
+            game.deathcounts = num_states;
             for (int idx = 0; idx < inputs.size(); idx++) {
                 int8_t i = inputs[idx];
 

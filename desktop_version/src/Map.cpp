@@ -63,6 +63,7 @@ mapclass::mapclass(void)
 
     //We create a blank map
     SDL_memset(contents, 0, sizeof(contents));
+    SDL_memset(collision, 0, sizeof(collision));
 
     SDL_memset(roomdeaths, 0, sizeof(roomdeaths));
     SDL_memset(roomdeathsfinal, 0, sizeof(roomdeathsfinal));
@@ -646,15 +647,19 @@ bool mapclass::towerspikecollide(int x, int y)
     return false;
 }
 
+bool mapclass::towercollide(int x, int y, const bool invincible) {
+    if (tower.at(x, y, 0) >= 12 && tower.at(x, y, 0) <= 27) return true;
+    if (invincible)
+    {
+        if (tower.at(x, y, 0) >= 6 && tower.at(x, y, 0) <= 11) return true;
+    }
+}
+
 bool mapclass::collide(int x, int y, const bool invincible)
 {
     if (towermode)
     {
-        if (tower.at(x, y, 0) >= 12 && tower.at(x, y, 0) <= 27) return true;
-        if (invincible)
-        {
-            if (tower.at(x, y, 0) >= 6 && tower.at(x, y, 0) <= 11) return true;
-        }
+        towercollide(x, y, invincible);
     }
     else if (tileset == 2)
     {
@@ -697,11 +702,30 @@ bool mapclass::collide(int x, int y, const bool invincible)
     return false;
 }
 
+bool mapclass::collide_precomputed(int x, int y, const bool not_invincible)
+{
+    /* Option 1:
+        if (x < 0 || y < 0 || x >= 40 || y >= 29+extrarow) return false;
+        int idx = 42 * y + x + 43;  // (x+1) + (y+1) * 42;
+    */
+    /* Option 2:
+        int idx = 42 * y + x + 43;  // (x+1) + (y+1) * 42;
+        if (idx < 0 || idx > 42 * 32) return false;
+    */
+
+    if (x < -1 || y < -1 || x > 40 || y > 29+extrarow) return false;
+
+    int idx = 42 * y + x + 43;  // (x+1) + (y+1) * 42;
+    return collision[idx] >> not_invincible;
+}
+
 void mapclass::settile(int xp, int yp, int t)
 {
     if (xp >= 0 && xp < 40 && yp >= 0 && yp < 29+extrarow)
     {
         contents[TILE_IDX(xp, yp)] = t;
+        int idx = 42 * yp + xp + 43;  // (x+1) + (y+1) * 42;
+        collision[idx] = (collide(xp, yp, false) << 1) | collide(xp, yp, true);
     }
 }
 
@@ -2177,6 +2201,18 @@ void mapclass::loadlevel(int rx, int ry)
                 obj.createblock(5, 249-32, 0, 32+32+32, 240, 5);
             }
         }
+    }
+
+    if (!towermode) {
+        // Optimization: precompute collision for each tile
+        for (int x = -1; x <= 40; x++) {
+            for (int y = -1; y <= 29 + extrarow; y++) {
+                int idx = 42 * y + x + 43;  // (x+1) + (y+1) * 42;
+                collision[idx] = (collide(x, y, false) << 1) | collide(x, y, true);
+            }
+        }
+    } else {
+        // TODO: precompute tower collision?
     }
 }
 

@@ -4155,39 +4155,85 @@ bool entityclass::checkwall(const bool invincible, const SDL_Rect& temprect, con
         if (checkblocks(temprect, dx, dy, dr, skipdirblocks)) return true;
     }
 
-    int tempx = getgridpoint(temprect.x);
-    int tempy = getgridpoint(temprect.y);
-    int tempw = getgridpoint(temprect.x + temprect.w - 1);
-    int temph = getgridpoint(temprect.y + temprect.h - 1);
-    if (map.collide(tempx, tempy, invincible)) return true;
-    if (map.collide(tempw, tempy, invincible)) return true;
-    if (map.collide(tempx, temph, invincible)) return true;
-    if (map.collide(tempw, temph, invincible)) return true;
-    if (temprect.h >= 12)
-    {
-        int tpy1 = getgridpoint(temprect.y + 6);
-        if (map.collide(tempx, tpy1, invincible)) return true;
-        if (map.collide(tempw, tpy1, invincible)) return true;
-        if (temprect.h >= 18)
+    // x positions: x, x+6, x+w-1
+    // y positions: y, y+6, y+12, y+18, y+h-1
+    /* Pairs:
+        (x1, y1) (x2, y1) (x3, y1)
+        (x1, y2)          (x3, y2)
+        (x1, y3)          (x3, y3)
+        (x1, y4)          (x3, y4)
+        (x1, y5) (x2, y5) (x3, y5)
+    */
+    if (!map.towermode) {
+        bool not_invincible = !invincible;
+        int tempx = temprect.x >> 3;
+        int tempy = temprect.y >> 3;
+        int tempw = (temprect.x + temprect.w - 1) >> 3;
+        int temph = (temprect.y + temprect.h - 1) >> 3;
+        if (map.collide_precomputed(tempx, tempy, not_invincible)) return true;
+        if (map.collide_precomputed(tempw, tempy, not_invincible)) return true;
+        if (map.collide_precomputed(tempx, temph, not_invincible)) return true;
+        if (map.collide_precomputed(tempw, temph, not_invincible)) return true;
+        if (temprect.h >= 12)
         {
-            tpy1 = getgridpoint(temprect.y + 12);
-            if (map.collide(tempx, tpy1, invincible)) return true;
-            if (map.collide(tempw, tpy1, invincible)) return true;
-            if (temprect.h >= 24)
+            int tpy1 = (temprect.y + 6) >> 3;
+            if (map.collide_precomputed(tempx, tpy1, not_invincible)) return true;
+            if (map.collide_precomputed(tempw, tpy1, not_invincible)) return true;
+            if (temprect.h >= 18)
             {
-                tpy1 = getgridpoint(temprect.y + 18);
-                if (map.collide(tempx, tpy1, invincible)) return true;
-                if (map.collide(tempw, tpy1, invincible)) return true;
+                tpy1 = (temprect.y + 12) >> 3;
+                if (map.collide_precomputed(tempx, tpy1, not_invincible)) return true;
+                if (map.collide_precomputed(tempw, tpy1, not_invincible)) return true;
+                if (temprect.h >= 24)
+                {
+                    tpy1 = (temprect.y + 18) >> 3;
+                    if (map.collide_precomputed(tempx, tpy1, not_invincible)) return true;
+                    if (map.collide_precomputed(tempw, tpy1, not_invincible)) return true;
+                }
             }
         }
+        if (temprect.w >= 12)
+        {
+            int tpx1 = (temprect.x + 6) >> 3;
+            if (map.collide_precomputed(tpx1, tempy, not_invincible)) return true;
+            if (map.collide_precomputed(tpx1, temph, not_invincible)) return true;
+        }
+        return false;
+    } else {
+        int tempx = getgridpoint(temprect.x);
+        int tempy = getgridpoint(temprect.y);
+        int tempw = getgridpoint(temprect.x + temprect.w - 1);
+        int temph = getgridpoint(temprect.y + temprect.h - 1);
+        if (map.towercollide(tempx, tempy, invincible)) return true;
+        if (map.towercollide(tempw, tempy, invincible)) return true;
+        if (map.towercollide(tempx, temph, invincible)) return true;
+        if (map.towercollide(tempw, temph, invincible)) return true;
+        if (temprect.h >= 12)
+        {
+            int tpy1 = getgridpoint(temprect.y + 6);
+            if (map.towercollide(tempx, tpy1, invincible)) return true;
+            if (map.towercollide(tempw, tpy1, invincible)) return true;
+            if (temprect.h >= 18)
+            {
+                tpy1 = getgridpoint(temprect.y + 12);
+                if (map.towercollide(tempx, tpy1, invincible)) return true;
+                if (map.towercollide(tempw, tpy1, invincible)) return true;
+                if (temprect.h >= 24)
+                {
+                    tpy1 = getgridpoint(temprect.y + 18);
+                    if (map.towercollide(tempx, tpy1, invincible)) return true;
+                    if (map.towercollide(tempw, tpy1, invincible)) return true;
+                }
+            }
+        }
+        if (temprect.w >= 12)
+        {
+            int tpx1 = getgridpoint(temprect.x + 6);
+            if (map.towercollide(tpx1, tempy, invincible)) return true;
+            if (map.towercollide(tpx1, temph, invincible)) return true;
+        }
+        return false;
     }
-    if (temprect.w >= 12)
-    {
-        int tpx1 = getgridpoint(temprect.x + 6);
-        if (map.collide(tpx1, tempy, invincible)) return true;
-        if (map.collide(tpx1, temph, invincible)) return true;
-    }
-    return false;
 }
 
 bool entityclass::checkwall(const bool invincible, const SDL_Rect& temprect)
