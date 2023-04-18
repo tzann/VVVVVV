@@ -702,8 +702,9 @@ bool mapclass::collide(int x, int y, const bool invincible)
     return false;
 }
 
-bool mapclass::collide_precomputed(int x, int y, const bool not_invincible)
+bool mapclass::collide_precomputed(int x, int y)
 {
+    // TODO: fix this for invincibility mode
     /* Option 1:
         if (x < 0 || y < 0 || x >= 40 || y >= 29+extrarow) return false;
         int idx = 42 * y + x + 43;  // (x+1) + (y+1) * 42;
@@ -716,7 +717,7 @@ bool mapclass::collide_precomputed(int x, int y, const bool not_invincible)
     if (x < -1 || y < -1 || x > 40 || y > 29+extrarow) return false;
 
     int idx = 42 * y + x + 43;  // (x+1) + (y+1) * 42;
-    return collision[idx] >> not_invincible;
+    return collision[idx];
 }
 
 void mapclass::settile(int xp, int yp, int t)
@@ -725,7 +726,7 @@ void mapclass::settile(int xp, int yp, int t)
     {
         contents[TILE_IDX(xp, yp)] = t;
         int idx = 42 * yp + xp + 43;  // (x+1) + (y+1) * 42;
-        collision[idx] = (collide(xp, yp, false) << 1) | collide(xp, yp, true);
+        collision[idx] = collide(xp, yp, false);
     }
 }
 
@@ -2208,7 +2209,7 @@ void mapclass::loadlevel(int rx, int ry)
         for (int x = -1; x <= 40; x++) {
             for (int y = -1; y <= 29 + extrarow; y++) {
                 int idx = 42 * y + x + 43;  // (x+1) + (y+1) * 42;
-                collision[idx] = (collide(x, y, false) << 1) | collide(x, y, true);
+                collision[idx] = collide(x, y, false);
             }
         }
     } else {

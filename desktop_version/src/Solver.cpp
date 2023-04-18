@@ -1203,18 +1203,18 @@ namespace Solver {
                 e.y = obj.entities[i].yp;
                 e.vx = obj.entities[i].vx;
                 e.vy = obj.entities[i].vy;
-                e.ax = obj.entities[i].ax;
-                e.ay = obj.entities[i].ay;
+                // e.ax = obj.entities[i].ax;
+                // e.ay = obj.entities[i].ay;
                 e.behave = obj.entities[i].behave;
-                e.para = obj.entities[i].para;
+                // e.para = obj.entities[i].para;
                 e.state = obj.entities[i].state;
                 e.onwall = obj.entities[i].onwall;
-                // Any value less than -1 is equivalent to -1
-                int8_t effective_statedelay = SDL_max(obj.entities[i].statedelay, -1);
+                // Any value less than 0 is equivalent to 0
+                int8_t effective_statedelay = SDL_max(obj.entities[i].statedelay, 0);
                 e.statedelay = effective_statedelay;
 
                 e.tile = obj.entities[i].tile;
-                e.animate = obj.entities[i].animate;
+                // e.animate = obj.entities[i].animate;
                 // Any value less than 0 is equivalent to 0
                 int8_t effective_framedelay_e = SDL_max(obj.entities[i].framedelay, 0);
                 e.framedelay = effective_framedelay_e;
@@ -1233,16 +1233,16 @@ namespace Solver {
                 b.rect_h = obj.blocks[i].rect.h;
                 b.type = obj.blocks[i].type;
                 b.trigger = obj.blocks[i].trigger;
-                b.xp = obj.blocks[i].xp;
-                b.yp = obj.blocks[i].yp;
-                b.wp = obj.blocks[i].wp;
-                b.hp = obj.blocks[i].hp;
+                // b.xp = obj.blocks[i].xp;
+                // b.yp = obj.blocks[i].yp;
+                // b.wp = obj.blocks[i].wp;
+                // b.hp = obj.blocks[i].hp;
                 // b.script = obj.blocks[i].script;
                 // b.prompt = obj.blocks[i].prompt;
-                b.r = obj.blocks[i].r;
-                b.g = obj.blocks[i].g;
-                b.b = obj.blocks[i].b;
-                b.activity_y = obj.blocks[i].activity_y;
+                // b.r = obj.blocks[i].r;
+                // b.g = obj.blocks[i].g;
+                // b.b = obj.blocks[i].b;
+                // b.activity_y = obj.blocks[i].activity_y;
 
                 // TODO emplace
                 s.blocks.push_back(b);
@@ -1325,16 +1325,16 @@ namespace Solver {
             obj.entities[i + 1].yp = s.entities[i].y;
             obj.entities[i + 1].vx = s.entities[i].vx;
             obj.entities[i + 1].vy = s.entities[i].vy;
-            obj.entities[i + 1].ax = s.entities[i].ax;
-            obj.entities[i + 1].ay = s.entities[i].ay;
+            // obj.entities[i + 1].ax = s.entities[i].ax;
+            // obj.entities[i + 1].ay = s.entities[i].ay;
             obj.entities[i + 1].behave = s.entities[i].behave;
-            obj.entities[i + 1].para = s.entities[i].para;
+            // obj.entities[i + 1].para = s.entities[i].para;
             obj.entities[i + 1].state = s.entities[i].state;
             obj.entities[i + 1].onwall = s.entities[i].onwall;
             obj.entities[i + 1].statedelay = s.entities[i].statedelay;
 
             obj.entities[i + 1].tile = s.entities[i].tile;
-            obj.entities[i + 1].animate = s.entities[i].animate;
+            // obj.entities[i + 1].animate = s.entities[i].animate;
             obj.entities[i + 1].framedelay = s.entities[i].framedelay;
             obj.entities[i + 1].walkingframe = s.entities[i].walkingframe;
             obj.entities[i + 1].drawframe = s.entities[i].drawframe;
@@ -1348,16 +1348,16 @@ namespace Solver {
             obj.blocks[i].rect.h = s.blocks[i].rect_h;
             obj.blocks[i].type = s.blocks[i].type;
             obj.blocks[i].trigger = s.blocks[i].trigger;
-            obj.blocks[i].xp = s.blocks[i].xp;
-            obj.blocks[i].yp = s.blocks[i].yp;
-            obj.blocks[i].wp = s.blocks[i].wp;
-            obj.blocks[i].hp = s.blocks[i].hp;
+            obj.blocks[i].xp = s.blocks[i].rect_x;
+            obj.blocks[i].yp = s.blocks[i].rect_y;
+            // obj.blocks[i].wp = s.blocks[i].wp;
+            // obj.blocks[i].hp = s.blocks[i].hp;
             // obj.blocks[i].script = s.blocks[i].script;
             // obj.blocks[i].prompt = s.blocks[i].prompt;
-            obj.blocks[i].r = s.blocks[i].r;
-            obj.blocks[i].g = s.blocks[i].g;
-            obj.blocks[i].b = s.blocks[i].b;
-            obj.blocks[i].activity_y = s.blocks[i].activity_y;
+            // obj.blocks[i].r = s.blocks[i].r;
+            // obj.blocks[i].g = s.blocks[i].g;
+            // obj.blocks[i].b = s.blocks[i].b;
+            // obj.blocks[i].activity_y = s.blocks[i].activity_y;
         }
     }
 
@@ -1523,18 +1523,18 @@ namespace Solver {
             e.y = obj.entities[i].yp;
             e.vx = obj.entities[i].vx;
             e.vy = obj.entities[i].vy;
-            e.ax = obj.entities[i].ax;
-            e.ay = obj.entities[i].ay;
+            // e.ax = obj.entities[i].ax;
+            // e.ay = obj.entities[i].ay;
             e.behave = obj.entities[i].behave;
-            e.para = obj.entities[i].para;
+            // e.para = obj.entities[i].para;
             e.state = obj.entities[i].state;
             e.onwall = obj.entities[i].onwall;
-            // Any value less than -1 is equivalent to -1
-            int effective_statedelay = SDL_max(obj.entities[i].statedelay, -1);
+            // Any value less than 0 is equivalent to 0
+            int effective_statedelay = SDL_max(obj.entities[i].statedelay, 0);
             e.statedelay = effective_statedelay;
 
             e.tile = obj.entities[i].tile;
-            e.animate = obj.entities[i].animate;
+            // e.animate = obj.entities[i].animate;
             // Any value less than 0 is equivalent to 0
             int effective_framedelay = SDL_max(obj.entities[i].framedelay, 0);
             e.framedelay = effective_framedelay;
@@ -1560,16 +1560,16 @@ namespace Solver {
             b.rect_h = obj.blocks[i].rect.h;
             b.type = obj.blocks[i].type;
             b.trigger = obj.blocks[i].trigger;
-            b.xp = obj.blocks[i].xp;
-            b.yp = obj.blocks[i].yp;
-            b.wp = obj.blocks[i].wp;
-            b.hp = obj.blocks[i].hp;
+            // b.xp = obj.blocks[i].xp;
+            // b.yp = obj.blocks[i].yp;
+            // b.wp = obj.blocks[i].wp;
+            // b.hp = obj.blocks[i].hp;
             // b.script = obj.blocks[i].script;
             // b.prompt = obj.blocks[i].prompt;
-            b.r = obj.blocks[i].r;
-            b.g = obj.blocks[i].g;
-            b.b = obj.blocks[i].b;
-            b.activity_y = obj.blocks[i].activity_y;
+            // b.r = obj.blocks[i].r;
+            // b.g = obj.blocks[i].g;
+            // b.b = obj.blocks[i].b;
+            // b.activity_y = obj.blocks[i].activity_y;
 
             blocks.push_back(cache_block(b));
         }
@@ -1593,16 +1593,16 @@ namespace Solver {
                 obj.entities[i + 1].yp = e.y;
                 obj.entities[i + 1].vx = e.vx;
                 obj.entities[i + 1].vy = e.vy;
-                obj.entities[i + 1].ax = e.ax;
-                obj.entities[i + 1].ay = e.ay;
+                // obj.entities[i + 1].ax = e.ax;
+                // obj.entities[i + 1].ay = e.ay;
                 obj.entities[i + 1].behave = e.behave;
-                obj.entities[i + 1].para = e.para;
+                // obj.entities[i + 1].para = e.para;
                 obj.entities[i + 1].state = e.state;
                 obj.entities[i + 1].onwall = e.onwall;
                 obj.entities[i + 1].statedelay = e.statedelay;
 
                 obj.entities[i + 1].tile = e.tile;
-                obj.entities[i + 1].animate = e.animate;
+                // obj.entities[i + 1].animate = e.animate;
                 obj.entities[i + 1].framedelay = e.framedelay;
                 obj.entities[i + 1].walkingframe = e.walkingframe;
                 obj.entities[i + 1].drawframe = e.drawframe;
@@ -1619,16 +1619,16 @@ namespace Solver {
                 obj.blocks[i].rect.h = b.rect_h;
                 obj.blocks[i].type = b.type;
                 obj.blocks[i].trigger = b.trigger;
-                obj.blocks[i].xp = b.xp;
-                obj.blocks[i].yp = b.yp;
-                obj.blocks[i].wp = b.wp;
-                obj.blocks[i].hp = b.hp;
+                obj.blocks[i].xp = b.rect_x;
+                obj.blocks[i].yp = b.rect_y;
+                // obj.blocks[i].wp = b.wp;
+                // obj.blocks[i].hp = b.hp;
                 // obj.blocks[i].script = b.script;
                 // obj.blocks[i].prompt = b.prompt;
-                obj.blocks[i].r = b.r;
-                obj.blocks[i].g = b.g;
-                obj.blocks[i].b = b.b;
-                obj.blocks[i].activity_y = b.activity_y;
+                // obj.blocks[i].r = b.r;
+                // obj.blocks[i].g = b.g;
+                // obj.blocks[i].b = b.b;
+                // obj.blocks[i].activity_y = b.activity_y;
             }
         }
     }
@@ -2241,9 +2241,10 @@ namespace Solver {
         return total_frames;
     }
 
-    std::hash<int> h_i;
-    std::hash<float> h_f;
     std::hash<bool> h_b;
+    std::hash<int> h_i;
+    std::hash<std::uint64_t> h_u;
+    std::hash<float> h_f;
 
     std::size_t hash_naivestate(naivestate s) {
         std::size_t result = 0;
@@ -2293,17 +2294,12 @@ namespace Solver {
         result = combine_hashes(result, h_i(p.y));
 
         // TODO: do we need to account for floating point errors? (precision loss)
-        // vx is always multiple of 0.1, vy is always multiple of 0.25
-        float effective_vx = SDL_roundf(10.0 * p.vx);
-        float effective_vy = SDL_roundf(4.0 * p.vy);
-        result = combine_hashes(result, h_f(effective_vx));
-        result = combine_hashes(result, h_f(effective_vy));
+        result = combine_hashes(result, h_f(p.vx));
+        result = combine_hashes(result, h_f(p.vy));
 
         // Should always be integers
-        float effective_ax = SDL_roundf(p.ax);
-        float effective_ay = SDL_roundf(p.ay);
-        result = combine_hashes(result, h_f(effective_ax));
-        result = combine_hashes(result, h_f(effective_ay));
+        result = combine_hashes(result, h_i(p.ax));
+        result = combine_hashes(result, h_i(p.ay));
 
         // Any value less than 0 is equivalent to 0
         int effective_onground = SDL_max(p.onground, 0);
@@ -2378,23 +2374,32 @@ namespace Solver {
 
     std::size_t hash_block(naiveblockstate b) {
         std::size_t b_hash = 0;
-        b_hash = combine_hashes(b_hash, h_i(b.rect_x));
-        b_hash = combine_hashes(b_hash, h_i(b.rect_y));
-        b_hash = combine_hashes(b_hash, h_i(b.rect_w));
-        b_hash = combine_hashes(b_hash, h_i(b.rect_h));
-        b_hash = combine_hashes(b_hash, h_i(b.type));
-        b_hash = combine_hashes(b_hash, h_i(b.trigger));
-        b_hash = combine_hashes(b_hash, h_i(b.xp));
-        b_hash = combine_hashes(b_hash, h_i(b.yp));
-        b_hash = combine_hashes(b_hash, h_i(b.wp));
-        b_hash = combine_hashes(b_hash, h_i(b.hp));
+
+        std::uint64_t value = b.rect_x + 100;
+        // b_hash = combine_hashes(b_hash, h_i(b.rect_x));
+        value = (value << 10) | (b.rect_y + 100);
+        // b_hash = combine_hashes(b_hash, h_i(b.rect_y));
+        value = (value << 9) | b.rect_w;
+        // b_hash = combine_hashes(b_hash, h_i(b.rect_w));
+        value = (value << 9) | b.rect_h;
+        // b_hash = combine_hashes(b_hash, h_i(b.rect_h));
+        value = (value << 3) | b.type;
+        // b_hash = combine_hashes(b_hash, h_i(b.type));
+        value = (value << 12) | b.trigger;
+        // b_hash = combine_hashes(b_hash, h_i(b.trigger));
+        b_hash = combine_hashes(b_hash, h_u(value));
+
+        // b_hash = combine_hashes(b_hash, h_i(b.xp));
+        // b_hash = combine_hashes(b_hash, h_i(b.yp));
+        // b_hash = combine_hashes(b_hash, h_i(b.wp));
+        // b_hash = combine_hashes(b_hash, h_i(b.hp));
 
         // script, prompt
 
-        b_hash = combine_hashes(b_hash, h_i(b.r));
-        b_hash = combine_hashes(b_hash, h_i(b.g));
-        b_hash = combine_hashes(b_hash, h_i(b.b));
-        b_hash = combine_hashes(b_hash, h_i(b.activity_y));
+        // b_hash = combine_hashes(b_hash, h_i(b.r));
+        // b_hash = combine_hashes(b_hash, h_i(b.g));
+        // b_hash = combine_hashes(b_hash, h_i(b.b));
+        // b_hash = combine_hashes(b_hash, h_i(b.activity_y));
 
         return b_hash;
     }
@@ -2424,33 +2429,44 @@ namespace Solver {
 
     std::size_t hash_entity(naiveenemystate e) {
         std::size_t e_hash = 0;
-        e_hash = combine_hashes(e_hash, h_i(e.type));
+        std::uint64_t value = ((e.type + 1) << 4) | (e.rule + 1);
+        // e_hash = combine_hashes(e_hash, h_i(e.type));   // 6.67 bits
+        // e_hash = combine_hashes(e_hash, h_i(e.rule));   // 3 bits
 
-        e_hash = combine_hashes(e_hash, h_i(e.rule));
-        e_hash = combine_hashes(e_hash, h_i(e.x));
-        e_hash = combine_hashes(e_hash, h_i(e.y));
-        e_hash = combine_hashes(e_hash, h_f(e.vy));
-        e_hash = combine_hashes(e_hash, h_f(e.vx));
-        e_hash = combine_hashes(e_hash, h_f(e.ax));
-        e_hash = combine_hashes(e_hash, h_f(e.ay));
+        e_hash = combine_hashes(e_hash, h_i(e.x));   // 6.67 bits
+        e_hash = combine_hashes(e_hash, h_i(e.y));   // 3 bits
+        e_hash = combine_hashes(e_hash, h_f(e.vy));     // ???
+        e_hash = combine_hashes(e_hash, h_f(e.vx));     // ???
+            // e_hash = combine_hashes(e_hash, h_f(e.ax));     // ???
+            // e_hash = combine_hashes(e_hash, h_f(e.ay));     // ???
 
-        e_hash = combine_hashes(e_hash, h_i(e.behave));
-        e_hash = combine_hashes(e_hash, h_f(e.para));
-        e_hash = combine_hashes(e_hash, h_i(e.state));
-        e_hash = combine_hashes(e_hash, h_i(e.onwall));
+        value = (value << 5) | (e.behave + 1);
+        // e_hash = combine_hashes(e_hash, h_i(e.behave)); // 5 bits
+            // e_hash = combine_hashes(e_hash, h_f(e.para));   
+        value = (value << 3) | e.state;
+        // e_hash = combine_hashes(e_hash, h_i(e.state));  // 3 bits
+        value = (value << 2) | e.onwall;
+        // e_hash = combine_hashes(e_hash, h_i(e.onwall)); // 2 bits
 
-        // Any value less than -1 is equivalent to -1
-        int effective_statedelay = SDL_max(e.statedelay, -1);
-        e_hash = combine_hashes(e_hash, h_i(effective_statedelay));
+        // Any value less than 0 is equivalent to 0
+        int effective_statedelay = SDL_max(e.statedelay, 0);
+        value = (value << 7) | (effective_statedelay + 1);
+        // e_hash = combine_hashes(e_hash, h_i(effective_statedelay));
 
-        e_hash = combine_hashes(e_hash, h_i(e.tile));
-        e_hash = combine_hashes(e_hash, h_i(e.animate));
+        value = (value << 11) | e.tile;
+        // e_hash = combine_hashes(e_hash, h_i(e.tile));
+            // e_hash = combine_hashes(e_hash, h_i(e.animate));
 
         // Any value less than 0 is equivalent to 0
         int effective_framedelay = SDL_max(e.framedelay, 0);
-        e_hash = combine_hashes(e_hash, h_i(effective_framedelay));
-        e_hash = combine_hashes(e_hash, h_i(e.walkingframe));
-        e_hash = combine_hashes(e_hash, h_i(e.drawframe));
+        value = (value << 4) | effective_framedelay;
+        // e_hash = combine_hashes(e_hash, h_i(effective_framedelay));
+        value = (value << 4) | (e.walkingframe + 5);
+        // e_hash = combine_hashes(e_hash, h_i(e.walkingframe));
+        value = (value << 10) | (e.drawframe + 10);
+        // e_hash = combine_hashes(e_hash, h_i(e.drawframe));
+
+        e_hash = combine_hashes(e_hash, h_u(value));
 
         return e_hash;
     }

@@ -88,7 +88,7 @@ public:
 
     bool towercollide(int x, int y, bool invincible);
     bool collide(int x, int y, bool invincible);
-    bool collide_precomputed(int x, int y, bool invincible);
+    bool collide_precomputed(int x, int y);
 
     void settile(int xp, int yp, int t);
 
@@ -123,7 +123,7 @@ public:
     int contents[40 * 30];
     bool explored[20 * 20];
 
-    int collision[42 * 32];
+    bool collision[42 * 32];
 
     bool isexplored(const int rx, const int ry);
     void setexplored(const int rx, const int ry, const bool status);

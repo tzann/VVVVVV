@@ -92,8 +92,8 @@ namespace Solver {
         // TODO: these floats can be packed better
         float vx;       // -6 <= vx <= 6
         float vy;       // -10 <= vy <= 10
-        float ax;       // ax in { -6, -3, 0, 3, 6 }
-        float ay;       // ay in { -6, -3, 0, 3 }
+        int8_t ax;       // ax in { -6, -3, 0, 3, 6 }
+        int8_t ay;       // ay in { -6, -3, 0, 3 }
 
         int8_t onground;    // ?? <= onground <= 2 (effective min is 0)
         int8_t onroof;      // ?? <= onroof <= 2 (effective min is 0)
@@ -131,36 +131,41 @@ namespace Solver {
         // TODO: these can be packed better
         float vx;
         float vy;
-        float ax;               // ax in { -6, -3, 0, 3, 6 }
-        float ay;               // ay in { -6, -3, 0, 3 }
+        // TODO: ax and ay are needed for crew members (e.g. im1)
+        // float ax;               // ax in { -6, -3, 0, 3, 6 }
+        // float ay;               // ay in { -6, -3, 0, 3 }
 
-        // TODO: do we need actionframe?
-        // TODO: don't we need onroof, onground, onxwall, onywall? for moving platforms
-        int8_t behave;          // -1 <= behave <= 13
-        float para;
+        int8_t behave;          // -1 <= behave <= 18
+        // TODO: entity type 12 updates para (but is that even necessary anywhere?)
+        // float para;             // -1 <= para <= 48 (505167 for checkpoints)
         int8_t state;           // 0 <= state <= 4
         int8_t onwall;          // 0 <= onwall <= 3
         int8_t statedelay;      // 0 <= statedelay <= 120
 
         int16_t tile;           // 0 <= tile <= 1115
-        int8_t animate;         // 0 <= animate <= 100
+        // int8_t animate;         // 0 <= animate <= 100
         int8_t framedelay;      // 0 <= framedelay <= 10
         int8_t walkingframe;    // -5 <= walkingframe <= 5
         int16_t drawframe;      // -10 <= drawframe <= 721
+
+        // TODO: do we need actionframe? only matters for animate == 0, not sure if any (relephant) entities have that property
+        // TODO: add life for disappearing platforms and gravity lines
+        // TODO: newxp and newyp necessary?
+        // TODO: add onentity for gravity lines and disappearing platforms
     };
 
     // TODO better packing
     struct naiveblockstate {
-        int rect_x;
-        int rect_y;
-        int rect_w;
-        int rect_h;
-        int type;
-        int trigger;
-        int xp, yp, wp, hp;
+        int16_t rect_x;
+        int16_t rect_y;
+        int16_t rect_w;
+        int16_t rect_h;
+        int8_t type;        // 0 <= type <= 5
+        int16_t trigger;        // 0 <= trigger <= 3500
+        // int xp, yp, wp, hp;
         // std::string script, prompt;
-        int r, g, b;
-        int activity_y;
+        // int r, g, b;
+        // int activity_y;
     };
 
     struct naivestate {
