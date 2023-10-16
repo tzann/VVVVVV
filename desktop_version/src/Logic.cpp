@@ -370,6 +370,7 @@ void gamelogic(void)
 
         for (size_t i = 0; i < obj.entities.size(); i++)
         {
+            // Prize for the Reckless
             if (game.roomx == 111 && game.roomy == 107 && !map.custommode)
             {
                 if (obj.entities[i].type == 1)
@@ -1042,6 +1043,7 @@ void gamelogic(void)
                     {
                         if (obj.entities[i].isplatform)
                         {
+                            // This should never happen
                             obj.moveblockto(obj.entities[i].xp, obj.entities[i].yp, obj.entities[i].xp + 400, obj.entities[i].yp, obj.entities[i].w, obj.entities[i].h);
                         }
                         obj.entities[i].xp += 400;
@@ -1051,6 +1053,7 @@ void gamelogic(void)
                     {
                         if (obj.entities[i].isplatform)
                         {
+                            // This should never happen
                             obj.moveblockto(obj.entities[i].xp, obj.entities[i].yp, obj.entities[i].xp - 400, obj.entities[i].yp, obj.entities[i].w, obj.entities[i].h);
                         }
                         obj.entities[i].xp -= 400;

@@ -329,15 +329,11 @@ namespace Solver {
 
             // TODO: V Stitch to Quicksand
 
-            /*
-            // Before Quicksand
-            static int init_rx = 115;
-            static int init_ry = 106;
-            static int init_x = 293;
-            static int init_y = 22;
-            static int init_gravity = 1;
-            static int frames_to_advance = 0;
-            */
+            const corner QUICKSAND_STUPID_HALFWAY_CORNER(116, 106, 184, 95, TRINKET);
+            const corner QUICKSAND_STUPID_CORNER(116, 106, 184, 121, TRINKET);
+            const Scenario QUICKSAND_STUPID(116, 106, 80, 22, 1, 0, {
+                QUICKSAND_STUPID_HALFWAY_CORNER
+                });
 
             /*
             // Before The Tomb of Mad Carew
@@ -375,37 +371,475 @@ namespace Solver {
             }
         }
         namespace SCENARIOS {
-            const Scenario TWIHTKY_STUPID(114, 102, 9, 120, 0, 0, {
+            const Scenario TWIHTKY_STUPID_GLITCHLESS(116, 100, 40, 102, 1, 97, {
+                CORNERS::I_LOVE_YOU::WARP_TOKEN,
                 CORNERS::THATS_WHY_I_HAVE_TO_KILL_YOU::WARP_TOKEN,
                 });
-            const Scenario TWIHTKY_STUPID_2(116, 100, 40, 102, 1, 97, {
-                CORNERS::I_LOVE_YOU::WARP_TOKEN,
+            const Scenario TWIHTKY_STUPID_DEATHWARP(114, 102, 0, 150, 1, 4, {
                 CORNERS::THATS_WHY_I_HAVE_TO_KILL_YOU::WARP_TOKEN,
                 });
         }
     }
 
-    // Benchmarks before map & set improvement:
-    // Linear Collider: 0:45.5 (1.09M states visited)
-    // Security Sweep:  0:31.1 (1.03M states visited)
-    // The Yes Men:     3:49.4 (4.62M states visited)
-    // Benchmarks after:
-    // Linear Collider: 0:42.1 (1.09M states visited)
-    // Security Sweep:  0:28.9 (1.03M states visited)
-    // The Yes Men:     3:30.3 (4.62M states visited)
-    // Benchmarks after game optimizations and gotoroom elision:
-    // Linear Collider: 0:12.8 (1.09M states visited)
-    // Security Sweep:  0:28.9 (1.03M states visited)
-    // The Yes Men:     1:42.4 (4.62M states visited)
-    static Scenario scenario = SS1::SCENARIOS::THE_YES_MEN;
+    namespace LAB {
+        namespace CORNERS {
+            namespace GET_READY_TO_BOUNCE {
+                const corner DROP_DOWN(102, 116, 210, 33, DOWN_RIGHT);
+            }
+            namespace ITS_PERFECTLY_SAFE {
+                const corner START_LEFT(102, 117, 210, 22, LEFT_DOWN);
+                const corner CONTINUE_LEFT(102, 117, 186, 46, LEFT_DOWN);
+            }
+            namespace RASCASSE {
+                const corner FLIP_DOWN(101, 117, 62, 97, DOWN_LEFT);
+                const corner PHANTOM_TOUCH_GROUND(101, 117, 62, 177, DOWN_LEFT);
+                const corner GO_RIGHT(101, 117, 62, 126, RIGHT_DOWN);
+                const corner EXIT(101, 117, 218, 177, DOWN_RIGHT);
+            }
+            namespace KEEP_GOING {
+                const corner ENTRY(101, 118, 218, 14, LEFT_DOWN);
+                const corner GO_LEFT(101, 118, 202, 78, LEFT_DOWN);
+            }
+            namespace SINGLE_SLIT_EXPERIMENT {
+                const corner FLIP_UP(100, 118, 278, 89, UP_LEFT);
+                const corner EXIT(100, 118, 70, 129, DOWN_RIGHT);
+            }
+            namespace DONT_FLIP_OUT {
+                const corner GO_RIGHT(100, 119, 70, 86, RIGHT_DOWN);
+            }
+            namespace THREES_A_CROWD {
+                const int rx = 104;
+                const int ry = 119;
+                const corner ENTRY_DROP(rx, ry, 10, 97, DOWN_RIGHT);
+                const corner SPIKE_CUT(rx, ry, 30, 166, RIGHT_DOWN);
+                const corner LINE_CLIP_CORNER(rx, ry, 58, 166, UP_RIGHT);
+            }
+            namespace HITTING_THE_APEX {
+                const int rx = 104;
+                const int ry = 118;
+                const corner ENTRY_CUT(rx, ry, 94, 193, RIGHT_UP);
+                const corner TURNAROUND_1(rx, ry, 194, 118, UP_RIGHT);
+                const corner TURNAROUND_2(rx, ry, 194, 89, LEFT_UP);
+            }
+            namespace SQUARE_ROOT {
+                const int rx = 103;
+                const int ry = 118;
+                const corner DROP_DOWN(rx, ry, 238, 89, DOWN_LEFT);
+                const corner FALL_UP(rx, ry, 126, 86, UP_LEFT);
+            }
+            namespace THORNY_EXCHANGE {
+                const int rx = 103;
+                const int ry = 117;
+                const corner GO_RIGHT(rx, ry, 126, 153, RIGHT_UP);
+                const corner FALL_UP(rx, ry, 162, 46, UP_RIGHT);
+            }
+            namespace LETTER_G {
+                const int rx = 103;
+                const int ry = 116;
+                const corner ENTRY_LEFT(rx, ry, 162, 153, LEFT_UP);
+                const corner DROP_UP(rx, ry, 54, 110, UP_LEFT);
+                const corner GO_RIGHT(rx, ry, 54, 65, RIGHT_UP);
+            }
+            namespace FREE_YOUR_MIND {
+                const int rx = 104;
+                const int ry = 116;
+                const corner DROP(rx, ry, 66, 65, DOWN_RIGHT);
+            }
+            namespace ENTANGLEMENT_GENERATOR {
+                const int rx = 107;
+                const int ry = 115;
+                const corner DROP_UP(rx, ry, 234, 174, UP_RIGHT);
+                const corner DROP_DOWN(rx, ry, 234, 137, DOWN_RIGHT);
+                // Entering Garbage Room
+                const corner A(rx, ry, 50, 17, LEFT_UP);
+                const corner B(rx, ry, 14, 17, DOWN_LEFT);
+                const corner C(rx, ry, 10, 38, LEFT_DOWN);
+                // Leaving Garbage Room
+                const corner X(rx, ry, 10, 38, UP_RIGHT);
+                const corner Y(rx, ry, 14, 17, RIGHT_UP);
+                const corner Z(rx, ry, 50, 17, DOWN_LEFT);
+            }
+            namespace GARBAGE_ROOM_ONE_ENTER {
+                const int rx = 106;
+                const int ry = 115;
+                // Entering
+                const corner A(rx, ry, 198, 49, DOWN_LEFT);
+                const corner B(rx, ry, 190, 57, DOWN_LEFT);
+                const corner C(rx, ry, 186, 70, LEFT_DOWN);
+                const corner D(rx, ry, 174, 105, DOWN_LEFT);
+                const corner E(rx, ry, 170, 182, LEFT_DOWN);
+                const corner F(rx, ry, 138, 198, LEFT_DOWN);
+                const corner G(rx, ry, 102, 198, UP_LEFT);
+                const corner H(rx, ry, 86, 182, UP_LEFT);
+                const corner I(rx, ry, 66, 97, LEFT_UP);
+                const corner J(rx, ry, 58, 89, LEFT_UP);
+                const corner K(rx, ry, 22, 89, DOWN_LEFT);
+            }
+            namespace GARBAGE_ROOM_ONE_LEAVE {
+                const int rx = 106;
+                const int ry = 115;
+                // Leaving
+                const corner A(rx, ry, 198, 49, RIGHT_UP);
+                const corner B(rx, ry, 190, 57, RIGHT_UP);
+                const corner C(rx, ry, 186, 70, UP_RIGHT);
+                const corner D(rx, ry, 174, 105, RIGHT_UP);
+                const corner E(rx, ry, 170, 182, UP_RIGHT);
+                const corner F(rx, ry, 138, 198, UP_RIGHT);
+                const corner G(rx, ry, 102, 198, RIGHT_DOWN);
+                const corner H(rx, ry, 86, 182, RIGHT_DOWN);
+                const corner I(rx, ry, 66, 97, DOWN_RIGHT);
+                const corner J(rx, ry, 58, 89, DOWN_RIGHT);
+                const corner K(rx, ry, 22, 89, RIGHT_UP);
+            }
+            namespace GARBAGE_ROOM_TWO_ENTER {
+                const int rx = 105;
+                const int ry = 115;
+                // Entering
+                const corner A(rx, ry, 254, 121, DOWN_LEFT);
+                const corner B(rx, ry, 246, 145, DOWN_LEFT);
+                const corner C(rx, ry, 242, 190, LEFT_DOWN);
+                const corner D(rx, ry, 198, 190, UP_LEFT);
+                const corner E(rx, ry, 182, 150, UP_LEFT);
+                const corner F(rx, ry, 182, 105, RIGHT_UP);
+                const corner G(rx, ry, 202, 94, UP_RIGHT);
+                const corner H(rx, ry, 210, 86, UP_RIGHT);
+                const corner I(rx, ry, 210, 17, LEFT_UP);
+                const corner J(rx, ry, 142, 17, DOWN_LEFT);
+                const corner K(rx, ry, 134, 33, DOWN_LEFT);
+                const corner L(rx, ry, 130, 118, LEFT_DOWN);
+                const corner M(rx, ry, 118, 129, DOWN_LEFT);
+                const corner N(rx, ry, 114, 166, LEFT_DOWN);
+                const corner O(rx, ry, 110, 177, DOWN_LEFT);
+                const corner P(rx, ry, 106, 198, LEFT_DOWN);
+                const corner Q(rx, ry, 78, 198, UP_LEFT);
+                const corner R(rx, ry, 74, 153, LEFT_UP);
+                const corner S(rx, ry, 62, 134, UP_LEFT);
+                const corner T(rx, ry, 58, 113, LEFT_UP);
+                const corner U(rx, ry, 38, 102, UP_LEFT);
+                const corner V(rx, ry, 22, 86, UP_LEFT);
+                const corner W(rx, ry, 22, 41, RIGHT_UP);
+                
+                // Trinket
+                const corner TRINKET(rx, ry, 72, 16, TRINKET);
+            }
+            namespace GARBAGE_ROOM_TWO_LEAVE {
+                const int rx = 105;
+                const int ry = 115;
+                // Leaving
+                const corner A(rx, ry, 254, 121, RIGHT_UP);
+                const corner B(rx, ry, 246, 145, RIGHT_UP);
+                const corner C(rx, ry, 242, 190, UP_RIGHT);
+                const corner D(rx, ry, 198, 190, RIGHT_DOWN);
+                const corner E(rx, ry, 182, 150, RIGHT_DOWN);
+                const corner F(rx, ry, 182, 105, DOWN_LEFT);
+                const corner G(rx, ry, 202, 94, LEFT_DOWN);
+                const corner H(rx, ry, 210, 86, LEFT_DOWN);
+                const corner I(rx, ry, 210, 17, DOWN_RIGHT);
+                const corner J(rx, ry, 142, 17, RIGHT_UP);
+                const corner K(rx, ry, 134, 33, RIGHT_UP);
+                const corner L(rx, ry, 130, 118, UP_RIGHT);
+                const corner M(rx, ry, 118, 129, RIGHT_UP);
+                const corner N(rx, ry, 114, 166, UP_RIGHT);
+                const corner O(rx, ry, 110, 177, RIGHT_UP);
+                const corner P(rx, ry, 106, 198, UP_RIGHT);
+                const corner Q(rx, ry, 78, 198, RIGHT_DOWN);
+                const corner R(rx, ry, 74, 153, DOWN_RIGHT);
+                const corner S(rx, ry, 62, 134, RIGHT_DOWN);
+                const corner T(rx, ry, 58, 113, DOWN_RIGHT);
+                const corner U(rx, ry, 38, 102, RIGHT_DOWN);
+                const corner V(rx, ry, 22, 86, RIGHT_DOWN);
+                const corner W(rx, ry, 22, 41, DOWN_LEFT);
+            }
+            namespace HEADY_HEIGHTS {
+                const int rx = 107;
+                const int ry = 116;
+                const corner SHAFT_ENTRY(rx, ry, 234, 113, DOWN_RIGHT);
+            }
+            namespace BERNOULLI_PRINCIPLE {
+                const int rx = 107;
+                const int ry = 119;
+                const corner START_RIGHT(rx, ry, 246, 70, RIGHT_DOWN);
+                const corner TURNAROUND_1(rx, ry, 274, 89, DOWN_RIGHT);
+                const corner TURNAROUND_2(rx, ry, 274, 118, LEFT_DOWN);
+                const corner EXIT_DROP(rx, ry, 246, 137, DOWN_LEFT);
+            }
+            namespace STANDING_WAVE {
+                const int rx = 107;
+                const int ry = 100;
+                const corner GO_LEFT(rx, ry, 234, 70, LEFT_DOWN);
+            }
+            namespace SPIKE_STRIP_DEPLOYED {
+                const int rx = 105;
+                const int ry = 100;
+                const corner SPIKE_CORNER(rx, ry, 190, 62, UP_LEFT);
+                const corner LAST_SPIKE_CORNER(rx, ry, 106, 145, LEFT_UP);
+            }
+            namespace MERGE {
+                const int rx = 103;
+                const int ry = 100;
+                const corner TOP_RIGHT(rx, ry, 170, 94, LEFT_DOWN);
+                const corner BOTTOM_RIGHT(rx, ry, 170, 113, LEFT_UP);
+                const corner TOP_LEFT(rx, ry, 134, 94, UP_LEFT);
+                const corner BOTTOM_LEFT(rx, ry, 134, 113, DOWN_LEFT);
+            }
+            namespace IM_SORRY {
+                const int rx = 101;
+                const int ry = 100;
+                const corner CHECKPOINT_DROP(rx, ry, 222, 94, UP_LEFT);
+                const corner SPIKE_RIGHT(rx, ry, 106, 57, LEFT_UP);
+                const corner SPIKE_LEFT(rx, ry, 86, 57, DOWN_LEFT);
+            }
+            namespace PLEASE_FORGIVE_ME {
+                const int rx = 101;
+                const int ry = 101;
+                const corner LAST_SPIKE_CORNER(rx, ry, 158, 102, RIGHT_DOWN);
+                const corner EXIT_CORNER(rx, ry, 238, 89, RIGHT_UP);
+            }
+            namespace PLAYING_FOOSBALL {
+                const int rx = 102;
+                const int ry = 101;
+                const corner ENTRY_DROP(rx, ry, 74, 89, DOWN_RIGHT);
+            }
+            namespace LIVING_DEAD_END {
+                const int rx = 104;
+                const int ry = 101;
+                const corner FIRST_LINE_DROP(rx, ry, 66, 113, DOWN_RIGHT);
+                const corner SECOND_LINE_DROP(rx, ry, 130, 161, DOWN_RIGHT);
+            }
+            namespace DIODE {
+                const int rx = 104;
+                const int ry = 103;
+                const corner LEFT_ENTRY_SPIKE(rx, ry, 130, 54, LEFT_DOWN);
+                const corner LEFT_TURNAROUND_1(rx, ry, 86, 81, DOWN_LEFT);
+                const corner LEFT_TURNAROUND_2(rx, ry, 86, 126, RIGHT_DOWN);
+                const corner LEFT_EXIT_SHAFT(rx, ry, 138, 185, DOWN_RIGHT);
+                const corner RIGHT_ENTRY_SPIKE(rx, ry, 174, 54, RIGHT_DOWN);
+                const corner RIGHT_TURNAROUND_1(rx, ry, 218, 81, DOWN_RIGHT);
+                const corner RIGHT_TURNAROUND_2(rx, ry, 218, 126, LEFT_DOWN);
+                const corner RIGHT_EXIT_SHAFT(rx, ry, 166, 185, DOWN_LEFT);
+            }
+            namespace I_SMELL_OZONE {
+                const int rx = 104;
+                const int ry = 104;
+                const corner CORNER_CUT(rx, ry, 138, 158, LEFT_DOWN);
+            }
+        }
+        namespace SCENARIOS {
+            const Scenario IL_START_TO_RASCASSE(102, 116, 191, 33, 0, 0, {
+                CORNERS::GET_READY_TO_BOUNCE::DROP_DOWN,
+                CORNERS::ITS_PERFECTLY_SAFE::START_LEFT,
+                CORNERS::ITS_PERFECTLY_SAFE::CONTINUE_LEFT,
+                CORNERS::RASCASSE::FLIP_DOWN,
+                CORNERS::RASCASSE::PHANTOM_TOUCH_GROUND,
+            });
+
+            const Scenario RASCASSE_TO_SINGLE_SLIT(101, 117, 158, 177, 0, 0, {
+                CORNERS::RASCASSE::EXIT,
+                CORNERS::KEEP_GOING::ENTRY,
+                CORNERS::KEEP_GOING::GO_LEFT,
+                CORNERS::SINGLE_SLIT_EXPERIMENT::FLIP_UP,
+            });
+
+            const Scenario RASCASSE_TO_DONT_FLIP_OUT(101, 117, 158, 177, 0, 0, {
+                CORNERS::RASCASSE::EXIT,
+                CORNERS::KEEP_GOING::ENTRY,
+                CORNERS::KEEP_GOING::GO_LEFT,
+                CORNERS::SINGLE_SLIT_EXPERIMENT::EXIT,
+                CORNERS::DONT_FLIP_OUT::GO_RIGHT,
+            });
+
+            const Scenario DONT_FLIP_OUT_TO_LINECLIP(100, 119, 61, 21, 0, 0, {
+                CORNERS::DONT_FLIP_OUT::GO_RIGHT,
+                CORNERS::THREES_A_CROWD::ENTRY_DROP,
+                CORNERS::THREES_A_CROWD::LINE_CLIP_CORNER,
+                CORNERS::HITTING_THE_APEX::ENTRY_CUT,
+            });
+
+            const Scenario HITTING_THE_APEX_TO_LETTER_G(104, 119, 85, 41, 1, 0, {
+                CORNERS::HITTING_THE_APEX::ENTRY_CUT,
+                CORNERS::HITTING_THE_APEX::TURNAROUND_1,
+                CORNERS::HITTING_THE_APEX::TURNAROUND_2,
+                CORNERS::SQUARE_ROOT::DROP_DOWN,
+                CORNERS::SQUARE_ROOT::FALL_UP,
+                CORNERS::THORNY_EXCHANGE::GO_RIGHT,
+                CORNERS::THORNY_EXCHANGE::FALL_UP,
+                CORNERS::LETTER_G::ENTRY_LEFT,
+                CORNERS::LETTER_G::DROP_UP,
+                CORNERS::LETTER_G::GO_RIGHT,
+                CORNERS::FREE_YOUR_MIND::DROP,
+            });
+
+            // Search space too large, can't confirm this ties TAS
+            const Scenario LETTER_G_TO_HEADY_HEIGHTS(103, 116, 39, 130, 1, 0, {
+                CORNERS::LETTER_G::GO_RIGHT,
+                CORNERS::FREE_YOUR_MIND::DROP,
+                CORNERS::HEADY_HEIGHTS::SHAFT_ENTRY,
+            });
+
+            const Scenario ENTANGLEMENT_GENERATOR_TO_BERNOULLI(107, 115, 233, 174, 1, 0, {
+                CORNERS::HEADY_HEIGHTS::SHAFT_ENTRY,
+                CORNERS::BERNOULLI_PRINCIPLE::START_RIGHT,
+                CORNERS::BERNOULLI_PRINCIPLE::TURNAROUND_1,
+                CORNERS::BERNOULLI_PRINCIPLE::TURNAROUND_2,
+                CORNERS::BERNOULLI_PRINCIPLE::EXIT_DROP,
+                // TODO: fix map/coord wrap-around problems
+            });
+
+            const Scenario STANDING_WAVE_TO_MERGE(107, 100, 240, 19, 0, 0, {
+                CORNERS::STANDING_WAVE::GO_LEFT,
+                CORNERS::MERGE::BOTTOM_LEFT,
+            });
+
+            const Scenario MERGE_TO_IM_SORRY(103, 100, 176, 131, 1, 0, {
+                CORNERS::MERGE::TOP_LEFT,
+                CORNERS::IM_SORRY::CHECKPOINT_DROP,
+                CORNERS::IM_SORRY::SPIKE_RIGHT,
+                CORNERS::IM_SORRY::SPIKE_LEFT,
+            });
+
+            const Scenario PLEASE_FORGIVE_ME_TO_LIVING_DEAD_END(101, 101, 141, 69, 0, 0, {
+                CORNERS::PLEASE_FORGIVE_ME::LAST_SPIKE_CORNER,
+                CORNERS::PLEASE_FORGIVE_ME::EXIT_CORNER,
+                CORNERS::PLAYING_FOOSBALL::ENTRY_DROP,
+                CORNERS::LIVING_DEAD_END::FIRST_LINE_DROP,
+                CORNERS::LIVING_DEAD_END::SECOND_LINE_DROP,
+            });
+
+            const Scenario PLEASE_FORGIVE_ME_TO_LEFT_SIDE_END(101, 101, 141, 69, 0, 0, {
+                CORNERS::PLEASE_FORGIVE_ME::LAST_SPIKE_CORNER,
+                CORNERS::PLEASE_FORGIVE_ME::EXIT_CORNER,
+                CORNERS::PLAYING_FOOSBALL::ENTRY_DROP,
+                CORNERS::LIVING_DEAD_END::FIRST_LINE_DROP,
+                CORNERS::LIVING_DEAD_END::SECOND_LINE_DROP,
+                CORNERS::DIODE::LEFT_ENTRY_SPIKE,
+                CORNERS::DIODE::LEFT_TURNAROUND_1,
+                CORNERS::DIODE::LEFT_TURNAROUND_2,
+                CORNERS::DIODE::LEFT_EXIT_SHAFT,
+                CORNERS::I_SMELL_OZONE::CORNER_CUT,
+            });
+
+            const Scenario PLEASE_FORGIVE_ME_TO_RIGHT_SIDE_END(101, 101, 141, 69, 0, 0, {
+                CORNERS::PLEASE_FORGIVE_ME::LAST_SPIKE_CORNER,
+                CORNERS::PLEASE_FORGIVE_ME::EXIT_CORNER,
+                CORNERS::PLAYING_FOOSBALL::ENTRY_DROP,
+                CORNERS::LIVING_DEAD_END::FIRST_LINE_DROP,
+                CORNERS::LIVING_DEAD_END::SECOND_LINE_DROP,
+                CORNERS::DIODE::RIGHT_ENTRY_SPIKE,
+                CORNERS::DIODE::RIGHT_TURNAROUND_1,
+                CORNERS::DIODE::RIGHT_TURNAROUND_2,
+                CORNERS::DIODE::RIGHT_EXIT_SHAFT,
+                CORNERS::I_SMELL_OZONE::CORNER_CUT,
+            });
+
+            const Scenario GARBAGE_ROOM_TRINKET(107, 115, 233, 137, 0, 0, {
+                CORNERS::ENTANGLEMENT_GENERATOR::A,
+                CORNERS::ENTANGLEMENT_GENERATOR::B,
+                CORNERS::ENTANGLEMENT_GENERATOR::C,
+
+                CORNERS::GARBAGE_ROOM_ONE_ENTER::A,
+                CORNERS::GARBAGE_ROOM_ONE_ENTER::B,
+                CORNERS::GARBAGE_ROOM_ONE_ENTER::C,
+                CORNERS::GARBAGE_ROOM_ONE_ENTER::D,
+                CORNERS::GARBAGE_ROOM_ONE_ENTER::E,
+                CORNERS::GARBAGE_ROOM_ONE_ENTER::F,
+                CORNERS::GARBAGE_ROOM_ONE_ENTER::G,
+                CORNERS::GARBAGE_ROOM_ONE_ENTER::H,
+                CORNERS::GARBAGE_ROOM_ONE_ENTER::I,
+                CORNERS::GARBAGE_ROOM_ONE_ENTER::J,
+                CORNERS::GARBAGE_ROOM_ONE_ENTER::K,
+
+                CORNERS::GARBAGE_ROOM_TWO_ENTER::A,
+                CORNERS::GARBAGE_ROOM_TWO_ENTER::B,
+                CORNERS::GARBAGE_ROOM_TWO_ENTER::C,
+                CORNERS::GARBAGE_ROOM_TWO_ENTER::D,
+                CORNERS::GARBAGE_ROOM_TWO_ENTER::E,
+                CORNERS::GARBAGE_ROOM_TWO_ENTER::F,
+                CORNERS::GARBAGE_ROOM_TWO_ENTER::G,
+                CORNERS::GARBAGE_ROOM_TWO_ENTER::H,
+                CORNERS::GARBAGE_ROOM_TWO_ENTER::I,
+                CORNERS::GARBAGE_ROOM_TWO_ENTER::J,
+                CORNERS::GARBAGE_ROOM_TWO_ENTER::K,
+                CORNERS::GARBAGE_ROOM_TWO_ENTER::L,
+                CORNERS::GARBAGE_ROOM_TWO_ENTER::M,
+                CORNERS::GARBAGE_ROOM_TWO_ENTER::N,
+                CORNERS::GARBAGE_ROOM_TWO_ENTER::O,
+                CORNERS::GARBAGE_ROOM_TWO_ENTER::P,
+                CORNERS::GARBAGE_ROOM_TWO_ENTER::Q,
+                CORNERS::GARBAGE_ROOM_TWO_ENTER::R,
+                CORNERS::GARBAGE_ROOM_TWO_ENTER::S,
+                CORNERS::GARBAGE_ROOM_TWO_ENTER::T,
+                CORNERS::GARBAGE_ROOM_TWO_ENTER::U,
+                CORNERS::GARBAGE_ROOM_TWO_ENTER::V,
+                CORNERS::GARBAGE_ROOM_TWO_ENTER::W,
+
+                CORNERS::GARBAGE_ROOM_TWO_ENTER::TRINKET,
+
+                CORNERS::GARBAGE_ROOM_TWO_LEAVE::W,
+                CORNERS::GARBAGE_ROOM_TWO_LEAVE::V,
+                CORNERS::GARBAGE_ROOM_TWO_LEAVE::U,
+                CORNERS::GARBAGE_ROOM_TWO_LEAVE::T,
+                CORNERS::GARBAGE_ROOM_TWO_LEAVE::S,
+                CORNERS::GARBAGE_ROOM_TWO_LEAVE::R,
+                CORNERS::GARBAGE_ROOM_TWO_LEAVE::Q,
+                CORNERS::GARBAGE_ROOM_TWO_LEAVE::P,
+                CORNERS::GARBAGE_ROOM_TWO_LEAVE::O,
+                CORNERS::GARBAGE_ROOM_TWO_LEAVE::N,
+                CORNERS::GARBAGE_ROOM_TWO_LEAVE::M,
+                CORNERS::GARBAGE_ROOM_TWO_LEAVE::L,
+                CORNERS::GARBAGE_ROOM_TWO_LEAVE::K,
+                CORNERS::GARBAGE_ROOM_TWO_LEAVE::J,
+                CORNERS::GARBAGE_ROOM_TWO_LEAVE::I,
+                CORNERS::GARBAGE_ROOM_TWO_LEAVE::H,
+                CORNERS::GARBAGE_ROOM_TWO_LEAVE::G,
+                CORNERS::GARBAGE_ROOM_TWO_LEAVE::F,
+                CORNERS::GARBAGE_ROOM_TWO_LEAVE::E,
+                CORNERS::GARBAGE_ROOM_TWO_LEAVE::D,
+                CORNERS::GARBAGE_ROOM_TWO_LEAVE::C,
+                CORNERS::GARBAGE_ROOM_TWO_LEAVE::B,
+                CORNERS::GARBAGE_ROOM_TWO_LEAVE::A,
+
+                CORNERS::GARBAGE_ROOM_ONE_LEAVE::K,
+                CORNERS::GARBAGE_ROOM_ONE_LEAVE::J,
+                CORNERS::GARBAGE_ROOM_ONE_LEAVE::I,
+                CORNERS::GARBAGE_ROOM_ONE_LEAVE::H,
+                CORNERS::GARBAGE_ROOM_ONE_LEAVE::G,
+                CORNERS::GARBAGE_ROOM_ONE_LEAVE::F,
+                CORNERS::GARBAGE_ROOM_ONE_LEAVE::E,
+                CORNERS::GARBAGE_ROOM_ONE_LEAVE::D,
+                CORNERS::GARBAGE_ROOM_ONE_LEAVE::C,
+                CORNERS::GARBAGE_ROOM_ONE_LEAVE::B,
+                CORNERS::GARBAGE_ROOM_ONE_LEAVE::A,
+
+                CORNERS::ENTANGLEMENT_GENERATOR::X,
+                CORNERS::ENTANGLEMENT_GENERATOR::Y,
+                CORNERS::ENTANGLEMENT_GENERATOR::Z,
+
+                CORNERS::ENTANGLEMENT_GENERATOR::DROP_DOWN,
+            });
+
+            const Scenario RASCASSE_IGNORE_LINE(101, 117, 310, 46, 1, 0, {
+                CORNERS::RASCASSE::EXIT,
+                CORNERS::KEEP_GOING::ENTRY,
+                CORNERS::KEEP_GOING::GO_LEFT,
+            });
+
+            // TODO: brute force letter G assuming no line / can clip
+        }
+    }
+
+    // Current Benchmarks:
+    // The Yes Men: 4630052 states visited, ~1:30 runtime (cached_stateful)
+    static Scenario scenario = LAB::SCENARIOS::RASCASSE_IGNORE_LINE;
+
+    // TODO: map.loadlevel caching
+    // TODO: don't checkblocks for damage blocks
+    // TODO: more hashing optimizations - use what we know about the data to make it faster (without introducing collisions)
+    // TODO: is there some way of optimizing hitest?
 
     static std::unordered_map<std::size_t, naiveenemystate, modified_hash> entitycache;
     static std::unordered_map<std::size_t, naiveblockstate, modified_hash> blockcache;
     static std::unordered_map<std::size_t, std::vector<std::size_t>, modified_hash> entity_set_cache;
     static std::unordered_map<std::size_t, std::vector<std::size_t>, modified_hash> block_set_cache;
-
-    // TODO: look into better hashing ideas - use what we know about the data to make it faster (without introducing collisions)
-    // TODO: naiveblockstate is not optimized
 
     void entrypoint() {
         // TODO is this really necessary
@@ -554,7 +988,7 @@ namespace Solver {
                 SDL_Delay(340);
             } */
 
-
+            /*
             map.resetplayer();
             map.gotoroom(105, 107);
             map.initmapdata();
@@ -578,6 +1012,55 @@ namespace Solver {
                 game.hours = obj.entities[0].yp;
                 do_game_step(true);
                 SDL_Delay(340);
+            }*/
+
+            /* Screen transition platform clipping proof of concept
+            map.resetplayer();
+            map.gotoroom(101, 116);
+            map.initmapdata();
+
+            graphics.fademode = FADE_NONE;
+            game.jumppressed = false;
+
+            key.clearKeys();
+
+            game.gravitycontrol = 0;
+            obj.entities[0].xp = 100;
+            obj.entities[0].yp = 70;
+
+            for (int i = 0; i < 300; i++) {
+                key.clearKeys();
+                if (i == 65 || i == 125) {
+                    key.setKey(KEYBOARD_v, true);
+                }
+                obj.entities[0].dir = key.isDown(KEYBOARD_v);
+                game.deathcounts = obj.entities[0].yp;
+                do_game_step(true);
+                SDL_Delay(34);
+            }*/
+
+            map.resetplayer();
+            map.gotoroom(113, 112);
+            map.initmapdata();
+
+            graphics.fademode = FADE_NONE;
+            game.jumppressed = false;
+
+            key.clearKeys();
+
+            game.gravitycontrol = 0;
+            obj.entities[0].xp = 60;
+            obj.entities[0].yp = 140;
+
+            for (int i = 0; i < 60; i++) {
+                key.clearKeys();
+                if (i == 10) {
+                    game.gravitycontrol = 1;
+                    obj.entities[0].yp++;
+                }
+                game.deathcounts = obj.entities[0].yp;
+                do_game_step(true);
+                SDL_Delay(34);
             }
         }
     }
@@ -1078,7 +1561,8 @@ namespace Solver {
         int i = 0;
         while (true) {
             game.hours = int(block_set_cache.size());
-            game.deathcounts = int(entity_set_cache.size());
+            game.deathcounts = int(game.deathseq);
+            game.hours = i;
             do_game_step(true);
             SDL_Delay(102);
             i++;
@@ -1221,6 +1705,10 @@ namespace Solver {
                 e.walkingframe = obj.entities[i].walkingframe;
                 e.drawframe = obj.entities[i].drawframe;
 
+                e.invis = obj.entities[i].invis;
+                e.life = obj.entities[i].life;
+                e.onentity = obj.entities[i].onentity;
+
                 // TODO emplace
                 s.entities.push_back(e);
             }
@@ -1338,6 +1826,10 @@ namespace Solver {
             obj.entities[i + 1].framedelay = s.entities[i].framedelay;
             obj.entities[i + 1].walkingframe = s.entities[i].walkingframe;
             obj.entities[i + 1].drawframe = s.entities[i].drawframe;
+
+            obj.entities[i + 1].invis = s.entities[i].invis;
+            obj.entities[i + 1].life = s.entities[i].life;
+            obj.entities[i + 1].onentity = s.entities[i].onentity;
         }
 
         // Load block data
@@ -1541,6 +2033,10 @@ namespace Solver {
             e.walkingframe = obj.entities[i].walkingframe;
             e.drawframe = obj.entities[i].drawframe;
 
+            e.invis = obj.entities[i].invis;
+            e.life = obj.entities[i].life;
+            e.onentity = obj.entities[i].onentity;
+
             entities.push_back(cache_entity(e));
         }
 
@@ -1548,10 +2044,14 @@ namespace Solver {
         blocks.reserve(obj.blocks.size());
         for (size_t i = 0; i < obj.blocks.size(); i++) {
             // Skip deleted blocks
-            // TODO: is this safe? any unexpected side effects?
             if (obj.blocks[i].wp == 0 && obj.blocks[i].hp == 0 && obj.blocks[i].rect.w == 0 && obj.blocks[i].rect.h == 0) {
                 continue;
             }
+            // These blocks can't change state
+            if (obj.blocks[i].type == DAMAGE || obj.blocks[i].type == DIRECTIONAL || obj.blocks[i].type == SAFE) {
+                continue;
+            }
+            // TODO: are these skips safe? any unexpected side effects?
 
             naiveblockstate b = naiveblockstate();
             b.rect_x = obj.blocks[i].rect.x;
@@ -1606,6 +2106,10 @@ namespace Solver {
                 obj.entities[i + 1].framedelay = e.framedelay;
                 obj.entities[i + 1].walkingframe = e.walkingframe;
                 obj.entities[i + 1].drawframe = e.drawframe;
+
+                obj.entities[i + 1].invis = e.invis;
+                obj.entities[i + 1].life = e.life;
+                obj.entities[i + 1].onentity = e.onentity;
             }
         }
         if (cache_entry.block_set != 0) {
@@ -1691,8 +2195,8 @@ namespace Solver {
 
     std::size_t cache_block_set(std::vector<std::size_t> blocks) {
         std::size_t combined_block_hash = combine_hashes(0, blocks.size());
-        for (std::size_t e_hash : blocks) {
-            combined_block_hash = combine_hashes(combined_block_hash, e_hash);
+        for (std::size_t b_hash : blocks) {
+            combined_block_hash = combine_hashes(combined_block_hash, b_hash);
         }
 
         if (block_set_cache.find(combined_block_hash) == block_set_cache.end()) {
@@ -1865,7 +2369,6 @@ namespace Solver {
                 VVV_exit(24);
             }
 
-
             int warps = room_warps(c.rx, c.ry);
 
             int min_x_warp = (warps & 1) ? -1 : 0;
@@ -1997,6 +2500,19 @@ namespace Solver {
                             }
                         }
 
+                        // Imprecision here, but i guess it's ok
+                        x_min = SDL_min(x_min, next_x_min);
+                        x_max = SDL_max(x_max, next_x_max);
+                        y_min = SDL_min(y_min, next_y_min);
+                        y_max = SDL_max(y_max, next_y_max);
+                    }
+                    else if (c.dir == TRINKET) {
+                        // What are the min and max positions reachable while still touching trinket?
+                        int next_x_min = SDL_max(px - frame_count * X_SPEED, c.x - 17);
+                        int next_x_max = SDL_min(px + frame_count * X_SPEED, c.x + 9);
+
+                        int next_y_min = SDL_max(py - frame_count * Y_SPEED, c.y - 22);
+                        int next_y_max = SDL_min(py + frame_count * Y_SPEED, c.y + 13);
                         // Imprecision here, but i guess it's ok
                         x_min = SDL_min(x_min, next_x_min);
                         x_max = SDL_max(x_max, next_x_max);
@@ -2282,7 +2798,7 @@ namespace Solver {
         result = combine_hashes(result, s.cache_entry.block_set);
 
         // Trinkets hash
-        result = combine_hashes(result, h_b(s.collect));
+        result = combine_hashes(result, h_i(s.collect));
 
         return result;
     }
@@ -2366,7 +2882,9 @@ namespace Solver {
         result = combine_hashes(result, h_i(bs.size()));
 
         for (int i = 0; i < bs.size(); i++) {
-            result = combine_hashes(result, hash_block(bs[i]));
+            if (bs[i].type == BLOCK || bs[i].type == TRIGGER || bs[i].type == ACTIVITY) {
+                result = combine_hashes(result, hash_block(bs[i]));
+            }
         }
 
         return result;
@@ -2429,8 +2947,10 @@ namespace Solver {
 
     std::size_t hash_entity(naiveenemystate e) {
         std::size_t e_hash = 0;
-        std::uint64_t value = ((e.type + 1) << 4) | (e.rule + 1);
+        std::uint64_t value = 0;
+        value = (value << 7) | (e.type + 1);
         // e_hash = combine_hashes(e_hash, h_i(e.type));   // 6.67 bits
+        value = (value << 4) | (e.rule + 1);
         // e_hash = combine_hashes(e_hash, h_i(e.rule));   // 3 bits
 
         e_hash = combine_hashes(e_hash, h_i(e.x));   // 6.67 bits
@@ -2465,6 +2985,13 @@ namespace Solver {
         // e_hash = combine_hashes(e_hash, h_i(e.walkingframe));
         value = (value << 10) | (e.drawframe + 10);
         // e_hash = combine_hashes(e_hash, h_i(e.drawframe));
+
+        value = (value << 1) | e.invis;
+        // e_hash = combine_hashes(e_hash, h_b(e.invis));
+        value = (value << 4) | e.life;
+        // e_hash = combine_hashes(e_hash, h_i(e.life));
+        value = (value << 2) | e.invis;
+        // e_hash = combine_hashes(e_hash, h_i(e.onentity));
 
         e_hash = combine_hashes(e_hash, h_u(value));
 

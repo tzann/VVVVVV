@@ -149,9 +149,12 @@ namespace Solver {
         int16_t drawframe;      // -10 <= drawframe <= 721
 
         // TODO: do we need actionframe? only matters for animate == 0, not sure if any (relephant) entities have that property
-        // TODO: add life for disappearing platforms and gravity lines
         // TODO: newxp and newyp necessary?
-        // TODO: add onentity for gravity lines and disappearing platforms
+
+        // For disappearing platforms and gravity lines:
+        bool invis;     // 0 <= invis <= 1
+        int8_t life;       // 0 <= life <= 12
+        int8_t onentity;   // 0 <= onentity <= 3
     };
 
     // TODO better packing
