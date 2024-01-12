@@ -2209,11 +2209,99 @@ void mapclass::loadlevel(int rx, int ry)
         for (int x = -1; x <= 40; x++) {
             for (int y = -1; y <= 29 + extrarow; y++) {
                 int idx = 42 * y + x + 43;  // (x+1) + (y+1) * 42;
+                // TODO: Can we optimize this? It burns a lot of CPU time (~2.5%)
+                //       -> Actually, just caching levels we've loaded before will fix this
                 collision[idx] = collide(x, y, false);
+            }
+        }
+
+        // Precompute flippable surfaces (blocks with exposed horizontal surfaces)
+        // TODO: fix this for invincibility mode
+        top_surfaces.clear();
+        bottom_surfaces.clear();
+        // Process one extra row and column so we have a guaranteed end to the surface
+        for (int y = -1; y <= 29 + extrarow + 1; y++) {
+            int topSurfaceStart = -1;
+            int botSurfaceStart = -1;
+            for (int x = -1; x <= 40 + 1; x++) {
+                bool hasTopSurface = true;
+                bool hasBotSurface = true;
+                if (collide_precomputed(x, y)) {
+                    for (int y_offset = 1; y_offset <= 3; y_offset++) {
+                        if (collide_precomputed(x, y - y_offset)) {
+                            hasTopSurface = false;
+                        }
+                        if (collide_precomputed(x, y + y_offset)) {
+                            hasBotSurface = false;
+                        }
+                    }
+                } else {
+                    hasTopSurface = false;
+                    hasBotSurface = false;
+                }
+
+                // Top surface:
+                if (topSurfaceStart == -1) {
+                    if (hasTopSurface) {
+                        topSurfaceStart = x * 8;
+                    }
+                } else if (!hasTopSurface) {
+                    // Top surface ends here
+                    int topSurfaceEnd = x * 8;
+                    /* Collision params:
+                        entity.cx = 6;
+                        entity.w = 12;
+                        temprect.x = entities[t].xp + entities[t].cx;
+                        temprect.w = entities[t].w;
+                    */
+                    HorizontalSurface top_surface;
+                    // x1: leftmost coordinate where viridian can stand on this floor
+                    // x2: rightmost coordinate where viridian can stand on this floor
+                    //     xp + cx + w - 1 == x1
+                    //     xp + cx     + 1 == x2
+                    top_surface.x1 = topSurfaceStart + 1 - 12 - 6;
+                    top_surface.x2 = topSurfaceEnd   - 1      - 6;
+                    top_surface.y = y * 8;
+                    top_surface.top = true;
+                    top_surfaces.push_back(top_surface);
+
+                    // Reset
+                    topSurfaceStart = -1;
+                }
+
+                // Bottom surface:
+                if (botSurfaceStart == -1) {
+                    if (hasBotSurface) {
+                        botSurfaceStart = x * 8;
+                    }
+                } else if (!hasBotSurface || x == 40) {
+                    // Top surface ends here
+                    int botSurfaceEnd = x * 8;
+                    /* Collision params:
+                        entity.cx = 6;
+                        entity.w = 12;
+                        temprect.x = entities[t].xp + entities[t].cx;
+                        temprect.w = entities[t].w;
+                    */
+                    HorizontalSurface bot_surface;
+                    // x1: leftmost coordinate where viridian can stand on this floor
+                    // x2: rightmost coordinate where viridian can stand on this floor
+                    //     xp + cx + w - 1 == x1
+                    //     xp + cx     + 1 == x2
+                    bot_surface.x1 = botSurfaceStart + 1 - 12 - 6;
+                    bot_surface.x2 = botSurfaceEnd   - 1      - 6;
+                    bot_surface.y = (y + 1) * 8;
+                    bot_surface.top = false;
+                    bottom_surfaces.push_back(bot_surface);
+
+                    // Reset:
+                    botSurfaceStart = -1;
+                }
             }
         }
     } else {
         // TODO: precompute tower collision?
+        // TODO: precompute tower surfaces?
     }
 }
 

@@ -2144,6 +2144,7 @@ namespace Solver {
         }
     }
 
+    // TODO: what if we created the struct in-place, then only filled it here using ptrs? benchmark
     cachednaivestate create_cached_naivestate() {
         cachednaivestate s = cachednaivestate();
 
@@ -2882,6 +2883,8 @@ namespace Solver {
     // TODO: account for warping rooms (WZ, intermissions, final)
     // TODO: account for warp tokens (overworld, WZ)
     // TODO: account for differing room heights (232 if map.warpy)
+    // TODO: account for nearest flippable surface
+    // TODO: maybe we can cache results starting from next_corner
     uint16_t get_heuristic(int next_corner, int room_x, int room_y, int player_x, int player_y) {
         int total_frames = 0;
 

@@ -37,6 +37,16 @@ struct Roomname
     int delay;
 };
 
+struct HorizontalSurface
+{
+    int x1;
+    int x2;
+    int y;
+    bool top;
+    // TODO: fix this for invincibility mode
+    // bool spiky;
+};
+
 class mapclass
 {
 public:
@@ -124,6 +134,8 @@ public:
     bool explored[20 * 20];
 
     bool collision[42 * 32];
+    std::vector<HorizontalSurface> top_surfaces;
+    std::vector<HorizontalSurface> bottom_surfaces;
 
     bool isexplored(const int rx, const int ry);
     void setexplored(const int rx, const int ry, const bool status);
