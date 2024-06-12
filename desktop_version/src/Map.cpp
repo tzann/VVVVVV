@@ -2217,6 +2217,7 @@ void mapclass::loadlevel(int rx, int ry)
 
         // Precompute flippable surfaces (blocks with exposed horizontal surfaces)
         // TODO: fix this for invincibility mode
+        // TODO: handle gravity lines
         top_surfaces.clear();
         bottom_surfaces.clear();
         // Process one extra row and column so we have a guaranteed end to the surface

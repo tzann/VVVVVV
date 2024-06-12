@@ -27,6 +27,8 @@
 #include "UtilityClass.h"
 #include "VFormat.h"
 
+#include "Terrain.h"
+
 static int tr;
 static int tg;
 static int tb;
@@ -1912,6 +1914,8 @@ void gamerender(void)
     graphics.set_render_target(graphics.gameplayTexture);
     graphics.set_color(0, 0, 0, 255);
 
+    Terrain::BeforeRenderHook();
+
     if(!game.blackout)
     {
         if (map.towermode)
@@ -1946,6 +1950,7 @@ void gamerender(void)
             }
         }
 
+        Terrain::AfterTileRenderHook();
 
         graphics.drawentities();
         if (map.towermode)
@@ -2329,7 +2334,7 @@ void gamerender(void)
         graphics.drawtrophytext();
     }
 
-
+    Terrain::AfterRenderHook();
     graphics.renderwithscreeneffects();
 }
 

@@ -34,6 +34,8 @@
 #include <algorithm>
 #include <iostream>
 
+#include "Terrain.h"
+
 namespace Solver {
 
     const int X_SPEED = 6;
@@ -1156,13 +1158,13 @@ namespace Solver {
         game.noflashingmode = true;
 
         // Uncomment this to skip
-        // debug_test();
+        debug_test();
         // debug_test_cached();
         // squish_test();
 
         // Solve
         // stateful_solver();
-        cached_stateful_solver();
+        // cached_stateful_solver();
         // stateless_solver(true);
     }
 
@@ -1833,7 +1835,8 @@ namespace Solver {
         while (true) {
             game.hours = int(obj.entities.size());
             do_game_step(true);
-            SDL_Delay(102);
+            SDL_Delay(34);
+            /*
             i++;
             if (i == 30) {
                 tmp = create_naive_state();
@@ -1841,7 +1844,7 @@ namespace Solver {
             else if (i == 60) {
                 load_naive_state(tmp);
                 i = 0;
-            }
+            }*/
         }
     }
 
@@ -2886,6 +2889,8 @@ namespace Solver {
     // TODO: account for nearest flippable surface
     // TODO: maybe we can cache results starting from next_corner
     uint16_t get_heuristic(int next_corner, int room_x, int room_y, int player_x, int player_y) {
+        bool can_flip = obj.entities[0].onground > 0 && game.gravitycontrol == 0 || obj.entities[0].onroof > 0 && game.gravitycontrol == 1;
+
         int total_frames = 0;
 
         int min_x = room_adjusted_x(room_x, player_x);
@@ -2914,6 +2919,42 @@ namespace Solver {
             int y_d = py - cy;
 
             int frame_count = 0;
+
+            // First check: Could we possibly reach the corner without flipping?
+            // If not, we can add the time it takes to reach the nearest flippable surface
+            // TODO: handle gravity lines
+            bool do_flippable_surface_calc = false;
+            if (!can_flip) {
+                // TODO: handle velocity opposite to accel case
+                if (obj.entities[0].ay > 0.0f && obj.entities[0].vy >= 0.0f && y_d > 0) {
+                    // We are falling down, but the corner is above us
+                    do_flippable_surface_calc = true;
+                } else if (obj.entities[0].ay < 0.0f && obj.entities[0].vy <= 0.0f && y_d < 0) {
+                    // We are falling up, but the corner is below us
+                    do_flippable_surface_calc = true;
+                }
+            }
+
+            // Skip if grav direction is unclear, or if we're already able to flip
+            if (do_flippable_surface_calc) {
+                /*
+                std::vector<HorizontalSurface>* surfaces;
+                if (obj.entities[0].ay > 0.0f) {
+                    // Falling down
+                    surfaces = &map.top_surfaces;
+                } else {
+                    // Falling up
+                    surfaces = map.bottom_surfaces;
+                }
+
+                int closest_surface_y;
+                int closest_surface_frames = -1;
+                // Find nearest (reachable) flippable surface
+                for (int i = 0; i < surfaces->size(); i++) {
+
+                }
+                */
+            }
 
             // Note that if we are "inside" the corner (e.g. x_d > 0 && y_d < 0 for UP_LEFT),
             //   then we just pretend we can walk through walls. The max corner cut distance constraint

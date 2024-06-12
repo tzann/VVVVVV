@@ -102,6 +102,7 @@ set(VVV_SRC
     src/Solver.cpp
     src/Spacestation2.cpp
     src/TerminalScripts.cpp
+    src/Terrain.cpp
     src/Textbox.cpp
     src/Tower.cpp
     src/UtilityClass.cpp
