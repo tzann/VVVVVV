@@ -22,11 +22,100 @@ namespace Terrain {
 	std::vector<Corner> inside_corners;
 	int *reachability;
 
+	void AddWall(int c_x, int c_y, int c_mask, int last_x, int last_y, int last_mask) {
+		// Give the walls some width
+		if (c_x == last_x) {
+			// Vertical wall
+			switch (c_mask) {
+			case 2: case 8: case 11: case 14:
+				// Wall is to the right
+				last_x += 1;
+				break;
+			case 1: case 4: case 7: case 13:
+				// Wall is to the left
+				last_x -= 1;
+				break;
+			}
+			// Give concave corners extra wall to absorb rays exactly in the corner
+			switch (c_mask) {
+			case 1: case 2: case 4: case 8:
+				if (c_y > last_y) {
+					c_y += 2;
+				}
+				else if (c_y < last_y) {
+					c_y -= 2;
+				}
+				break;
+			}
+			switch (last_mask) {
+			case 1: case 2: case 4: case 8:
+				if (c_y > last_y) {
+					last_y -= 2;
+				}
+				else if (c_y < last_y) {
+					last_y += 2;
+				}
+				break;
+			}
+		}
+		else if (c_y == last_y) {
+			// Horizontal wall
+			switch (c_mask) {
+			case 4: case 8: case 13: case 14:
+				// Wall is above
+				last_y -= 1;
+				break;
+			case 1: case 2: case 7: case 11:
+				// Wall is below
+				last_y += 1;
+				break;
+			}
+			// Give concave corners extra wall to absorb rays exactly in the corner
+			switch (c_mask) {
+			case 1: case 2: case 4: case 8:
+				if (c_x > last_x) {
+					c_x += 2;
+				}
+				else if (c_x < last_x) {
+					c_x -= 2;
+				}
+				break;
+			}
+			switch (last_mask) {
+			case 1: case 2: case 4: case 8:
+				if (c_x > last_x) {
+					last_x -= 2;
+				}
+				else if (c_x < last_x) {
+					last_x += 2;
+				}
+				break;
+			}
+		}
+		else {
+			VVV_exit(-1);
+		}
+
+		int min_x = last_x < c_x ? last_x : c_x;
+		int max_x = last_x > c_x ? last_x : c_x;
+		int min_y = last_y < c_y ? last_y : c_y;
+		int max_y = last_y > c_y ? last_y : c_y;
+
+		for (int x = min_x < 0 ? 0 : min_x; x < max_x && x < 320; x++) {
+			for (int y = min_y < 0 ? 0 : min_y; y < max_y && y < 240; y++) {
+				pixels[x][y] = 1;
+			}
+		}
+
+		walls.emplace_back(min_x, max_x, min_y, max_y);
+	}
+
 	void Precompute(void) {
 		if (reachability != NULL) {
 			free(reachability);
 		}
 		walls.clear();
+		inside_corners.clear();
 		std::vector<Corner> corners;
 		// Find all corner pixels
 		for (int x = 0; x < 320; x++) {
@@ -195,18 +284,7 @@ namespace Terrain {
 			else if (c.mask == -1) {
 				// end of cycle, potentially draw edge
 				if ((last_mask & start_mask & 0b10000) == 0) {
-					int min_x = last_x < start_x ? last_x : start_x;
-					int max_x = last_x > start_x ? last_x : start_x;
-					int min_y = last_y < start_y ? last_y : start_y;
-					int max_y = last_y > start_y ? last_y : start_y;
-
-					for (int x = min_x; x <= max_x; x++) {
-						for (int y = min_y; y <= max_y; y++) {
-							pixels[x][y] = 1;
-						}
-					}
-
-					walls.emplace_back(min_x, max_x, min_y, max_y);
+					AddWall(start_x, start_y, start_mask & 0b1111, last_x, last_y, last_mask & 0b1111);
 				}
 				last_x = -1;
 				start_x = -1;
@@ -215,48 +293,7 @@ namespace Terrain {
 
 			// Draw edge if it's not a screen edge
 			if ((last_mask & c.mask & 0b10000) == 0) {
-				int min_x = last_x < c.x ? last_x : c.x;
-				int max_x = last_x > c.x ? last_x : c.x;
-				int min_y = last_y < c.y ? last_y : c.y;
-				int max_y = last_y > c.y ? last_y : c.y;
-
-				for (int x = min_x; x <= max_x; x++) {
-					for (int y = min_y; y <= max_y; y++) {
-						pixels[x][y] = 1;
-					}
-				}
-
-				if (min_x == max_x) {
-					// Vertical wall
-					switch (c.mask) {
-						case 2: case 8: case 11: case 14:
-							// Wall is to the left
-							max_x += 1;
-							break;
-						case 1: case 4: case 7: case 13:
-							// Wall is to the right
-							min_x -= 1;
-							break;
-					}
-				}
-				else if (min_y == max_y) {
-					// Horizontal wall
-					switch (c.mask) {
-					case 4: case 8: case 13: case 14:
-						// Wall is above
-						min_y -= 1;
-						break;
-					case 1: case 2: case 7: case 11:
-						// Wall is below
-						max_y += 1;
-						break;
-					}
-				}
-				else {
-					VVV_exit(-1);
-				}
-
-				walls.emplace_back(min_x, max_x, min_y, max_y);
+				AddWall(c.x, c.y, c.mask & 0b1111, last_x, last_y, last_mask & 0b1111);
 			}
 			last_x = c.x;
 			last_y = c.y;
@@ -265,18 +302,7 @@ namespace Terrain {
 
 		// Draw final edge if it's not a screen edge
 		if (last_x != -1 && start_x != -1 && (last_mask & start_mask & 0b10000) == 0) {
-			int min_x = last_x < start_x ? last_x : start_x;
-			int max_x = last_x > start_x ? last_x : start_x;
-			int min_y = last_y < start_y ? last_y : start_y;
-			int max_y = last_y > start_y ? last_y : start_y;
-
-			for (int x = min_x; x <= max_x; x++) {
-				for (int y = min_y; y <= max_y; y++) {
-					pixels[x][y] = 1;
-				}
-			}
-
-			walls.emplace_back(min_x, max_x, min_y, max_y);
+			AddWall(start_x, start_y, start_mask & 0b1111, last_x, last_y, last_mask & 0b1111);
 		}
 
 		int num_corners = inside_corners.size();
@@ -289,13 +315,89 @@ namespace Terrain {
 				Corner& c2 = inside_corners.at(j);
 				int dx = c2.x - c1.x;
 				int dy = c2.y - c1.y;
+				int c1_mask = c1.mask & 0b1111;
+				int c2_mask = c2.mask & 0b1111;
 
 				bool any = false;
-				for (int w = 0; w < walls.size(); w++) {
+				// Make sure the corners are compatible
+				if (dx == 0) {
+					if (dy > 0) {
+						if (c1_mask != 7 && c1_mask != 11) {
+							any = true;
+						} else if (c1_mask == 7 && c2_mask != 13) {
+							any = true;
+						}
+						else if (c1_mask == 11 && c2_mask != 14) {
+							any = true;
+						}
+					}
+					else {
+						if (c2_mask != 7 && c2_mask != 11) {
+							any = true;
+						}
+						else if (c2_mask == 7 && c1_mask != 13) {
+							any = true;
+						}
+						else if (c2_mask == 11 && c1_mask != 14) {
+							any = true;
+						}
+					}
+				}
+				else if (dy == 0) {
+					if (dx > 0) {
+						if (c1_mask != 14 && c1_mask != 11) {
+							any = true;
+						} else if (c1_mask == 14 && c2_mask != 13) {
+							any = true;
+						}
+						else if (c1_mask == 11 && c2_mask != 7) {
+							any = true;
+						}
+					}
+					else {
+						if (c2_mask != 14 && c2_mask != 11) {
+							any = true;
+						} if (c2_mask == 14 && c1_mask != 13) {
+							any = true;
+						}
+						else if (c2_mask == 11 && c1_mask != 7) {
+							any = true;
+						}
+					}
+				}
+				else if (c1_mask == c2_mask) {
+					if ((dx > 0) == (dy > 0)) {
+						if (c1_mask == 11 || c1_mask == 13) {
+							any = true;
+						}
+					}
+					else {
+						if (c1_mask == 7 || c1_mask == 14) {
+							any = true;
+						}
+					}
+				}
+				else if ((c1_mask & c2_mask) == 6 || (c1_mask & c2_mask) == 9) {
+					// Corners are opposite -> same "illegal" areas
+					if ((dx > 0) == (dy > 0)) {
+						if (c1_mask == 11 || c1_mask == 13) {
+							any = true;
+						}
+					}
+					else {
+						if (c1_mask == 7 || c1_mask == 14) {
+							any = true;
+						}
+					}
+				}
+				else {
+					any = true;
+				}
+
+				for (int w = 0; !any && w < walls.size(); w++) {
 					AABB& wall = walls.at(w);
 					if (wall.RayIntersect(c1.x, c1.y, dx, dy)) {
 						any = true;
-						break;
 					}
 				}
 				if (!any) {
@@ -329,7 +431,7 @@ namespace Terrain {
 
 						int ik = reachability[i * num_corners + k];
 						if (ik == -1 || ik > ij + jk) {
-							ik = ij + jk;
+							reachability[i * num_corners + k] = ij + jk;
 							changed = true;
 						}
 					}
@@ -361,14 +463,59 @@ namespace Terrain {
 			int num_corners = inside_corners.size();
 
 			graphics.set_blendmode(SDL_BLENDMODE_BLEND);
+
+			// First, raycast from all corners to player to find distances
+			int *corner_dists = (int*)malloc(num_corners * sizeof(int));
+			for (int i = 0; i < num_corners; i++) {
+				corner_dists[i] = -1; // Overwrite values
+			}
+			for (int i = 0; i < num_corners; i++) {
+				Corner& c = inside_corners.at(i);
+				int dx = c.x - px;
+				int dy = c.y - py;
+				// Make sure we're in the right place relative to the corner
+				if ((dx > 0) != (dy > 0)) {
+					if (c.mask == 7 || c.mask == 14) {
+						continue;
+					}
+				}
+				else {
+					if (c.mask == 11 || c.mask == 13) {
+						continue;
+					}
+				}
+
+				bool any = false;
+				for (int w = 0; w < walls.size(); w++) {
+					AABB& wall = walls.at(w);
+					if (wall.RayIntersect(px, py, dx, dy)) {
+						any = true;
+						break;
+					}
+				}
+				if (!any) {
+					corner_dists[i] = 0;
+
+					// "Transitive closure"
+					for (int j = 0; j < num_corners; j++) {
+						if (j != i && reachability[i * num_corners + j] != -1) {
+							if (corner_dists[j] == -1 || corner_dists[j] > reachability[i * num_corners + j]) {
+								corner_dists[j] = reachability[i * num_corners + j];
+							}
+						}
+					}
+				}
+			}
 			
 			for (int x = 0; x < 320; x++) {
 				for (int y = 0; y < 240; y++) {
 					if (pixels[x][y] == 1) {
+						// Wall pixels
 						Terrain::RenderPixel(x, y, 0, 255, 0, 127);
 					}
 					else if (pixels[x][y] == 2) {
-						int d = num_corners;
+						// Air pixels
+						int d = num_corners + 1;
 						// Raycast to player
 						int dx = x - px;
 						int dy = y - py;
@@ -386,13 +533,26 @@ namespace Terrain {
 						else {
 							for (int i = 0; i < num_corners; i++) {
 								Corner& c = inside_corners.at(i);
-								if (reachability[0 * num_corners + i] >= d || reachability[0 * num_corners + i] == -1) {
+								if (corner_dists[i] >= d || corner_dists[i] == -1) {
 									continue;
 								}
 
 								// Raycast to corner
 								int dx = x - c.x;
 								int dy = y - c.y;
+								// Make sure we're in the right place relative to the corner
+								if (dx != 0 && dy != 0) {
+									if ((dx > 0) != (dy > 0)) {
+										if (c.mask == 7 || c.mask == 14) {
+											continue;
+										}
+									}
+									else {
+										if (c.mask == 11 || c.mask == 13) {
+											continue;
+										}
+									}
+								}
 								bool any = false;
 								for (int w = 0; w < walls.size(); w++) {
 									AABB& wall = walls.at(w);
@@ -402,12 +562,18 @@ namespace Terrain {
 									}
 								}
 								if (!any) {
-									d = reachability[0 * num_corners + i];
+									int dist = 1 + corner_dists[i];
+									if (dist < d) {
+										d = dist;
+									}
 								}
 							}
 						}
 
-						if (d < num_corners) {
+						if (d <= num_corners) {
+							if (d > 2) {
+								d += 1;
+							}
 							d %= 12;
 							Terrain::RenderPixel(x, y, colors[d][0], colors[d][1], colors[d][2], 127);
 						}
@@ -415,15 +581,19 @@ namespace Terrain {
 				}
 			}
 
-			SDL_SetRenderDrawColor(gameScreen.m_renderer, 0, 255, 255, 127);
+			SDL_SetRenderDrawColor(gameScreen.m_renderer, 0, 255, 255, 200);
 			for (int i = 0; i < num_corners; i++) {
-				for (int j = 0; j < num_corners; j++) {
+				Corner& ci = inside_corners.at(i);
+				for (int j = i+1; j < num_corners; j++) {
 					if (reachability[i * num_corners + j] == 1) {
-						Corner& ci = inside_corners.at(i);
 						Corner& cj = inside_corners.at(j);
 
 						SDL_RenderDrawLine(gameScreen.m_renderer, ci.x, ci.y, cj.x, cj.y);
 					}
+				}
+
+				if (corner_dists[i] == 0) {
+					SDL_RenderDrawLine(gameScreen.m_renderer, ci.x, ci.y, px, py);
 				}
 			}
 
