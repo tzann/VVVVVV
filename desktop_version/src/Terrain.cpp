@@ -12,606 +12,499 @@
 
 
 namespace Terrain {
-	bool is_precomputed = false;
-	int precomputed_rx = 0;
-	int precomputed_ry = 0;
+	bool precomputed_rooms[20][20] = { { false } };
 
-	uint8_t pixels[320][240] = { { 0 } };
+	CollisionKind collision_kind = CollisionKind::Walls;
+	std::vector<NavCorner> nav_corners;
+	std::vector<Wall> nav_walls;
 
-	std::vector<AABB> walls;
-	std::vector<Corner> inside_corners;
-	int *reachability;
+	void PrecomputeCurrentRoomTerrain(void) {
+		int rx = game.roomx;
+		int ry = game.roomy;
+		int prev_num_corners = nav_corners.size();
+		int prev_num_walls = nav_walls.size();
 
-	void AddWall(int c_x, int c_y, int c_mask, int last_x, int last_y, int last_mask) {
-		// Give the walls some width
-		if (c_x == last_x) {
-			// Vertical wall
-			switch (c_mask) {
-			case 2: case 8: case 11: case 14:
-				// Wall is to the right
-				last_x += 1;
-				break;
-			case 1: case 4: case 7: case 13:
-				// Wall is to the left
-				last_x -= 1;
-				break;
-			}
-			// Give concave corners extra wall to absorb rays exactly in the corner
-			switch (c_mask) {
-			case 1: case 2: case 4: case 8:
-				if (c_y > last_y) {
-					c_y += 2;
-				}
-				else if (c_y < last_y) {
-					c_y -= 2;
-				}
-				break;
-			}
-			switch (last_mask) {
-			case 1: case 2: case 4: case 8:
-				if (c_y > last_y) {
-					last_y -= 2;
-				}
-				else if (c_y < last_y) {
-					last_y += 2;
-				}
-				break;
-			}
-		}
-		else if (c_y == last_y) {
-			// Horizontal wall
-			switch (c_mask) {
-			case 4: case 8: case 13: case 14:
-				// Wall is above
-				last_y -= 1;
-				break;
-			case 1: case 2: case 7: case 11:
-				// Wall is below
-				last_y += 1;
-				break;
-			}
-			// Give concave corners extra wall to absorb rays exactly in the corner
-			switch (c_mask) {
-			case 1: case 2: case 4: case 8:
-				if (c_x > last_x) {
-					c_x += 2;
-				}
-				else if (c_x < last_x) {
-					c_x -= 2;
-				}
-				break;
-			}
-			switch (last_mask) {
-			case 1: case 2: case 4: case 8:
-				if (c_x > last_x) {
-					last_x -= 2;
-				}
-				else if (c_x < last_x) {
-					last_x += 2;
-				}
-				break;
-			}
-		}
-		else {
+		// Min and max positions the player can stand at in this room
+		int min_x_pos, min_y_pos, max_x_pos, max_y_pos;
+		if (map.towermode) {
 			VVV_exit(-1);
-		}
-
-		int min_x = last_x < c_x ? last_x : c_x;
-		int max_x = last_x > c_x ? last_x : c_x;
-		int min_y = last_y < c_y ? last_y : c_y;
-		int max_y = last_y > c_y ? last_y : c_y;
-
-		for (int x = min_x < 0 ? 0 : min_x; x < max_x && x < 320; x++) {
-			for (int y = min_y < 0 ? 0 : min_y; y < max_y && y < 240; y++) {
-				pixels[x][y] = 1;
+		} else {
+			if (map.warpx) {
+				min_x_pos = -9; max_x_pos = 310;
+			} else {
+				min_x_pos = -14; max_x_pos = 307;
+			}
+			if (map.warpy) {
+				min_y_pos = -11; max_y_pos = 226;
+			} else {
+				min_y_pos = -2; max_y_pos = 237;
 			}
 		}
 
-		walls.emplace_back(min_x, max_x, min_y, max_y);
+		// Create all corners
+		for (int x = min_x_pos; x <= max_x_pos; x++) {
+			for (int y = min_y_pos; y <= max_y_pos; y++) {
+				int x_left = x - 1;
+				int y_up = y - 1;
+
+				bool is_air = !CheckPlayerCollisionCurrentRoom(x, y);
+				bool up_is_air = !CheckPlayerCollisionCurrentRoom(x, y_up);
+				bool left_is_air = !CheckPlayerCollisionCurrentRoom(x_left, y);
+				bool upleft_is_air = !CheckPlayerCollisionCurrentRoom(x_left, y_up);
+
+				int count = is_air + up_is_air + left_is_air + upleft_is_air;
+
+				if (count == 0 || count == 4) {
+					// Not a corner, continue
+					continue;
+				}
+				if (count == 2 && (is_air == left_is_air || is_air == up_is_air)) {
+					// Not a corner, continue
+					continue;
+				}
+
+				NavCornerType type = InvalidCorner;
+				if (count == 3) {
+					// Convex
+					if (!is_air) {
+						type = TopLeft;
+					}
+					else if (!up_is_air) {
+						type = BottomLeft;
+					}
+					else if (!upleft_is_air) {
+						type = BottomRight;
+					}
+					else {
+						// assume(!left_is_air)
+						type = TopRight;
+					}
+				} else if (count == 1) {
+					// Concave
+					if (is_air) {
+						type = ConcaveBR;
+					}
+					else if (up_is_air) {
+						type = ConcaveTR;
+					}
+					else if (upleft_is_air) {
+						type = ConcaveTL;
+					}
+					else {
+						// assume(left_is_air)
+						type = ConcaveBL;
+					}
+				} else {
+					// assume(count == 2)
+					if (is_air && upleft_is_air) {
+						type = QuadTLBR;
+					}
+					else if (up_is_air && left_is_air) {
+						type = QuadBLTR;
+					}
+					else {
+						// unreachable
+						VVV_exit(1);
+					}
+				}
+
+				// Add corner to list
+				nav_corners.emplace_back(type, rx, ry, x, y);
+			}
+		}
+
+		// Create vertical walls
+		for (int x = min_x_pos; x <= max_x_pos; x++) {
+			WallOrientation w = WallOrientation::InvalidWall;
+			int wall_start, y;
+			for (y = min_y_pos; y <= max_y_pos; y++) {
+				bool is_air = !CheckPlayerCollisionCurrentRoom(x, y);
+				bool left_is_air = !CheckPlayerCollisionCurrentRoom(x - 1, y);
+				
+				WallOrientation w_new;
+				if (is_air == left_is_air) {
+					w_new = InvalidWall;
+				} else {
+					w_new = is_air ? WallOrientation::Left : WallOrientation::Right;
+				}
+
+				if (w != w_new) {
+					if (w != InvalidWall) {
+						// Wall ends here
+						int wall_y = (w == WallOrientation::Left) ? y : wall_start;
+						int width = y - wall_start;
+						
+						nav_walls.emplace_back(w, x, wall_y, rx, ry, width);
+					}
+
+					if (w_new != InvalidWall) {
+						// New wall starts here
+						wall_start = y;
+					}
+
+					w = w_new;
+				}
+			}
+
+			if (w != InvalidWall) {
+				// Wall ends at screen edge
+				int wall_y = (w == WallOrientation::Left) ? y : wall_start;
+				int width = y - wall_start;
+
+				nav_walls.emplace_back(w, x, wall_y, rx, ry, width);
+			}
+		}
+
+		// Create horizontal walls
+		for (int y = min_y_pos; y <= max_y_pos; y++) {
+			WallOrientation w = WallOrientation::InvalidWall;
+			int wall_start, x;
+			for (x = min_x_pos; x <= max_x_pos; x++) {
+				bool is_air = !CheckPlayerCollisionCurrentRoom(x, y);
+				bool up_is_air = !CheckPlayerCollisionCurrentRoom(x, y - 1);
+
+				WallOrientation w_new;
+				if (is_air == up_is_air) {
+					w_new = InvalidWall;
+				} else {
+					w_new = is_air ? WallOrientation::Down : WallOrientation::Up;
+				}
+
+				if (w != w_new) {
+					if (w != InvalidWall) {
+						// Wall ends here
+						int wall_x = (w == WallOrientation::Down) ? x : wall_start;
+						int width = x - wall_start;
+
+						nav_walls.emplace_back(w, wall_x, y, rx, ry, width);
+					}
+
+					if (w_new != InvalidWall) {
+						// New wall starts here
+						wall_start = x;
+					}
+
+					w = w_new;
+				}
+			}
+
+			if (w != InvalidWall) {
+				// Wall ends at screen edge
+				int wall_x = (w == WallOrientation::Down) ? x : wall_start;
+				int width = x - wall_start;
+
+				nav_walls.emplace_back(w, wall_x, y, rx, ry, width);
+			}
+		}
+
+		int num_corners = nav_corners.size();
+		int num_walls = nav_walls.size();
+		// Determine connectivity of convex corners
+		for (int i = prev_num_corners; i < num_corners; i++) {
+			NavCorner& new_corner = nav_corners.at(i);
+			
+			switch (new_corner.type) {
+				case NavCornerType::TopLeft:
+				case NavCornerType::TopRight:
+				case NavCornerType::BottomLeft:
+				case NavCornerType::BottomRight:
+					break;
+				default:
+					// Skip convex corners
+					continue;
+			}
+
+			for (int j = 0; j < i; j++) {
+				NavCorner& c = nav_corners.at(j);
+
+				// Not in same room, skip
+				if (c.room_x != new_corner.room_x || c.room_y != new_corner.room_y) {
+					continue;
+				}
+
+				int dx = new_corner.x - c.x;
+				int dy = new_corner.y - c.y;
+
+				// Check directionality
+				switch (new_corner.type) {
+					case NavCornerType::TopLeft:
+					case NavCornerType::BottomRight:
+						if (dx < 0 && dy < 0 || dx > 0 && dy > 0) {
+							continue;
+						}
+						break;
+					case NavCornerType::TopRight:
+					case NavCornerType::BottomLeft:
+						if (dx < 0 && dy > 0 || dx > 0 && dy < 0) {
+							continue;
+						}
+						break;
+					default:
+						// Skip convex corners
+						continue;
+				}
+				switch (c.type) {
+					case NavCornerType::TopLeft:
+					case NavCornerType::BottomRight:
+						if (dx < 0 && dy < 0 || dx > 0 && dy > 0) {
+							continue;
+						}
+						break;
+					case NavCornerType::TopRight:
+					case NavCornerType::BottomLeft:
+						if (dx < 0 && dy > 0 || dx > 0 && dy < 0) {
+							continue;
+						}
+						break;
+					default:
+						// Skip convex corners
+						continue;
+				}
+
+				// Add edges to the corners
+				NavEdge e1, e2;
+				e1.target = i; e1.dx = dx; e1.dy = dy;
+				e2.target = j; e2.dx = -dx; e2.dy = -dy;
+
+				c.edges.push_back(e1);
+				new_corner.edges.push_back(e2);
+			}
+		}
+	}
+
+	bool CheckPlayerCollisionCurrentRoom(int x, int y) {
+		const SDL_Rect temprect = {x + VIRIDIAN_CX, y + VIRIDIAN_CY, VIRIDIAN_W, VIRIDIAN_H};
+
+		// Check walls
+		if (collision_kind == Walls || collision_kind == WallsAndSpikes) {
+			if (obj.checkwall(false, temprect)) {
+				return true;
+			}
+		}
+		// Check spikes
+		if (collision_kind == WallsAndSpikes) {
+			for (size_t j = 0; j < obj.blocks.size(); j++)
+			{
+				if (obj.blocks[j].type == DAMAGE && help.intersects(obj.blocks[j].rect, temprect)) {
+					return true;
+				}
+			}
+		}
+		return false;
 	}
 
 	void Precompute(void) {
-		if (reachability != NULL) {
-			free(reachability);
+		int rx = game.roomx;
+		int ry = game.roomy;
+
+		if (!precomputed_rooms[rx][ry]) {
+			PrecomputeCurrentRoomTerrain();
+			precomputed_rooms[rx][ry] = true;
 		}
-		walls.clear();
-		inside_corners.clear();
-		std::vector<Corner> corners;
-		// Find all corner pixels
-		for (int x = 0; x < 320; x++) {
-			for (int y = 0; y < 240; y++) {
-				bool is_air = !CheckPlayerCollision(x, y) && !CheckPlayerSpike(x, y);
-				pixels[x][y] = is_air ? 2 : 0;
-
-				int mask = 0;
-				for (int bit = 1; bit < 16; bit <<= 1) {
-					int _x = (bit == 2 || bit == 8) ? (x - 1) : x;
-					int _y = (bit < 4) ? (y - 1) : y;
-					bool _is_air = !CheckPlayerCollision(_x, _y) && !CheckPlayerSpike(_x, _y);
-					if (_x < 0 || _y < 0 || _x == 319 || _y == 239) {
-						// Treat offscreen as wall, but remember that it's a special case
-						_is_air = false;
-						mask |= 16;
-					}
-
-					if (_is_air) {
-						mask |= bit;
-					}
-				}
-
-				int mask_ignore_screen_edge = mask & 0b1111;
-				switch (mask_ignore_screen_edge) {
-					case 7: case 11: case 13: case 14:
-						inside_corners.emplace_back(x, y, mask);
-					case 1: case 2: case 4: case 8:
-						corners.emplace_back(x, y, mask);
-					default:
-						break;
-				}
-			}
-		}
-
-		// For all corner pixels: Create a list, map out edges between them
-		std::vector<Corner> sorted_corners;
-		// Take last corner
-		Corner& last = corners.back();
-		sorted_corners.emplace_back(last.x, last.y, last.mask);
-		corners.pop_back();
-
-		int last_dir = -1; // 0 -> up, 1 -> right, 2 -> down, 3 -> left
-		while (corners.size() > 0) {
-			Corner &cur = sorted_corners.back();
-
-			int h_dir, v_dir;
-			switch (cur.mask & 0b1111) {
-				case 1: case 14:
-					h_dir = 1;
-					v_dir = 0;
-					break;
-				case 2: case 13:
-					h_dir = 3;
-					v_dir = 0;
-					break;
-				case 4: case 11:
-					h_dir = 1;
-					v_dir = 2;
-					break;
-				case 8: case 7:
-					h_dir = 3;
-					v_dir = 2;
-					break;
-				default:
-					h_dir = -1;
-					v_dir = -1;
-					VVV_exit(-1);
-					break;
-			}
-
-			int desired_dir = h_dir;
-			if (last_dir == desired_dir) {
-				desired_dir = v_dir;
-			}
-			last_dir = (desired_dir + 2) % 4; // Update last_dir for next iteration
-
-			int next_idx = -1;
-			int closest_dist = 1000;
-			for (int i = 0; i < corners.size(); i++) {
-				const Corner& next = corners.at(i);
-
-				int m = next.mask & 0b1111;
-
-				bool same_axis = false;
-				bool right_dir = false;
-				bool good_mask = false;
-				if (desired_dir % 2 == 0) {
-					// x must be same
-					same_axis = cur.x == next.x;
-					if (desired_dir == 0) {
-						// up
-						right_dir = cur.y > next.y;
-						good_mask = (m == 4 || m == 8 || m == 7 || m == 11);
-					}
-					else {
-						// down
-						right_dir = cur.y < next.y;
-						good_mask = (m == 1 || m == 2 || m == 13 || m == 14);
-					}
-				}
-				else {
-					// y must be same
-					same_axis = cur.y == next.y;
-					if (desired_dir == 1) {
-						// right
-						right_dir = cur.x < next.x;
-						good_mask = (m == 2 || m == 8 || m == 7 || m == 13);
-					}
-					else {
-						// left
-						right_dir = cur.x > next.x;
-						good_mask = (m == 1 || m == 4 || m == 11 || m == 14);
-					}
-				}
-
-				if (same_axis && right_dir && good_mask) {
-					// We found a candidate corner
-					int dist = abs(cur.x - next.x) + abs(cur.y - next.y);
-					if (dist < closest_dist) {
-						// Best one so far
-						next_idx = i;
-						closest_dist = dist;
-					}
-				}
-			}
-
-			if (next_idx != -1) {
-				Corner& next = corners.at(next_idx);
-				sorted_corners.emplace_back(next.x, next.y, next.mask);
-				// Swap remove
-				Corner& last_tmp = corners.back();
-				corners[next_idx] = last_tmp;
-				corners.pop_back();
-			}
-			else {
-				// Start a new cycle
-				sorted_corners.emplace_back(-1, -1, -1);
-				// Take last corner
-				Corner& last = corners.back();
-				sorted_corners.emplace_back(last.x, last.y, last.mask);
-				corners.pop_back();
-			}
-		}
-
-		int last_x = -1;
-		int last_y = -1;
-		int last_mask = -1;
-
-		int start_x = -1;
-		int start_y = -1;
-		int start_mask = -1;
-		for (int i = 0; i < sorted_corners.size(); i++) {
-			Corner& c = sorted_corners[i];
-
-			if (last_x == -1) {
-				// new cycle
-				start_x = c.x;
-				start_y = c.y;
-				start_mask = c.mask;
-				last_x = c.x;
-				last_y = c.y;
-				last_mask = c.mask;
-				continue;
-			}
-			else if (c.mask == -1) {
-				// end of cycle, potentially draw edge
-				if ((last_mask & start_mask & 0b10000) == 0) {
-					AddWall(start_x, start_y, start_mask & 0b1111, last_x, last_y, last_mask & 0b1111);
-				}
-				last_x = -1;
-				start_x = -1;
-				continue;
-			}
-
-			// Draw edge if it's not a screen edge
-			if ((last_mask & c.mask & 0b10000) == 0) {
-				AddWall(c.x, c.y, c.mask & 0b1111, last_x, last_y, last_mask & 0b1111);
-			}
-			last_x = c.x;
-			last_y = c.y;
-			last_mask = c.mask;
-		}
-
-		// Draw final edge if it's not a screen edge
-		if (last_x != -1 && start_x != -1 && (last_mask & start_mask & 0b10000) == 0) {
-			AddWall(start_x, start_y, start_mask & 0b1111, last_x, last_y, last_mask & 0b1111);
-		}
-
-		int num_corners = inside_corners.size();
-		reachability = (int*) malloc(num_corners * num_corners * sizeof(int));
-		// Determine reachability / distance between convex corners
-		for (int i = 0; i < inside_corners.size(); i++) {
-			Corner& c1 = inside_corners.at(i);
-
-			for (int j = i + 1; j < inside_corners.size(); j++) {
-				Corner& c2 = inside_corners.at(j);
-				int dx = c2.x - c1.x;
-				int dy = c2.y - c1.y;
-				int c1_mask = c1.mask & 0b1111;
-				int c2_mask = c2.mask & 0b1111;
-
-				bool any = false;
-				// Make sure the corners are compatible
-				if (dx == 0) {
-					if (dy > 0) {
-						if (c1_mask != 7 && c1_mask != 11) {
-							any = true;
-						} else if (c1_mask == 7 && c2_mask != 13) {
-							any = true;
-						}
-						else if (c1_mask == 11 && c2_mask != 14) {
-							any = true;
-						}
-					}
-					else {
-						if (c2_mask != 7 && c2_mask != 11) {
-							any = true;
-						}
-						else if (c2_mask == 7 && c1_mask != 13) {
-							any = true;
-						}
-						else if (c2_mask == 11 && c1_mask != 14) {
-							any = true;
-						}
-					}
-				}
-				else if (dy == 0) {
-					if (dx > 0) {
-						if (c1_mask != 14 && c1_mask != 11) {
-							any = true;
-						} else if (c1_mask == 14 && c2_mask != 13) {
-							any = true;
-						}
-						else if (c1_mask == 11 && c2_mask != 7) {
-							any = true;
-						}
-					}
-					else {
-						if (c2_mask != 14 && c2_mask != 11) {
-							any = true;
-						} if (c2_mask == 14 && c1_mask != 13) {
-							any = true;
-						}
-						else if (c2_mask == 11 && c1_mask != 7) {
-							any = true;
-						}
-					}
-				}
-				else if (c1_mask == c2_mask) {
-					if ((dx > 0) == (dy > 0)) {
-						if (c1_mask == 11 || c1_mask == 13) {
-							any = true;
-						}
-					}
-					else {
-						if (c1_mask == 7 || c1_mask == 14) {
-							any = true;
-						}
-					}
-				}
-				else if ((c1_mask & c2_mask) == 6 || (c1_mask & c2_mask) == 9) {
-					// Corners are opposite -> same "illegal" areas
-					if ((dx > 0) == (dy > 0)) {
-						if (c1_mask == 11 || c1_mask == 13) {
-							any = true;
-						}
-					}
-					else {
-						if (c1_mask == 7 || c1_mask == 14) {
-							any = true;
-						}
-					}
-				}
-				else {
-					any = true;
-				}
-
-				for (int w = 0; !any && w < walls.size(); w++) {
-					AABB& wall = walls.at(w);
-					if (wall.RayIntersect(c1.x, c1.y, dx, dy)) {
-						any = true;
-					}
-				}
-				if (!any) {
-					reachability[i * num_corners + j] = 1;
-					reachability[j * num_corners + i] = 1;
-				}
-				else {
-					reachability[i * num_corners + j] = -1;
-					reachability[j * num_corners + i] = -1;
-				}
-			}
-
-			reachability[i * num_corners + i] = 0;
-		}
-
-		// Compute transitive closure of reachability
-		bool changed = true;
-		while (changed) {
-			changed = false;
-			for (int i = 0; i < num_corners; i++) {
-				for (int j = 0; j < num_corners; j++) {
-					int ij = reachability[i * num_corners + j];
-					if (ij <= 0) {
-						continue;
-					}
-					for (int k = 0; k < num_corners; k++) {
-						int jk = reachability[j * num_corners + k];
-						if (jk <= 0) {
-							continue;
-						}
-
-						int ik = reachability[i * num_corners + k];
-						if (ik == -1 || ik > ij + jk) {
-							reachability[i * num_corners + k] = ij + jk;
-							changed = true;
-						}
-					}
-				}
-			}
-		}
-
-		is_precomputed = true;
-		precomputed_rx = game.roomx;
-		precomputed_ry = game.roomy;
 	}
 
 	void BeforeRenderHook(void) {
-		if (is_precomputed) {
-			if (game.roomx != precomputed_rx || game.roomy != precomputed_ry) {
-				is_precomputed = false;
-			}
-		}
-
-		if (!is_precomputed) {
-			Precompute();
-		}
+		Precompute();
 	}
 
 	void AfterTileRenderHook(void) {
-		if (is_precomputed) {
-			int px = obj.entities[0].xp + 6;
-			int py = obj.entities[0].yp + 2;
-			int num_corners = inside_corners.size();
+		int rx = game.roomx;
+		int ry = game.roomy;
+		if (precomputed_rooms[rx][ry]) {
+			int px = obj.entities[0].xp;
+			int py = obj.entities[0].yp;
+			int num_walls = nav_walls.size();
+			int num_corners = nav_corners.size();
 
 			graphics.set_blendmode(SDL_BLENDMODE_BLEND);
 
-			// First, raycast from all corners to player to find distances
-			int *corner_dists = (int*)malloc(num_corners * sizeof(int));
+			// Draw walls
+			SDL_SetRenderDrawColor(gameScreen.m_renderer, 0, 155, 0, 255);
+			for (int i = 0; i < num_walls; i++) {
+				Wall& w = nav_walls.at(i);
+				RenderWall(w);
+			}
+
+			// Draw corners
+			SDL_SetRenderDrawColor(gameScreen.m_renderer, 0, 255, 0, 255);
 			for (int i = 0; i < num_corners; i++) {
-				corner_dists[i] = -1; // Overwrite values
+				NavCorner& c = nav_corners.at(i);
+				RenderCorner(c);
 			}
+
+			// Draw connections
+			SDL_SetRenderDrawColor(gameScreen.m_renderer, 0, 255, 255, 100);
 			for (int i = 0; i < num_corners; i++) {
-				Corner& c = inside_corners.at(i);
-				int dx = c.x - px;
-				int dy = c.y - py;
-				// Make sure we're in the right place relative to the corner
-				if ((dx > 0) != (dy > 0)) {
-					if (c.mask == 7 || c.mask == 14) {
-						continue;
-					}
-				}
-				else {
-					if (c.mask == 11 || c.mask == 13) {
-						continue;
-					}
-				}
-
-				bool any = false;
-				for (int w = 0; w < walls.size(); w++) {
-					AABB& wall = walls.at(w);
-					if (wall.RayIntersect(px, py, dx, dy)) {
-						any = true;
-						break;
-					}
-				}
-				if (!any) {
-					corner_dists[i] = 0;
-
-					// "Transitive closure"
-					for (int j = 0; j < num_corners; j++) {
-						if (j != i && reachability[i * num_corners + j] != -1) {
-							if (corner_dists[j] == -1 || corner_dists[j] > reachability[i * num_corners + j]) {
-								corner_dists[j] = reachability[i * num_corners + j];
-							}
-						}
-					}
-				}
-			}
-			
-			for (int x = 0; x < 320; x++) {
-				for (int y = 0; y < 240; y++) {
-					if (pixels[x][y] == 1) {
-						// Wall pixels
-						Terrain::RenderPixel(x, y, 0, 255, 0, 127);
-					}
-					else if (pixels[x][y] == 2) {
-						// Air pixels
-						int d = num_corners + 1;
-						// Raycast to player
-						int dx = x - px;
-						int dy = y - py;
-						bool any = false;
-						for (int w = 0; w < walls.size(); w++) {
-							AABB& wall = walls.at(w);
-							if (wall.RayIntersect(px, py, dx, dy)) {
-								any = true;
-								break;
-							}
-						}
-						if (!any) {
-							d = 0;
-						}
-						else {
-							for (int i = 0; i < num_corners; i++) {
-								Corner& c = inside_corners.at(i);
-								if (corner_dists[i] >= d || corner_dists[i] == -1) {
-									continue;
-								}
-
-								// Raycast to corner
-								int dx = x - c.x;
-								int dy = y - c.y;
-								// Make sure we're in the right place relative to the corner
-								if (dx != 0 && dy != 0) {
-									if ((dx > 0) != (dy > 0)) {
-										if (c.mask == 7 || c.mask == 14) {
-											continue;
-										}
-									}
-									else {
-										if (c.mask == 11 || c.mask == 13) {
-											continue;
-										}
-									}
-								}
-								bool any = false;
-								for (int w = 0; w < walls.size(); w++) {
-									AABB& wall = walls.at(w);
-									if (wall.RayIntersect(c.x, c.y, dx, dy)) {
-										any = true;
-										break;
-									}
-								}
-								if (!any) {
-									int dist = 1 + corner_dists[i];
-									if (dist < d) {
-										d = dist;
-									}
-								}
-							}
-						}
-
-						if (d <= num_corners) {
-							if (d > 2) {
-								d += 1;
-							}
-							d %= 12;
-							Terrain::RenderPixel(x, y, colors[d][0], colors[d][1], colors[d][2], 127);
-						}
+				NavCorner& c = nav_corners.at(i);
+				int num_edges = c.edges.size();
+				for (int j = 0; j < num_edges; j++) {
+					NavEdge& e = c.edges.at(j);
+					// Draw each edge only once
+					if (i < e.target) {
+						RenderEdge(c, e);
 					}
 				}
 			}
 
-			SDL_SetRenderDrawColor(gameScreen.m_renderer, 0, 255, 255, 200);
-			for (int i = 0; i < num_corners; i++) {
-				Corner& ci = inside_corners.at(i);
-				for (int j = i+1; j < num_corners; j++) {
-					if (reachability[i * num_corners + j] == 1) {
-						Corner& cj = inside_corners.at(j);
-
-						SDL_RenderDrawLine(gameScreen.m_renderer, ci.x, ci.y, cj.x, cj.y);
-					}
-				}
-
-				if (corner_dists[i] == 0) {
-					SDL_RenderDrawLine(gameScreen.m_renderer, ci.x, ci.y, px, py);
-				}
-			}
-
-			graphics.set_blendmode(SDL_BLENDMODE_NONE);
-			Terrain::RenderPixel(px, py, 255, 255, 255, 255);
 		}
 	}
 
 	void AfterRenderHook(void) {
+		int px = obj.entities[0].xp;
+		int py = obj.entities[0].yp;
+		graphics.set_blendmode(SDL_BLENDMODE_NONE);
 
+		// Draw player pos
+		SDL_SetRenderDrawColor(gameScreen.m_renderer, 255, 255, 255, 255);
+		RenderPixel(px, py);
 	}
 
-	void RenderTile(int x, int y, uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
-		graphics.fill_rect(8*x, 8*y, 8, 8, r, g, b, a);
+	void RenderWall(Wall& wall) {
+		if (wall.room_x != game.roomx || wall.room_y != game.roomy) {
+			return;
+		}
+
+		int x, y, w, h;
+		switch (wall.orientation) {
+			default:
+				// Invalid wall, skip
+				return;
+			case WallOrientation::Up:
+				x = wall.x;
+				y = wall.y;
+				w = wall.width;
+				h = 1;
+				break;
+			case WallOrientation::Right:
+				x = wall.x;
+				y = wall.y;
+				w = 1;
+				h = wall.width;
+				break;
+			case WallOrientation::Down:
+				x = wall.x - wall.width;
+				y = wall.y - 1;
+				w = wall.width;
+				h = 1;
+				break;
+			case WallOrientation::Left:
+				x = wall.x - 1;
+				y = wall.y - wall.width;
+				w = 1;
+				h = wall.width;
+				break;
+		}
+
+		const SDL_Rect rect = { x + RENDER_OFFSET_X, y + RENDER_OFFSET_Y, w, h };
+		SDL_RenderFillRect(gameScreen.m_renderer, &rect);
 	}
 
-	void RenderPixel(int x, int y, uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
-		graphics.fill_rect(x, y, 1, 1, r, g, b, a);
+	void RenderCorner(NavCorner& c) {
+		if (c.room_x != game.roomx || c.room_y != game.roomy) {
+			return;
+		}
+
+		int x1, y1;
+		int x2, y2;
+		int x3, y3;
+		int w = 2;
+		int h = 2;
+
+		switch (c.type) {
+			default:
+				// Invalid corner, skip
+				return;
+			case NavCornerType::BottomRight:
+				x1 = c.x - w;
+				y1 = c.y - h;
+				x2 = x1 - w;
+				y2 = y1;
+				x3 = x1;
+				y3 = y1 - h;
+				break;
+			case NavCornerType::BottomLeft:
+				x1 = c.x;
+				y1 = c.y - h;
+				x2 = x1 + w;
+				y2 = y1;
+				x3 = x1;
+				y3 = y1 - h;
+				break;
+			case NavCornerType::TopLeft:
+				x1 = c.x;
+				y1 = c.y;
+				x2 = x1 + w;
+				y2 = y1;
+				x3 = x1;
+				y3 = y1 + h;
+				break;
+			case NavCornerType::TopRight:
+				x1 = c.x - w;
+				y1 = c.y;
+				x2 = x1 - w;
+				y2 = y1;
+				x3 = x1;
+				y3 = y1 + h;
+				break;
+
+			case NavCornerType::ConcaveTL:
+				x1 = c.x;
+				y1 = c.y;
+				x2 = x1 - w;
+				y2 = y1;
+				x3 = x1;
+				y3 = y1 - h;
+				break;
+			case NavCornerType::ConcaveTR:
+				x1 = c.x - w;
+				y1 = c.y;
+				x2 = x1 + w;
+				y2 = y1;
+				x3 = x1;
+				y3 = y1 - h;
+				break;
+			case NavCornerType::ConcaveBR:
+				x1 = c.x - w;
+				y1 = c.y - h;
+				x2 = x1 + w;
+				y2 = y1;
+				x3 = x1;
+				y3 = y1 + h;
+				break;
+			case NavCornerType::ConcaveBL:
+				x1 = c.x;
+				y1 = c.y - h;
+				x2 = x1 - w;
+				y2 = y1;
+				x3 = x1;
+				y3 = y1 + h;
+				break;
+
+			case NavCornerType::QuadTLBR:
+			case NavCornerType::QuadBLTR:
+				// Unimplemented
+				VVV_exit(-1);
+				return;
+		}
+
+		const SDL_Rect rect1 = { x1 + RENDER_OFFSET_X, y1 + RENDER_OFFSET_Y, w, h };
+		const SDL_Rect rect2 = { x2 + RENDER_OFFSET_X, y2 + RENDER_OFFSET_Y, w, h };
+		const SDL_Rect rect3 = { x3 + RENDER_OFFSET_X, y3 + RENDER_OFFSET_Y, w, h };
+		SDL_RenderFillRect(gameScreen.m_renderer, &rect1);
+		SDL_RenderFillRect(gameScreen.m_renderer, &rect2);
+		SDL_RenderFillRect(gameScreen.m_renderer, &rect3);
+	}
+
+	void RenderEdge(NavCorner& c, NavEdge& edge) {
+		if (game.roomx != c.room_x || game.roomy != c.room_y) {
+			return;
+		}
+		SDL_RenderDrawLine(gameScreen.m_renderer, c.x + RENDER_OFFSET_X, c.y + RENDER_OFFSET_Y, c.x + edge.dx + RENDER_OFFSET_X, c.y + edge.dy + RENDER_OFFSET_Y);
+	}
+
+	void RenderPixel(int x, int y) {
+		const SDL_Rect rect = { x + RENDER_OFFSET_X, y + RENDER_OFFSET_Y, 1, 1 };
+		SDL_RenderFillRect(gameScreen.m_renderer, &rect);
 	}
 
 	bool CheckWall(int x, int y) {

@@ -4,6 +4,14 @@
 #include <cstddef>
 #include <vector>
 
+#define VIRIDIAN_CX (6)
+#define VIRIDIAN_CY (2)
+#define VIRIDIAN_W (12)
+#define VIRIDIAN_H (21)
+
+#define RENDER_OFFSET_X (11)
+#define RENDER_OFFSET_Y (12)
+
 namespace Terrain {
 	static int colors[12][3] = {
 		{ 0xff, 0x00, 0x00 }, { 0xff, 0x7f, 0x00 }, { 0xff, 0xff, 0x00 }, { 0x7f, 0xff, 0x00 },
@@ -11,24 +19,212 @@ namespace Terrain {
 		{ 0x00, 0x00, 0xff }, { 0x7f, 0x00, 0xff }, { 0xff, 0x00, 0xff }, { 0xff, 0x00, 0x7f },
 	};
 
-	void BeforeRenderHook(void);
-	void AfterTileRenderHook(void);
-	void AfterRenderHook(void);
-
-	void RenderTile(int x, int y, uint8_t r, uint8_t g, uint8_t b, uint8_t a);
-	void RenderPixel(int x, int y, uint8_t r, uint8_t g, uint8_t b, uint8_t a);
-
-	bool CheckWall(int x, int y);
-	bool CheckSpike(int x, int y);
-	bool CheckPlayerCollision(int x, int y);
-	bool CheckPlayerSpike(int x, int y);
-
-	struct Corner {
+	struct OldCornerStruct {
 		int x;
 		int y;
 		int mask;
 
-		Corner(int a, int b, int c) : x(a), y(b), mask(c) {}
+		OldCornerStruct(int a, int b, int c) : x(a), y(b), mask(c) {}
+	};
+
+	enum CollisionKind {
+		None,
+		Walls,
+		WallsAndSpikes,
+	};
+
+	enum NavCornerType {
+		InvalidCorner,
+		BottomRight, // TL is full, rest air
+		BottomLeft,  // TR is full, rest air
+		TopLeft,	 // BR is full, rest air
+		TopRight,	 // BL is full, rest air
+		ConcaveTL,	 // TL is air, rest full
+		ConcaveTR,   // TR is air, rest full
+		ConcaveBR,   // BR is air, rest full
+		ConcaveBL,   // BL is air, rest full
+		QuadTLBR,
+		QuadBLTR,
+	};
+
+	struct NavEdge {
+		int target; // Index of destination corner
+		int dx, dy; // Horizontal and vertical distance
+	};
+
+	struct NavCorner {
+		NavCornerType type;
+		int x, y;
+		int room_x, room_y;
+		std::vector<NavEdge> edges; // Connections to other corners
+
+		NavCorner(NavCornerType type, int rx, int ry, int x, int y) : type(type), x(x), y(y), room_x(rx), room_y(ry) {
+			this->edges.clear();
+		}
+
+		bool hasUpEdge() {
+			switch (this->type) {
+			case BottomRight:
+			case BottomLeft:
+			case ConcaveTL:
+			case ConcaveTR:
+			case QuadTLBR:
+			case QuadBLTR:
+				return true;
+			default:
+				return false;
+			}
+		}
+		bool hasDownEdge() {
+			switch (this->type) {
+			case TopRight:
+			case TopLeft:
+			case ConcaveBL:
+			case ConcaveBR:
+			case QuadTLBR:
+			case QuadBLTR:
+				return true;
+			default:
+				return false;
+			}
+		}
+		bool hasLeftEdge() {
+			switch (this->type) {
+			case TopRight:
+			case BottomRight:
+			case ConcaveTL:
+			case ConcaveBL:
+			case QuadTLBR:
+			case QuadBLTR:
+				return true;
+			default:
+				return false;
+			}
+		}
+		bool hasRightEdge() {
+			switch (this->type) {
+			case TopLeft:
+			case BottomLeft:
+			case ConcaveTR:
+			case ConcaveBR:
+			case QuadTLBR:
+			case QuadBLTR:
+				return true;
+			default:
+				return false;
+			}
+		}
+
+		bool sharesEdgeWith(NavCorner& other) {
+			// Only checks if the corners *could* share an edge, not that they actually do
+			if (other.x == this->x && other.room_x == this->room_x) {
+				// Vertically aligned
+				if (other.room_y > this->room_y || (other.room_y == this->room_y && other.y > this->y)) {
+					// Other corner is below
+					return this->hasDownEdge() && other.hasUpEdge();
+				}
+				else if (other.room_y < this->room_y || (other.room_y == this->room_y && other.y < this->y)) {
+					// Other corner is above
+					return this->hasUpEdge() && other.hasDownEdge();
+				}
+			}
+			else if (other.y == this->y && other.room_y == this->room_y) {
+				// Horizontally aligned
+				if (other.room_x > this->room_x || (other.room_x == this->room_x && other.x > this->x)) {
+					// Other corner is to the right
+					return this->hasRightEdge() && other.hasLeftEdge();
+				}
+				else if (other.room_x < this->room_x || (other.room_x == this->room_x && other.x < this->x)) {
+					// Other corner is to the left
+					return this->hasLeftEdge() && other.hasRightEdge();
+				}
+			}
+
+			return false;
+		}
+	};
+
+	enum WallOrientation {
+		InvalidWall,
+		Up,		// Floor
+		Right,
+		Down,	// Ceiling
+		Left,
+	};
+
+	struct Wall {
+		WallOrientation orientation;
+		int x, y;	// Position of wall's left corner (from the perspective of the wall)
+		int room_x, room_y;
+		int width;	// Total width of wall
+
+		Wall(WallOrientation orientation, int x, int y, int rx, int ry, int width) : orientation(orientation), x(x), y(y), room_x(rx), room_y(ry), width(width) { }
+
+		bool RayIntersect(int ox, int oy, int dx, int dy) {
+			if (orientation == Up || orientation == Down) {
+				int min_y, max_y;
+				if (dy == 0) {
+					// Ray is parallel to wall
+					return false;
+				}
+				else if (dy > 0) {
+					min_y = oy;
+					max_y = oy + dy;
+				}
+				else {
+					min_y = oy + dy;
+					max_y = oy;
+				}
+
+				if ((min_y <= y && max_y <= y) || (min_y >= y && max_y >= y)) {
+					// Ray doesn't cross extended wall
+					return false;
+				}
+				else if (dx == 0 && (ox == x || ox == x + (orientation == Down ? -width : width))) {
+					// Ray exactly touches the end of the wall, let it through
+					return false;
+				}
+
+				float t = ((float)(y - oy)) / ((float)dy);
+				// we can assume 0 < t < 1 because of min/max checks
+				float i_x = ((float)ox) + ((float)dx) * t;
+
+				float x_dist = orientation == Up ? i_x - x : x - i_x;
+				// Intersection is within wall's range
+				return x_dist < width;
+			}
+			else {
+				// assume(orientation == Right || Orientation == Left)
+				int min_x, max_x;
+				if (dx == 0) {
+					return false;
+				}
+				else if (dx > 0) {
+					min_x = ox;
+					max_x = ox + dx;
+				}
+				else {
+					min_x = ox + dx;
+					max_x = ox;
+				}
+
+				if ((min_x <= x && max_x <= x) || (min_x >= x && max_x >= x)) {
+					// Ray doesn't cross extended wall
+					return false;
+				}
+				else if (dy == 0 && (oy == y || oy == y + (orientation == Left ? -width : width))) {
+					// Ray exactly touches the end of the wall, let it through
+					return false;
+				}
+
+				float t = ((float)(x - ox)) / ((float)dx);
+				float i_y = ((float)oy) + ((float)dy) * t;
+
+				float y_dist = orientation == Right ? i_y - y : y - i_y;
+				// Intersection is within wall's range
+				return y_dist < width;
+			}
+		}
 	};
 
 	struct AABB {
@@ -70,6 +266,26 @@ namespace Terrain {
 			return 0 < t_max && t_min < 1 && t_min <= t_max;
 		}
 	};
+
+
+	void PrecomputeCurrentRoomTerrain(void);
+	bool CheckPlayerCollisionCurrentRoom(int x, int y);
+	void Precompute(void);
+
+	void BeforeRenderHook(void);
+	void AfterTileRenderHook(void);
+	void AfterRenderHook(void);
+
+	void RenderWall(Wall& w);
+	void RenderCorner(NavCorner& c);
+	void RenderEdge(NavCorner& c, NavEdge& e);
+	void RenderPixel(int x, int y);
+
+	bool CheckWall(int x, int y);
+	bool CheckSpike(int x, int y);
+	bool CheckPlayerCollision(int x, int y);
+	bool CheckPlayerSpike(int x, int y);
+
 }
 
 #endif /* TERRAIN_H */
