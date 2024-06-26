@@ -12,7 +12,7 @@
 
 
 namespace Terrain {
-	bool precomputed_rooms[20][20] = { { false } };
+	RoomInfo precomputed_rooms[20][20] = { { RoomInfo() } };
 
 	CollisionKind collision_kind = CollisionKind::Walls;
 	std::vector<NavCorner> nav_corners;
@@ -40,6 +40,14 @@ namespace Terrain {
 				min_y_pos = -2; max_y_pos = 237;
 			}
 		}
+
+		precomputed_rooms[rx][ry].min_x_pos = min_x_pos;
+		precomputed_rooms[rx][ry].max_x_pos = max_x_pos;
+		precomputed_rooms[rx][ry].min_y_pos = min_y_pos;
+		precomputed_rooms[rx][ry].max_y_pos = max_y_pos;
+		precomputed_rooms[rx][ry].warpx = map.warpx;
+		precomputed_rooms[rx][ry].warpy = map.warpy;
+		precomputed_rooms[rx][ry].towermode = map.towermode;
 
 		// Create all corners
 		for (int x = min_x_pos; x <= max_x_pos; x++) {
@@ -261,6 +269,23 @@ namespace Terrain {
 						continue;
 				}
 
+				// Check no wall intersections
+				bool any_intersections = false;
+				for (int k = 0; k < num_walls; k++) {
+					Wall& w = nav_walls.at(k);
+					if (w.room_x != c.room_x || w.room_y != c.room_y) {
+						continue;
+					}
+					if (w.RayIntersect(c.x, c.y, dx, dy)) {
+						any_intersections = true;
+						break;
+					}
+				}
+				if (any_intersections) {
+					// Intersected a wall, continue
+					continue;
+				}
+
 				// Add edges to the corners
 				NavEdge e1, e2;
 				e1.target = i; e1.dx = dx; e1.dy = dy;
@@ -270,6 +295,18 @@ namespace Terrain {
 				new_corner.edges.push_back(e2);
 			}
 		}
+
+
+
+		precomputed_rooms[rx][ry].precomputed = true;
+	}
+
+	bool TryConnectCorners(NavCorner& source, NavCorner& target) {
+		if (IsConcave(source) || IsConcave(target)) {
+			return false;
+		}
+
+
 	}
 
 	bool CheckPlayerCollisionCurrentRoom(int x, int y) {
@@ -297,9 +334,8 @@ namespace Terrain {
 		int rx = game.roomx;
 		int ry = game.roomy;
 
-		if (!precomputed_rooms[rx][ry]) {
+		if (!precomputed_rooms[rx][ry].precomputed) {
 			PrecomputeCurrentRoomTerrain();
-			precomputed_rooms[rx][ry] = true;
 		}
 	}
 
@@ -310,7 +346,7 @@ namespace Terrain {
 	void AfterTileRenderHook(void) {
 		int rx = game.roomx;
 		int ry = game.roomy;
-		if (precomputed_rooms[rx][ry]) {
+		if (precomputed_rooms[rx][ry].precomputed) {
 			int px = obj.entities[0].xp;
 			int py = obj.entities[0].yp;
 			int num_walls = nav_walls.size();

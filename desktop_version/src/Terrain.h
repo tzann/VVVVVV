@@ -47,6 +47,22 @@ namespace Terrain {
 		QuadBLTR,
 	};
 
+	bool IsConvex(NavCornerType type) {
+		switch (type) {
+		case NavCornerType::TopLeft:
+		case NavCornerType::TopRight:
+		case NavCornerType::BottomLeft:
+		case NavCornerType::BottomRight:
+			return true;
+		default:
+			return false;
+		}
+	}
+
+	bool IsConcave(NavCornerType type) {
+		return !IsConvex(type);
+	}
+
 	struct NavEdge {
 		int target; // Index of destination corner
 		int dx, dy; // Horizontal and vertical distance
@@ -189,11 +205,10 @@ namespace Terrain {
 				// we can assume 0 < t < 1 because of min/max checks
 				float i_x = ((float)ox) + ((float)dx) * t;
 
-				float x_dist = orientation == Up ? i_x - x : x - i_x;
+				float x_dist = orientation == Down ? x - i_x : i_x - x;
 				// Intersection is within wall's range
-				return x_dist < width;
-			}
-			else {
+				return 0 < x_dist && x_dist < width;
+			} else {
 				// assume(orientation == Right || Orientation == Left)
 				int min_x, max_x;
 				if (dx == 0) {
@@ -212,7 +227,7 @@ namespace Terrain {
 					// Ray doesn't cross extended wall
 					return false;
 				}
-				else if (dy == 0 && (oy == y || oy == y + (orientation == Left ? -width : width))) {
+				else if (dy == 0 && (oy == y || oy == y + (orientation == Left ? width : -width))) {
 					// Ray exactly touches the end of the wall, let it through
 					return false;
 				}
@@ -220,9 +235,9 @@ namespace Terrain {
 				float t = ((float)(x - ox)) / ((float)dx);
 				float i_y = ((float)oy) + ((float)dy) * t;
 
-				float y_dist = orientation == Right ? i_y - y : y - i_y;
+				float y_dist = orientation == Left ? y - i_y : i_y - y;
 				// Intersection is within wall's range
-				return y_dist < width;
+				return 0 < y_dist && y_dist < width;
 			}
 		}
 	};
@@ -267,6 +282,23 @@ namespace Terrain {
 		}
 	};
 
+	struct RoomInfo {
+		int min_x_pos, max_x_pos, min_y_pos, max_y_pos;
+		bool precomputed, warpx, warpy, towermode;
+
+		RoomInfo() {
+			min_x_pos = min_y_pos = INT_MAX;
+			max_x_pos = max_y_pos = INT_MIN;
+			precomputed = warpx = warpy = towermode = false;
+		}
+
+		RoomInfo(int min_x, int max_x, int min_y, int max_y) : min_x_pos(min_x), max_x_pos(max_x), min_y_pos(min_y), max_y_pos(max_y) {
+			precomputed = true;
+			warpx = warpy = towermode = false;
+		}
+
+		RoomInfo(int min_x, int max_x, int min_y, int max_y, bool pre, bool warp_x, bool warp_y, bool tower) : min_x_pos(min_x), max_x_pos(max_x), min_y_pos(min_y), max_y_pos(max_y), precomputed(pre), warpx(warpx), warpy(warpy), towermode(tower) { }
+	};
 
 	void PrecomputeCurrentRoomTerrain(void);
 	bool CheckPlayerCollisionCurrentRoom(int x, int y);
