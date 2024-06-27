@@ -302,11 +302,64 @@ namespace Terrain {
 	}
 
 	bool TryConnectCorners(NavCorner& source, NavCorner& target) {
-		if (IsConcave(source) || IsConcave(target)) {
+		if (IsConcave(source.type) || IsConcave(target.type)) {
 			return false;
 		}
 
+		int s_x = source.x;
+		int s_y = source.y;
+		int s_rx = source.room_x;
+		int s_ry = source.room_y;
 
+		int t_x = target.x;
+		int t_y = target.y;
+		int t_rx = target.room_x;
+		int t_ry = target.room_y;
+
+		// Estimate:
+		int d_x = 320 * (t_rx - s_rx) + (t_x - s_x);
+		int d_y = 240 * (t_ry - s_ry) + (t_y - s_y);
+		// TODO: account for other room dimensions, warps, etc.
+
+		// Ray
+		int o_rx = s_rx;
+		int o_ry = s_ry;
+		int o_x = s_x;
+		int o_y = s_y;
+
+		// Raycast wall intersections
+		int num_walls = nav_walls.size();
+		bool any_intersections = false;
+		while (!any_intersections) {
+			for (int i = 0; i < num_walls; i++) {
+				Wall& wall = nav_walls.at(i);
+				if (wall.room_x != o_rx || wall.room_y != o_ry) {
+					// Not in same room
+					continue;
+				}
+
+				if (wall.RayIntersect(o_x, o_y, d_x, d_y)) {
+					any_intersections = true;
+					break;
+				}
+			}
+			
+			int x_step = 0;
+			if (d_x > 0) {
+				x_step = precomputed_rooms[o_rx][o_ry].max_x_pos - o_x;
+				x_step = x_step > d_x ? d_x : x_step;
+			} else {
+				x_step = precomputed_rooms[o_rx][o_ry].min_x_pos - o_x;
+				x_step = x_step < d_x ? d_x : x_step;
+			}
+
+		}
+
+		if (any_intersections) {
+			return false;
+		}
+
+		return true;
 	}
 
 	bool CheckPlayerCollisionCurrentRoom(int x, int y) {
