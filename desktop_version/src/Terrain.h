@@ -47,25 +47,10 @@ namespace Terrain {
 		QuadBLTR,
 	};
 
-	bool IsConvex(NavCornerType type) {
-		switch (type) {
-		case NavCornerType::TopLeft:
-		case NavCornerType::TopRight:
-		case NavCornerType::BottomLeft:
-		case NavCornerType::BottomRight:
-			return true;
-		default:
-			return false;
-		}
-	}
-
-	bool IsConcave(NavCornerType type) {
-		return !IsConvex(type);
-	}
-
 	struct NavEdge {
 		int target; // Index of destination corner
 		int dx, dy; // Horizontal and vertical distance
+		bool active;
 	};
 
 	struct NavCorner {
@@ -282,27 +267,86 @@ namespace Terrain {
 		}
 	};
 
-	struct RoomInfo {
-		int min_x_pos, max_x_pos, min_y_pos, max_y_pos;
-		bool precomputed, warpx, warpy, towermode;
+	namespace RoomInfoState {
+		enum RoomInfoState {
+			None,
+			Dimensions,
+			Walls,
+			NavigationGraph,
+		};
+	}
 
-		RoomInfo() {
-			min_x_pos = min_y_pos = INT_MAX;
-			max_x_pos = max_y_pos = INT_MIN;
-			precomputed = warpx = warpy = towermode = false;
+	struct RoomCoords {
+		int rx;
+		int ry;
+
+		RoomCoords(int id) {
+			rx = id >> 8;
+			ry = id & 0xff;
 		}
 
-		RoomInfo(int min_x, int max_x, int min_y, int max_y) : min_x_pos(min_x), max_x_pos(max_x), min_y_pos(min_y), max_y_pos(max_y) {
-			precomputed = true;
+		RoomCoords(int rx, int ry) : rx(rx), ry(ry) { }
+
+		int get_id(void) {
+			return (rx << 8) | ry;
+		}
+
+		RoomCoords next_above(void) {
+			int new_ry = (ry == 0) ? 19 : (ry - 1);
+			return RoomCoords(rx, new_ry);
+		}
+		RoomCoords next_below(void) {
+			int new_ry = (ry == 19) ? 0 : (ry + 1);
+			return RoomCoords(rx, new_ry);
+		}
+		RoomCoords next_left(void) {
+			int new_rx = (rx == 0) ? 19 : (rx - 1);
+			return RoomCoords(new_rx, ry);
+		}
+		RoomCoords next_right(void) {
+			int new_rx = (rx == 19) ? 0 : (rx + 1);
+			return RoomCoords(new_rx, ry);
+		}
+	};
+
+	struct RoomInfo {
+		RoomInfoState::RoomInfoState state;
+		int min_x_pos, max_x_pos, min_y_pos, max_y_pos;
+		bool warpx, warpy, towermode;
+
+		RoomInfo() {
+			state = RoomInfoState::None;
+			min_x_pos = min_y_pos = INT_MAX;
+			max_x_pos = max_y_pos = INT_MIN;
 			warpx = warpy = towermode = false;
 		}
 
-		RoomInfo(int min_x, int max_x, int min_y, int max_y, bool pre, bool warp_x, bool warp_y, bool tower) : min_x_pos(min_x), max_x_pos(max_x), min_y_pos(min_y), max_y_pos(max_y), precomputed(pre), warpx(warpx), warpy(warpy), towermode(tower) { }
+		RoomInfo(int min_x, int max_x, int min_y, int max_y) : min_x_pos(min_x), max_x_pos(max_x), min_y_pos(min_y), max_y_pos(max_y) {
+			state = RoomInfoState::Dimensions;
+			warpx = warpy = towermode = false;
+		}
+
+		RoomInfo(int min_x, int max_x, int min_y, int max_y, bool pre, bool warp_x, bool warp_y, bool tower) : min_x_pos(min_x), max_x_pos(max_x), min_y_pos(min_y), max_y_pos(max_y), warpx(warp_x), warpy(warp_y), towermode(tower) {
+			state = RoomInfoState::Dimensions;
+		}
 	};
 
-	void PrecomputeCurrentRoomTerrain(void);
+	bool IsConvexCorner(NavCornerType type);
+	void ResetState(void);
+	void LoadRoom(RoomCoords room);
+
+	RoomInfoState::RoomInfoState GetRoomState(RoomCoords room_coords);
+	void PrecomputeCurrentRoomWalls(void);
+	void PrecomputeCurrentRoomDims(void);
+	void PrecomputeNavigationGraph(void);
 	bool CheckPlayerCollisionCurrentRoom(int x, int y);
+
+	void FullPrecomputation(RoomCoords start);
 	void Precompute(void);
+
+	bool IsDirectionCompatible(NavCorner& corner, int dx, int dy);
+	bool CrossRoomRayCast(int o_rx, int o_ry, int o_x, int o_y, int d_x, int d_y);
+	bool TryConnectCorners(NavCorner& source, NavCorner& target);
 
 	void BeforeRenderHook(void);
 	void AfterTileRenderHook(void);
@@ -312,6 +356,10 @@ namespace Terrain {
 	void RenderCorner(NavCorner& c);
 	void RenderEdge(NavCorner& c, NavEdge& e);
 	void RenderPixel(int x, int y);
+
+	void ResetState();
+	void LoadRoom(RoomCoords room_coords);
+	RoomCoords GetCurrentRoomCoords(void);
 
 	bool CheckWall(int x, int y);
 	bool CheckSpike(int x, int y);

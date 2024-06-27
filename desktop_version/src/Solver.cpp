@@ -1833,7 +1833,8 @@ namespace Solver {
         naivestate tmp;
         int i = 0;
         while (true) {
-            game.hours = int(obj.entities.size());
+            game.hours = int(obj.entities[0].xp);
+            game.deathcounts = int(obj.entities[0].yp);
             do_game_step(true);
             SDL_Delay(34);
             /*
