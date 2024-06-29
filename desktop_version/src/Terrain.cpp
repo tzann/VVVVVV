@@ -14,12 +14,13 @@
 
 
 namespace Terrain {
-	// RoomCoords goal_room = RoomCoords(3, 4);
-	// int goal_x = 100;
-	// int goal_y = 160;
-	RoomCoords goal_room = RoomCoords(2, 16);
-	int goal_x = 191;
-	int goal_y = 30;
+	RoomCoords start_room = RoomCoords(2, 16);
+	int start_x = 10;
+	int start_y = 100;
+
+	RoomCoords goal_room = RoomCoords(3, 4);
+	int goal_x = 100;
+	int goal_y = 160;
 
 	int num_precomputed_rooms = 0;
 	RoomInfo precomputed_rooms[20][20] = { { RoomInfo() } };
@@ -240,6 +241,9 @@ namespace Terrain {
 						if (!is_air || !up_is_air) {
 							// Block off "gaps" in non-convex corners
 							width += 1;
+							if (w == WallOrientation::Down) {
+								wall_x += 1;
+							}
 						}
 
 						nav_walls.emplace_back(w, wall_x, y, rx, ry, width);
@@ -293,18 +297,33 @@ namespace Terrain {
 				}
 
 				// Distance estimate:
-				int dx = 320 * (corner_j.room_x - corner_i.room_x) + (corner_j.x - corner_i.x);
-				int dy = 240 * (corner_j.room_y - corner_i.room_y) + (corner_j.y - corner_i.y);
+				int d_rx = corner_j.room_x - corner_i.room_x;
+				int d_ry = corner_j.room_y - corner_i.room_y;
+				if (d_rx < -10) {
+					d_rx += 20;
+				}
+				else if (d_rx > 10) {
+					d_rx -= 20;
+				}
+				if (d_ry < -10) {
+					d_ry += 20;
+				}
+				else if (d_ry > 10) {
+					d_ry -= 20;
+				}
+
+				int dx = 320 * d_rx + (corner_j.x - corner_i.x);
+				int dy = 240 * d_ry + (corner_j.y - corner_i.y);
 
 				// Add edges to the corners
 				if (TryConnectCorners(corner_i, corner_j)) {
 					NavEdge e1; // From corner_i to corner_j
-					e1.target = j; e1.dx = dx; e1.dy = dy; e1.active = false;
+					e1.target = j; e1.dx = dx; e1.dy = dy; e1.active = false; e1.backwards = false,
 					corner_i.edges.push_back(e1);
 				}
 				if (TryConnectCorners(corner_j, corner_i)) {
 					NavEdge e2; // From corner_j to corner_i
-					e2.target = i; e2.dx = -dx; e2.dy = -dy; e2.active = false;
+					e2.target = i; e2.dx = -dx; e2.dy = -dy; e2.active = false; e2.backwards = false,
 					corner_j.edges.push_back(e2);
 				}
 			}
@@ -336,8 +355,22 @@ namespace Terrain {
 				continue;
 			}
 
-			int d_x = 320 * (c.room_x - goal_room.rx) + (c.x - goal_x);
-			int d_y = 240 * (c.room_y - goal_room.ry) + (c.y - goal_y);
+			int d_rx = c.room_x - goal_room.rx;
+			int d_ry = c.room_y - goal_room.ry;
+			if (d_rx < -10) {
+				d_rx += 20;
+			}
+			else if (d_rx > 10) {
+				d_rx -= 20;
+			}
+			if (d_ry < -10) {
+				d_ry += 20;
+			}
+			else if (d_ry > 10) {
+				d_ry -= 20;
+			}
+			int d_x = 320 * d_rx + (c.x - goal_x);
+			int d_y = 240 * d_ry + (c.y - goal_y);
 
 			if (!IsDirectionCompatible(c, d_x, d_y)) {
 				continue;
@@ -355,7 +388,7 @@ namespace Terrain {
 			}
 			for (int j = 0; j < num_edges; j++) {
 				NavEdge& e = c.edges.at(j);
-				if (e.active) {
+				if (e.active || e.backwards) {
 					// Already added this edge, continue
 					continue;
 				}
@@ -421,8 +454,123 @@ namespace Terrain {
 				e.active = true;
 				int edge_id = (i << 16) | j;
 				queue.push_back(edge_id);
+
+				// Mark the backwards edge
+				NavCorner& target = nav_corners.at(e.target);
+				for (int k = 0; k < target.edges.size(); k++) {
+					NavEdge& backwards = target.edges.at(k);
+					if (backwards.target == i) {
+						backwards.backwards = true;
+						break;
+					}
+				}
 			}
 		}
+
+		while (queue.size() > 0) {
+			int edge_id = queue.back();
+			queue.pop_back();
+
+			int corner_idx = edge_id >> 16;
+			int edge_idx = edge_id & 0xffff;
+
+			NavCorner& corner = nav_corners.at(corner_idx);
+			NavEdge& edge = corner.edges.at(edge_idx);
+
+			int target_corner_idx = edge.target;
+			NavCorner& target_corner = nav_corners.at(target_corner_idx);
+
+			int num_edges = target_corner.edges.size();
+			for (int i = 0; i < num_edges; i++) {
+				NavEdge& next_edge = target_corner.edges.at(i);
+				if (next_edge.active || next_edge.backwards) {
+					// Edge has already been added
+					continue;
+				}
+
+				if (!CanConnectEdges(target_corner, edge, next_edge)) {
+					continue;
+				}
+
+				next_edge.active = true;
+				int next_edge_id = (target_corner_idx << 16) | i;
+				queue.push_back(next_edge_id);
+
+				// Mark the backwards edge
+				NavCorner& target = nav_corners.at(next_edge.target);
+				for (int j = 0; j < target.edges.size(); j++) {
+					NavEdge& backwards = target.edges.at(j);
+					if (backwards.target == corner_idx) {
+						backwards.backwards = true;
+						break;
+					}
+				}
+			}
+		}
+	}
+
+	bool CanConnectEdges(NavCorner& corner, NavEdge& incoming_edge, NavEdge& outgoing_edge) {
+		// assume(incoming_edge.target == corner)
+
+		int u_dx = incoming_edge.dx;
+		int u_dy = incoming_edge.dy;
+		int u_edx = outgoing_edge.dx;
+		int u_edy = outgoing_edge.dy;
+		// Can't change axis directions without going through zero
+		if (u_dx > 0 && u_edx < 0 || u_dx < 0 && u_edx > 0 || u_dy > 0 && u_edy < 0 || u_dy < 0 && u_edy > 0) {
+			return false;
+		}
+
+		// Unify corner directions to BottomRight via mirroring of edge directions to make checks easier
+		switch (corner.type) {
+			case NavCornerType::BottomRight:
+				// Do nothing
+				break;
+			case NavCornerType::BottomLeft:
+				// Mirror x
+				u_dx = -u_dx;
+				u_edx = -u_edx;
+				break;
+			case NavCornerType::TopLeft:
+				// Mirror both
+				u_dx = -u_dx;
+				u_edx = -u_edx;
+				u_dy = -u_dy;
+				u_edy = -u_edy;
+				break;
+			case NavCornerType::TopRight:
+				// Mirror y
+				u_dy = -u_dy;
+				u_edy = -u_edy;
+				break;
+			default:
+				// Should be unreachable
+				return false;
+		}
+
+		// Mirror along TL-BR diagonal if edge is going backwards (i.e. down and left, to reduce necessary checks even more)
+		if ((u_dx <= 0 && u_dy > 0) || (u_edx < 0 && u_edy >= 0)) {
+			int tmp = u_dx;
+			u_dx = u_dy;
+			u_dy = tmp;
+			tmp = u_edx;
+			u_edx = u_edy;
+			u_edy = tmp;
+		}
+
+		// Angle must be greater than 180 degrees
+		if (u_dx <= 0 || u_dy > 0 || u_edx < 0 || u_edy >= 0) {
+			return false;
+		}
+
+		// Angle must be greater than 180 degrees -> slope of line must increase (but note that y axis is inverted here)
+		// Therefore, u_edy / u_edx > u_dy / u_dx, which can be written as:
+		if ((-u_edy * u_dx) <= (-u_dy * u_edx)) {
+			return false;
+		}
+
+		// Now we can mark the edge as active and add it to the queue!
+		return true;
 	}
 
 	bool IsDirectionCompatible(NavCorner& corner, int dx, int dy) {
@@ -457,14 +605,28 @@ namespace Terrain {
 		}
 	}
 
+	// TODO: deal with wrapping of map
 	bool TryConnectCorners(NavCorner& source, NavCorner& target) {
 		if (!IsConvexCorner(source.type) || !IsConvexCorner(target.type)) {
 			return false;
 		}
 
+		int d_rx = target.room_x - source.room_x;
+		int d_ry = target.room_y - source.room_y;
+		if (d_rx < -10) {
+			d_rx += 20;
+		} else if (d_rx > 10) {
+			d_rx -= 20;
+		}
+		if (d_ry < -10) {
+			d_ry += 20;
+		} else if (d_ry > 10) {
+			d_ry -= 20;
+		}
+
 		// Estimate:
-		int d_x = 320 * (target.room_x - source.room_x) + (target.x - source.x);
-		int d_y = 240 * (target.room_y - source.room_y) + (target.y - source.y);
+		int d_x = 320 * d_rx + (target.x - source.x);
+		int d_y = 240 * d_ry + (target.y - source.y);
 		// TODO: account for other room dimensions, warps, etc.
 		if (!IsDirectionCompatible(source, d_x, d_y) || !IsDirectionCompatible(target, d_x, d_y)) {
 			return false;
@@ -897,8 +1059,23 @@ namespace Terrain {
 		int rx = current_room.rx;
 		int ry = current_room.ry;
 
-		int o_x = 320 * (c.room_x - current_room.rx) + c.x;
-		int o_y = 240 * (c.room_y - current_room.ry) + c.y;
+		int d_rx = c.room_x - current_room.rx;
+		int d_ry = c.room_y - current_room.ry;
+		if (d_rx < -10) {
+			d_rx += 20;
+		}
+		else if (d_rx > 10) {
+			d_rx -= 20;
+		}
+		if (d_ry < -10) {
+			d_ry += 20;
+		}
+		else if (d_ry > 10) {
+			d_ry -= 20;
+		}
+
+		int o_x = 320 * d_rx + c.x;
+		int o_y = 240 * d_ry + c.y;
 
 		int d_x = edge.dx;
 		int d_y = edge.dy;

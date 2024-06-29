@@ -50,7 +50,7 @@ namespace Terrain {
 	struct NavEdge {
 		int target; // Index of destination corner
 		int dx, dy; // Horizontal and vertical distance
-		bool active;
+		bool active, backwards;
 	};
 
 	struct NavCorner {
@@ -274,7 +274,7 @@ namespace Terrain {
 			Walls,
 			NavigationGraph,
 		};
-	}
+	};
 
 	struct RoomCoords {
 		int rx;
@@ -346,6 +346,7 @@ namespace Terrain {
 
 	bool IsDirectionCompatible(NavCorner& corner, int dx, int dy);
 	bool CrossRoomRayCast(int o_rx, int o_ry, int o_x, int o_y, int d_x, int d_y);
+	bool CanConnectEdges(NavCorner& corner, NavEdge& incoming_edge, NavEdge& outgoing_edge);
 	bool TryConnectCorners(NavCorner& source, NavCorner& target);
 
 	void BeforeRenderHook(void);
@@ -366,6 +367,6 @@ namespace Terrain {
 	bool CheckPlayerCollision(int x, int y);
 	bool CheckPlayerSpike(int x, int y);
 
-}
+};
 
 #endif /* TERRAIN_H */
