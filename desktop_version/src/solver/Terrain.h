@@ -367,6 +367,56 @@ namespace Terrain {
 	bool CheckPlayerCollision(int x, int y);
 	bool CheckPlayerSpike(int x, int y);
 
+	// --------------------------------------
+	// More rigorously implemented stuff here
+	// --------------------------------------
+
+	// --------------------------------------
+	// Structs & Enums
+	// --------------------------------------
+	struct Position {
+		int rx, ry, x, y;
+	};
+
+	struct IntVector {
+		int x, y;
+	};
+
+	struct Ray {
+		Position origin;
+		IntVector direction;
+
+		Ray(int rx, int ry, int x, int y, int dx, int dy) {
+			origin.rx = rx;
+			origin.ry = ry;
+			origin.x = x;
+			origin.y = y;
+			direction.x = dx;
+			direction.y = dy;
+		}
+	};
+
+	struct RoomTerrain {
+		
+	};
+
+	// --------------------------------------
+	// Functions
+	// --------------------------------------
+
+	float OverworldRaycast(Ray& r);
+	float RoomRaycast(Ray& r, int rx, int ry);
+
+	// --------------------------------------
+	// Getter Functions / Reading
+	// --------------------------------------
+	bool GetWarpX(int rx, int ry);
+	bool GetWarpY(int rx, int ry);
+
+	int GetXMin(int rx, int ry);
+	int GetXMax(int rx, int ry);
+	int GetYMin(int rx, int ry);
+	int GetYMax(int rx, int ry);
 };
 
 #endif /* TERRAIN_H */

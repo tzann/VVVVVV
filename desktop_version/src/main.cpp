@@ -35,7 +35,7 @@
 #include "UtilityClass.h"
 #include "Vlogging.h"
 
-#include "Solver.h"
+#include "solver/Solver.h"
 
 scriptclass script;
 

@@ -34,7 +34,7 @@
 #include <algorithm>
 #include <iostream>
 
-#include "Terrain.h"
+#include "solver/Terrain.h"
 
 namespace Solver {
 

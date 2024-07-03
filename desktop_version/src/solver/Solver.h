@@ -87,6 +87,7 @@ namespace Solver {
     // Reduced from 84 to 48 bytes
     struct naiveplayerstate {
         int16_t x;      // -20 <= x <= 320
+        // TODO: could y be a single byte?y
         int16_t y;      // -20 <= y <= 240
 
         // TODO: these floats can be packed better

@@ -10,7 +10,8 @@
 #include "Exit.h"
 #include "Screen.h"
 
-#include "Solver.h"
+#include "solver/Heuristic.h"
+#include "solver/Solver.h"
 
 
 namespace Terrain {
@@ -1188,5 +1189,131 @@ namespace Terrain {
 			}
 		}
 		return false;
+	}
+
+	// --------------------------------------
+	// More rigorously implemented stuff here
+	// --------------------------------------
+	float OverworldRaycast(Ray& r) {
+		// Note: Any rooms that are traversed must be initialized
+		int rx = r.origin.rx;
+		int ry = r.origin.ry;
+		int x = r.origin.x;
+		int y = r.origin.y;
+
+		int dx = r.direction.x;
+		int dy = r.direction.y;
+
+		bool changed_room = true;
+		while (changed_room) {
+			changed_room = false;
+
+			// Do a raycast within the current room
+			Ray room_ray = Ray(rx, ry, x, y, dx, dy);
+			float t_room = RoomRaycast(room_ray, rx, ry);
+			if (0 < t_room && t_room < INFINITY) {
+				// If we found a collision, return it
+				return t_room;
+			}
+
+			// Otherwise, keep going until the next room transition, if there is one
+			int next_x_edge = (dx > 0) ? GetXMax(rx, ry) + 1 : GetXMin(rx, ry) - 1;
+			int next_y_edge = (dy > 0) ? GetYMax(rx, ry) + 1 : GetYMin(rx, ry) - 1;
+
+			int x_edge_dist = next_x_edge - x;
+			int y_edge_dist = next_y_edge - y;
+
+			float t_x;
+			if (dx > 0 && dx >= x_edge_dist) {
+				t_x = x_edge_dist / ((float)dx);
+			} else if (dx < 0 && dx <= x_edge_dist) {
+				t_x = x_edge_dist / ((float)dx);
+			} else {
+				t_x = INFINITY;
+			}
+
+			float t_y;
+			if (dy > 0 && dy >= y_edge_dist) {
+				t_y = y_edge_dist / ((float) dy);
+			} else if (dy < 0 && dy <= y_edge_dist) {
+				t_y = y_edge_dist / ((float) dy);
+			} else {
+				t_y = INFINITY;
+			}
+
+			// Check room change conditions
+			if (t_x < t_y) {
+				// x edge is closer
+				if (dx > 0) {
+					x -= 320;
+					rx += 1;
+				} else {
+					x += 320;
+					rx -= 1;
+				}
+				changed_room = true;
+			} else if (t_y < INFINITY) {
+				// y edge is closer
+				if (dy > 0) {
+					y -= GetWarpY(rx, ry) ? 232 : 240;
+					ry += 1;
+				} else {
+					y += GetWarpY(rx, ry) ? 232 : 240;
+					ry -= 1;
+				}
+				changed_room = true;
+			}
+		}
+
+		return INFINITY;
+	}
+
+	float RoomRaycast(Ray& r, int rx, int ry) {
+
+
+		return INFINITY;
+	}
+
+	// --------------------------------------
+	// Getter Functions
+	// --------------------------------------
+	bool GetWarpX(int rx, int ry) {
+		// TODO
+		return false;
+	}
+	bool GetWarpY(int rx, int ry) {
+		// TODO
+		return false;
+	}
+
+	int GetXMin(int rx, int ry) {
+		if (GetWarpX(rx, ry)) {
+			return -9;
+		} else {
+			return -14;
+		}
+	}
+	int GetXMax(int rx, int ry) {
+		if (GetWarpX(rx, ry)) {
+			return 310;
+		} else {
+			return 307;
+		}
+	}
+	int GetYMin(int rx, int ry) {
+		if (GetWarpY(rx, ry)) {
+			return -11;
+		}
+		else {
+			return -2;
+		}
+	}
+	int GetYMax(int rx, int ry) {
+		if (GetWarpY(rx, ry)) {
+			return 226;
+		}
+		else {
+			return 237;
+		}
 	}
 }

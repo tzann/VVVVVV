@@ -99,10 +99,8 @@ set(VVV_SRC
     src/Screen.cpp
     src/Script.cpp
     src/Scripts.cpp
-    src/Solver.cpp
     src/Spacestation2.cpp
     src/TerminalScripts.cpp
-    src/Terrain.cpp
     src/Textbox.cpp
     src/Tower.cpp
     src/UtilityClass.cpp
@@ -119,6 +117,9 @@ set(VVV_SRC
     src/Vlogging.c
     src/Xoshiro.c
     ../third_party/physfs/extras/physfsrwops.c
+    src/solver/Solver.cpp
+    src/solver/Terrain.cpp
+    src/solver/Heuristic.cpp
 )
 if(NOT CUSTOM_LEVEL_SUPPORT STREQUAL "DISABLED")
     list(APPEND VVV_SRC src/CustomLevels.cpp)

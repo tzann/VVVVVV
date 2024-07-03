@@ -27,7 +27,7 @@
 #include "UtilityClass.h"
 #include "VFormat.h"
 
-#include "Terrain.h"
+#include "solver/Terrain.h"
 
 static int tr;
 static int tg;
