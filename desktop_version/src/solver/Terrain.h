@@ -374,8 +374,16 @@ namespace Terrain {
 	// --------------------------------------
 	// Structs & Enums
 	// --------------------------------------
-	struct Position {
-		int rx, ry, x, y;
+	struct LocalPosition {
+		int x, y;
+	};
+	struct RoomPosition {
+		int rx, ry;
+	};
+
+	struct GlobalPosition {
+		RoomPosition room;
+		LocalPosition pos;
 	};
 
 	struct IntVector {
@@ -383,21 +391,48 @@ namespace Terrain {
 	};
 
 	struct Ray {
-		Position origin;
+		GlobalPosition origin;
 		IntVector direction;
 
 		Ray(int rx, int ry, int x, int y, int dx, int dy) {
-			origin.rx = rx;
-			origin.ry = ry;
-			origin.x = x;
-			origin.y = y;
+			origin.room.rx = rx;
+			origin.room.ry = ry;
+			origin.pos.x = x;
+			origin.pos.y = y;
 			direction.x = dx;
 			direction.y = dy;
 		}
 	};
 
+	enum CornerType {
+
+	};
+
+	struct Corner {
+		int x, y;
+		CornerType type;
+	};
+
+	enum WallType {
+		Invalid,
+		Floor,
+		Ceiling,
+		LeftWall,
+		RightWall,
+	};
+
+	struct RoomWall {
+		WallType type;
+		int plane;			    // The coordinate of the wall on the perpendicular axis
+		int min, max;			// The minimum and maximum coordinates of the wall on the parallel axis
+		bool minCornerBlocked;  // true if rays cannot pass through the min corner
+		bool maxCornerBlocked;  // true if rays cannot pass through the max corner
+	};
+
 	struct RoomTerrain {
-		
+		bool up, down, left, right; // Whether the respective screen edges are traversable
+		std::vector<Corner> corners;
+		std::vector<RoomWall> walls;
 	};
 
 	// --------------------------------------
