@@ -57,6 +57,11 @@ namespace Terrain {
 		RoomPosition(int rx, int ry) : rx(rx), ry(ry) {
 			outside = false;
 		}
+		RoomPosition(bool outside, int rx, int ry) : outside(outside), rx(rx), ry(ry) { }
+
+		bool operator== (const RoomPosition& other) const {
+			return (outside == other.outside && rx == other.rx && ry == other.ry);
+		}
 
 		IntVector GetNativeRoomCoords() {
 			IntVector result;
@@ -107,6 +112,19 @@ namespace Terrain {
 			}
 			return result;
 		}
+
+		RoomPosition NextRoomUp() {
+			return RoomPosition(outside, rx, (ry + 19) % 20);
+		}
+		RoomPosition NextRoomDown() {
+			return RoomPosition(outside, rx, (ry + 1) % 20);
+		}
+		RoomPosition NextRoomLeft() {
+			return RoomPosition(outside, (rx + 19) % 20, ry);
+		}
+		RoomPosition NextRoomRight() {
+			return RoomPosition(outside, (rx + 1) % 20, ry);
+		}
 	};
 
 	struct GlobalPosition {
@@ -153,6 +171,56 @@ namespace Terrain {
 		bool minCornerConcave;  // true if rays cannot pass through the min corner
 		bool maxCornerConcave;  // true if rays cannot pass through the max corner
 	};
+	struct CornerID {
+		RoomPosition room;
+		int cornerIndex;
+
+		CornerID(RoomPosition r, int i) : room(r), cornerIndex(i) { }
+	};
+	struct WallID {
+		RoomPosition room;
+		int wallIndex;
+
+		WallID(RoomPosition r, int i) : room(r), wallIndex(i) { }
+	};
+	struct NavigationNodeID {
+		RoomPosition room;
+		int nodeIndex;
+
+		NavigationNodeID(RoomPosition r, int i) : room(r), nodeIndex(i) { }
+	};
+
+	enum NavigationNodeType {
+		InvalidNodeType,
+		CornerNodeType,
+	};
+	struct CornerNavigationNode {
+		CornerID corner;
+		bool inverseGravity;
+	};
+	union NavigationNodeData {
+		struct EmptyStruct {} invalid;
+		CornerNavigationNode corner;
+
+		NavigationNodeData() {}
+	};
+	struct NavigationNode {
+		NavigationNodeType type;
+		NavigationNodeData data;
+
+		NavigationNode(CornerID corner, bool inverseGravity) {
+			type = NavigationNodeType::CornerNodeType;
+			data.corner.corner = corner;
+			data.corner.inverseGravity = inverseGravity;
+		}
+	};
+	struct NavigationEdge {
+		NavigationNodeID from;
+		NavigationNodeID to;
+		IntVector distance;
+
+		NavigationEdge(NavigationNodeID from, NavigationNodeID to, IntVector d) : from(from), to(to), distance(d) {}
+	};
 
 	struct RoomData {
 		bool initialized;
@@ -161,76 +229,46 @@ namespace Terrain {
 
 		std::vector<Corner> corners;
 		std::vector<RoomWall> walls;
+		std::vector<NavigationNode> nodes;
 
 		RoomData() {
 			initialized = warpx = warpy = up = down = left = right = false;
-			corners.clear(); walls.clear();
+			corners.clear(); walls.clear(); nodes.clear();
 		}
 
 		int GetMinXPos() {
 			if (warpx) {
 				return -9;
-			} else {
+			}
+			else {
 				return -14;
 			}
 		}
 		int GetMaxXPos() {
 			if (warpx) {
 				return 310;
-			} else {
+			}
+			else {
 				return 307;
 			}
 		}
 		int GetMinYPos() {
 			if (warpy) {
 				return -11;
-			} else {
+			}
+			else {
 				return -2;
 			}
 		}
 		int GetMaxYPos() {
 			if (warpy) {
 				return 226;
-			} else {
+			}
+			else {
 				return 237;
 			}
 		}
 	};
-
-	struct CornerID {
-		RoomPosition room;
-		int cornerIndex;
-	};
-	struct WallID {
-		RoomPosition room;
-		int wallIndex;
-	};
-
-	enum NavigationNodeType {
-		InvalidNodeType,
-		CornerNodeType,
-		SurfaceNodeType,
-		TrinketNodeType,
-		TriggerNodeType,
-		ScreenEdgeNodeType,
-	};
-	union NavigationNodeUnion {
-		struct EmptyStruct {} invalid;
-		CornerID corner;
-		WallID wall;
-
-	};
-	struct NavigationNode {
-		NavigationNodeType type;
-		NavigationNodeUnion data;
-		bool gravity;
-	};
-	struct NavigationEdge {
-		NavigationNode from;
-		NavigationNode to;
-		IntVector distance;
-	};
-
 	
 	// ------------------
 	// Hook functions
@@ -239,18 +277,31 @@ namespace Terrain {
 	void AfterTileRenderHook(void);
 	void AfterRenderHook(void);
 
+	// -------------------
+	// Rendering functions
+	// -------------------
+	void RenderPixel(int x, int y);
+	void RenderWall(WallID w);
+	void RenderEdge(int edge_index);
+	void RenderCollisionBitmap(IntVector offset);
+
 	// --------------------------------------
 	// Functions
 	// --------------------------------------
 	RoomData& GetRoomData(RoomPosition room_pos);
 	void LoadRoom(RoomPosition room_pos);
+	void InitializeConnectedRooms(RoomPosition startingRoom);
 	void InitializeRoomData(RoomPosition room_pos);
 	bool CanConnectRooms(RoomPosition r1, RoomPosition r2);
+	void CreateRoomNodes(RoomPosition r);
+	void ConnectNodes(NavigationNodeID from, NavigationNodeID to);
+	bool CanConnectCorners(CornerType c1, CornerType c2, IntVector d);
 
 	// --------------------------------------
 	// Getter Functions / Reading
 	// --------------------------------------
 	RoomPosition GetCurrentRoomPosition();
+	int GetHOffsetBetweenRooms(RoomPosition from, RoomPosition to);
 	bool* GetCurrentRoomPlayerCollisionBitmap(IntVector min, IntVector max);
 
 	// ------------------------
