@@ -15,1305 +15,847 @@
 
 
 namespace Terrain {
-	RoomCoords start_room = RoomCoords(2, 16);
+	RoomPosition start_room = RoomPosition(2, 16);
 	int start_x = 10;
 	int start_y = 100;
 
-	RoomCoords goal_room = RoomCoords(3, 4);
+	RoomPosition goal_room = RoomPosition(3, 4);
 	int goal_x = 100;
 	int goal_y = 160;
 
-	int num_precomputed_rooms = 0;
-	RoomInfo precomputed_rooms[20][20] = { { RoomInfo() } };
-
-	CollisionKind collision_kind = CollisionKind::Walls;
-	std::vector<NavCorner> nav_corners;
-	std::vector<Wall> nav_walls;
-
-	RoomInfoState::RoomInfoState GetRoomState(RoomCoords room_coords) {
-		return precomputed_rooms[room_coords.rx % 20][room_coords.ry % 20].state;
-	}
-
-	void PrecomputeCurrentRoomDims(void) {
-		RoomCoords current_room = GetCurrentRoomCoords();
-		if (GetRoomState(current_room) != RoomInfoState::None) {
-			VVV_exit(1);
-			return;
-		}
-
-		int rx = current_room.rx;
-		int ry = current_room.ry;
-
-		// Min and max positions the player can stand at in this room
-		int min_x_pos, min_y_pos, max_x_pos, max_y_pos;
-		if (map.towermode) {
-			VVV_exit(-1);
-		} else {
-			if (map.warpx) {
-				min_x_pos = -9; max_x_pos = 310;
-			}
-			else {
-				min_x_pos = -14; max_x_pos = 307;
-			}
-			if (map.warpy) {
-				min_y_pos = -11; max_y_pos = 226;
-			}
-			else {
-				min_y_pos = -2; max_y_pos = 237;
-			}
-		}
-
-		precomputed_rooms[rx][ry].min_x_pos = min_x_pos;
-		precomputed_rooms[rx][ry].max_x_pos = max_x_pos;
-		precomputed_rooms[rx][ry].min_y_pos = min_y_pos;
-		precomputed_rooms[rx][ry].max_y_pos = max_y_pos;
-		precomputed_rooms[rx][ry].warpx = map.warpx;
-		precomputed_rooms[rx][ry].warpy = map.warpy;
-		precomputed_rooms[rx][ry].towermode = map.towermode;
-
-		precomputed_rooms[rx][ry].state = RoomInfoState::Dimensions;
-	}
-
-	void PrecomputeCurrentRoomWalls(void) {
-		RoomCoords current_room = GetCurrentRoomCoords();
-		if (GetRoomState(current_room) != RoomInfoState::Dimensions) {
-			VVV_exit(1);
-			return;
-		}
-		int rx = current_room.rx;
-		int ry = current_room.ry;
-
-		int min_x_pos = precomputed_rooms[rx][ry].min_x_pos;
-		int max_x_pos = precomputed_rooms[rx][ry].max_x_pos;
-		int min_y_pos = precomputed_rooms[rx][ry].min_y_pos;
-		int max_y_pos = precomputed_rooms[rx][ry].max_y_pos;
-
-		// Create all corners
-		for (int x = min_x_pos; x <= max_x_pos; x++) {
-			for (int y = min_y_pos; y <= max_y_pos; y++) {
-				int x_left = x - 1;
-				int y_up = y - 1;
-
-				bool is_air = !CheckPlayerCollisionCurrentRoom(x, y);
-				bool up_is_air = !CheckPlayerCollisionCurrentRoom(x, y_up);
-				bool left_is_air = !CheckPlayerCollisionCurrentRoom(x_left, y);
-				bool upleft_is_air = !CheckPlayerCollisionCurrentRoom(x_left, y_up);
-
-				int count = is_air + up_is_air + left_is_air + upleft_is_air;
-
-				if (count == 0 || count == 4) {
-					// Not a corner, continue
-					continue;
-				}
-				if (count == 2 && (is_air == left_is_air || is_air == up_is_air)) {
-					// Not a corner, continue
-					continue;
-				}
-
-				NavCornerType type = InvalidCorner;
-				if (count == 3) {
-					// Convex
-					if (!is_air) {
-						type = TopLeft;
-					}
-					else if (!up_is_air) {
-						type = BottomLeft;
-					}
-					else if (!upleft_is_air) {
-						type = BottomRight;
-					}
-					else {
-						// assume(!left_is_air)
-						type = TopRight;
-					}
-				} else if (count == 1) {
-					// Concave
-					if (is_air) {
-						type = ConcaveBR;
-					}
-					else if (up_is_air) {
-						type = ConcaveTR;
-					}
-					else if (upleft_is_air) {
-						type = ConcaveTL;
-					}
-					else {
-						// assume(left_is_air)
-						type = ConcaveBL;
-					}
-				} else {
-					// assume(count == 2)
-					if (is_air && upleft_is_air) {
-						type = QuadTLBR;
-					}
-					else if (up_is_air && left_is_air) {
-						type = QuadBLTR;
-					}
-					else {
-						// unreachable
-						VVV_exit(1);
-					}
-				}
-
-				// Add corner to list
-				nav_corners.emplace_back(type, rx, ry, x, y);
-			}
-		}
-
-		// Create vertical walls
-		for (int x = min_x_pos; x <= max_x_pos; x++) {
-			WallOrientation w = WallOrientation::InvalidWall;
-			int wall_start, y;
-			for (y = min_y_pos; y <= max_y_pos; y++) {
-				bool is_air = !CheckPlayerCollisionCurrentRoom(x, y);
-				bool left_is_air = !CheckPlayerCollisionCurrentRoom(x - 1, y);
-				
-				WallOrientation w_new;
-				if (is_air == left_is_air) {
-					w_new = InvalidWall;
-				} else {
-					w_new = is_air ? WallOrientation::Left : WallOrientation::Right;
-				}
-
-				if (w != w_new) {
-					if (w != InvalidWall) {
-						// Wall ends here
-						int wall_end = y;
-						
-						if (!is_air || !left_is_air) {
-							// Block off "gaps" in non-convex corners
-							wall_end += 1;
-						}
-
-						int wall_y = (w == WallOrientation::Left) ? wall_end : wall_start;
-						int width = wall_end - wall_start;
-						
-						nav_walls.emplace_back(w, x, wall_y, rx, ry, width);
-					}
-
-					if (w_new != InvalidWall) {
-						// New wall starts here
-						wall_start = y;
-
-						if (wall_start > min_y_pos) {
-							bool up_is_air = !CheckPlayerCollisionCurrentRoom(x, wall_start - 1);
-							bool upleft_is_air = !CheckPlayerCollisionCurrentRoom(x - 1, wall_start - 1);
-
-							// Block off "gaps" in non-convex corners
-							if (!up_is_air || !upleft_is_air) {
-								wall_start -= 1;
-							}
-						}
-					}
-
-					w = w_new;
-				}
-			}
-
-			if (w != InvalidWall) {
-				// Wall ends at screen edge
-				int wall_y = (w == WallOrientation::Left) ? y : wall_start;
-				int width = y - wall_start;
-
-				nav_walls.emplace_back(w, x, wall_y, rx, ry, width);
-			}
-		}
-
-		// Create horizontal walls
-		for (int y = min_y_pos; y <= max_y_pos; y++) {
-			WallOrientation w = WallOrientation::InvalidWall;
-			int wall_start, x;
-			for (x = min_x_pos; x <= max_x_pos; x++) {
-				bool is_air = !CheckPlayerCollisionCurrentRoom(x, y);
-				bool up_is_air = !CheckPlayerCollisionCurrentRoom(x, y - 1);
-
-				WallOrientation w_new;
-				if (is_air == up_is_air) {
-					w_new = InvalidWall;
-				} else {
-					w_new = is_air ? WallOrientation::Down : WallOrientation::Up;
-				}
-
-				if (w != w_new) {
-					if (w != InvalidWall) {
-						// Wall ends here
-						int wall_x = (w == WallOrientation::Down) ? x : wall_start;
-						int width = x - wall_start;
-						if (!is_air || !up_is_air) {
-							// Block off "gaps" in non-convex corners
-							width += 1;
-							if (w == WallOrientation::Down) {
-								wall_x += 1;
-							}
-						}
-
-						nav_walls.emplace_back(w, wall_x, y, rx, ry, width);
-					}
-
-					if (w_new != InvalidWall) {
-						// New wall starts here
-						wall_start = x;
-
-						if (wall_start > min_x_pos) {
-							bool left_is_air = !CheckPlayerCollisionCurrentRoom(wall_start - 1, y);
-							bool upleft_is_air = !CheckPlayerCollisionCurrentRoom(wall_start - 1, y - 1);
-
-							// Block off "gaps" in non-convex corners
-							if (!left_is_air || !upleft_is_air) {
-								wall_start -= 1;
-							}
-						}
-					}
-
-					w = w_new;
-				}
-			}
-
-			if (w != InvalidWall) {
-				// Wall ends at screen edge
-				int wall_x = (w == WallOrientation::Down) ? x : wall_start;
-				int width = x - wall_start;
-
-				nav_walls.emplace_back(w, wall_x, y, rx, ry, width);
-			}
-		}
-
-		precomputed_rooms[rx][ry].state = RoomInfoState::Walls;
-	}
-
-	void PrecomputeNavigationGraph() {
-		int num_corners = nav_corners.size();
-		int num_walls = nav_walls.size();
-		// Determine connectivity of convex corners
-		for (int i = 0; i < num_corners; i++) {
-			NavCorner& corner_i = nav_corners.at(i);
-			if (!IsConvexCorner(corner_i.type)) {
-				continue;
-			}
-
-			for (int j = 0; j < i; j++) {
-				NavCorner& corner_j = nav_corners.at(j);
-				if (!IsConvexCorner(corner_j.type)) {
-					continue;
-				}
-
-				// Distance estimate:
-				int d_rx = corner_j.room_x - corner_i.room_x;
-				int d_ry = corner_j.room_y - corner_i.room_y;
-				if (d_rx < -10) {
-					d_rx += 20;
-				}
-				else if (d_rx > 10) {
-					d_rx -= 20;
-				}
-				if (d_ry < -10) {
-					d_ry += 20;
-				}
-				else if (d_ry > 10) {
-					d_ry -= 20;
-				}
-
-				int dx = 320 * d_rx + (corner_j.x - corner_i.x);
-				int dy = 240 * d_ry + (corner_j.y - corner_i.y);
-
-				// Add edges to the corners
-				if (TryConnectCorners(corner_i, corner_j)) {
-					NavEdge e1; // From corner_i to corner_j
-					e1.target = j; e1.dx = dx; e1.dy = dy; e1.active = false; e1.backwards = false,
-					corner_i.edges.push_back(e1);
-				}
-				if (TryConnectCorners(corner_j, corner_i)) {
-					NavEdge e2; // From corner_j to corner_i
-					e2.target = i; e2.dx = -dx; e2.dy = -dy; e2.active = false; e2.backwards = false,
-					corner_j.edges.push_back(e2);
-				}
-			}
-		}
-
-		// Set roomstates
-		for (int rx = 0; rx < 20; rx++) {
-			for (int ry = 0; ry < 20; ry++) {
-				if (precomputed_rooms[rx][ry].state >= RoomInfoState::Walls) {
-					precomputed_rooms[rx][ry].state = RoomInfoState::NavigationGraph;
-				}
-			}
-		}
-
-		// Do BFS from target position backwards to find "active" edges
-		if (GetRoomState(goal_room) != RoomInfoState::NavigationGraph) {
-			VVV_exit(1);
-			return;
-		}
-
-		std::vector<int> queue;
-		if (num_corners >= (1 << 16)) {
-			VVV_exit(1);
-			return;
-		}
-		for (int i = 0; i < num_corners; i++) {
-			NavCorner& c = nav_corners.at(i);
-			if (!IsConvexCorner(c.type)) {
-				continue;
-			}
-
-			int d_rx = c.room_x - goal_room.rx;
-			int d_ry = c.room_y - goal_room.ry;
-			if (d_rx < -10) {
-				d_rx += 20;
-			}
-			else if (d_rx > 10) {
-				d_rx -= 20;
-			}
-			if (d_ry < -10) {
-				d_ry += 20;
-			}
-			else if (d_ry > 10) {
-				d_ry -= 20;
-			}
-			int d_x = 320 * d_rx + (c.x - goal_x);
-			int d_y = 240 * d_ry + (c.y - goal_y);
-
-			if (!IsDirectionCompatible(c, d_x, d_y)) {
-				continue;
-			}
-			
-			// Check corner is reachable
-			if (!CrossRoomRayCast(goal_room.rx, goal_room.ry, goal_x, goal_y, d_x, d_y)) {
-				continue;
-			}
-
-			int num_edges = c.edges.size();
-			if (num_edges >= (1 << 16)) {
-				VVV_exit(1);
-				return;
-			}
-			for (int j = 0; j < num_edges; j++) {
-				NavEdge& e = c.edges.at(j);
-				if (e.active || e.backwards) {
-					// Already added this edge, continue
-					continue;
-				}
-
-				// Can't change axis directions without going through zero
-				if (d_x > 0 && e.dx < 0 || d_x < 0  && e.dx > 0 || d_y > 0 && e.dy < 0 || d_y < 0 && e.dy > 0) {
-					continue;
-				}
-
-				// Unify corner directions to BottomRight via mirroring of edge directions to make checks easier
-				int u_dx = d_x;
-				int u_dy = d_y;
-				int u_edx = e.dx;
-				int u_edy = e.dy;
-				switch (c.type) {
-					case NavCornerType::BottomRight:
-						// Do nothing
-						break;
-					case NavCornerType::BottomLeft:
-						// Mirror x
-						u_dx = -u_dx;
-						u_edx = -u_edx;
-						break;
-					case NavCornerType::TopLeft:
-						// Mirror both
-						u_dx = -u_dx;
-						u_edx = -u_edx;
-						u_dy = -u_dy;
-						u_edy = -u_edy;
-						break;
-					case NavCornerType::TopRight:
-						// Mirror y
-						u_dy = -u_dy;
-						u_edy = -u_edy;
-						break;
-					default:
-						// Should be unreachable
-						continue;
-				}
-
-				// Mirror along y=-x if edge is going backwards (i.e. down and left, to reduce necessary checks even more
-				if ((u_dx < 0 && u_dy > 0) || (u_edx < 0 && u_edy > 0)) {
-					int tmp = u_dx;
-					u_dx = -u_dy;
-					u_dy = -tmp;
-					tmp = u_edx;
-					u_edx = -u_edy;
-					u_edy = -tmp;
-				}
-
-				// Angle must be greater than 180 degrees
-				if (u_dx <= 0 || u_dy > 0 || u_edx < 0 || u_edy >= 0) {
-					continue;
-				}
-
-				// Angle must be greater than 180 degrees -> slope of line must increase (but note that y axis is inverted here)
-				// Therefore, u_edy / u_edx < u_dy / u_dx, which can be written as:
-				if (u_edy * u_dx >= u_dy * u_edx) {
-					continue;
-				}
-
-				// Now we can mark the edge as active and add it to the queue!
-				e.active = true;
-				int edge_id = (i << 16) | j;
-				queue.push_back(edge_id);
-
-				// Mark the backwards edge
-				NavCorner& target = nav_corners.at(e.target);
-				for (int k = 0; k < target.edges.size(); k++) {
-					NavEdge& backwards = target.edges.at(k);
-					if (backwards.target == i) {
-						backwards.backwards = true;
-						break;
-					}
-				}
-			}
-		}
-
-		while (queue.size() > 0) {
-			int edge_id = queue.back();
-			queue.pop_back();
-
-			int corner_idx = edge_id >> 16;
-			int edge_idx = edge_id & 0xffff;
-
-			NavCorner& corner = nav_corners.at(corner_idx);
-			NavEdge& edge = corner.edges.at(edge_idx);
-
-			int target_corner_idx = edge.target;
-			NavCorner& target_corner = nav_corners.at(target_corner_idx);
-
-			int num_edges = target_corner.edges.size();
-			for (int i = 0; i < num_edges; i++) {
-				NavEdge& next_edge = target_corner.edges.at(i);
-				if (next_edge.active || next_edge.backwards) {
-					// Edge has already been added
-					continue;
-				}
-
-				if (!CanConnectEdges(target_corner, edge, next_edge)) {
-					continue;
-				}
-
-				next_edge.active = true;
-				int next_edge_id = (target_corner_idx << 16) | i;
-				queue.push_back(next_edge_id);
-
-				// Mark the backwards edge
-				NavCorner& target = nav_corners.at(next_edge.target);
-				for (int j = 0; j < target.edges.size(); j++) {
-					NavEdge& backwards = target.edges.at(j);
-					if (backwards.target == corner_idx) {
-						backwards.backwards = true;
-						break;
-					}
-				}
-			}
-		}
-	}
-
-	bool CanConnectEdges(NavCorner& corner, NavEdge& incoming_edge, NavEdge& outgoing_edge) {
-		// assume(incoming_edge.target == corner)
-
-		int u_dx = incoming_edge.dx;
-		int u_dy = incoming_edge.dy;
-		int u_edx = outgoing_edge.dx;
-		int u_edy = outgoing_edge.dy;
-		// Can't change axis directions without going through zero
-		if (u_dx > 0 && u_edx < 0 || u_dx < 0 && u_edx > 0 || u_dy > 0 && u_edy < 0 || u_dy < 0 && u_edy > 0) {
-			return false;
-		}
-
-		// Unify corner directions to BottomRight via mirroring of edge directions to make checks easier
-		switch (corner.type) {
-			case NavCornerType::BottomRight:
-				// Do nothing
-				break;
-			case NavCornerType::BottomLeft:
-				// Mirror x
-				u_dx = -u_dx;
-				u_edx = -u_edx;
-				break;
-			case NavCornerType::TopLeft:
-				// Mirror both
-				u_dx = -u_dx;
-				u_edx = -u_edx;
-				u_dy = -u_dy;
-				u_edy = -u_edy;
-				break;
-			case NavCornerType::TopRight:
-				// Mirror y
-				u_dy = -u_dy;
-				u_edy = -u_edy;
-				break;
-			default:
-				// Should be unreachable
-				return false;
-		}
-
-		// Mirror along TL-BR diagonal if edge is going backwards (i.e. down and left, to reduce necessary checks even more)
-		if ((u_dx <= 0 && u_dy > 0) || (u_edx < 0 && u_edy >= 0)) {
-			int tmp = u_dx;
-			u_dx = u_dy;
-			u_dy = tmp;
-			tmp = u_edx;
-			u_edx = u_edy;
-			u_edy = tmp;
-		}
-
-		// Angle must be greater than 180 degrees
-		if (u_dx <= 0 || u_dy > 0 || u_edx < 0 || u_edy >= 0) {
-			return false;
-		}
-
-		// Angle must be greater than 180 degrees -> slope of line must increase (but note that y axis is inverted here)
-		// Therefore, u_edy / u_edx > u_dy / u_dx, which can be written as:
-		if ((-u_edy * u_dx) <= (-u_dy * u_edx)) {
-			return false;
-		}
-
-		// Now we can mark the edge as active and add it to the queue!
-		return true;
-	}
-
-	bool IsDirectionCompatible(NavCorner& corner, int dx, int dy) {
-		switch (corner.type) {
-			case NavCornerType::TopLeft:
-			case NavCornerType::BottomRight:
-				if (dx < 0 && dy < 0 || dx > 0 && dy > 0) {
-					return false;
-				}
-				break;
-			case NavCornerType::TopRight:
-			case NavCornerType::BottomLeft:
-				if (dx < 0 && dy > 0 || dx > 0 && dy < 0) {
-					return false;
-				}
-				break;
-			default:
-				return false;
-		}
-		return true;
-	}
-
-	bool IsConvexCorner(NavCornerType type) {
-		switch (type) {
-			case NavCornerType::TopLeft:
-			case NavCornerType::TopRight:
-			case NavCornerType::BottomLeft:
-			case NavCornerType::BottomRight:
-				return true;
-			default:
-				return false;
-		}
-	}
-
-	// TODO: deal with wrapping of map
-	bool TryConnectCorners(NavCorner& source, NavCorner& target) {
-		if (!IsConvexCorner(source.type) || !IsConvexCorner(target.type)) {
-			return false;
-		}
-
-		int d_rx = target.room_x - source.room_x;
-		int d_ry = target.room_y - source.room_y;
-		if (d_rx < -10) {
-			d_rx += 20;
-		} else if (d_rx > 10) {
-			d_rx -= 20;
-		}
-		if (d_ry < -10) {
-			d_ry += 20;
-		} else if (d_ry > 10) {
-			d_ry -= 20;
-		}
-
-		// Estimate:
-		int d_x = 320 * d_rx + (target.x - source.x);
-		int d_y = 240 * d_ry + (target.y - source.y);
-		// TODO: account for other room dimensions, warps, etc.
-		if (!IsDirectionCompatible(source, d_x, d_y) || !IsDirectionCompatible(target, d_x, d_y)) {
-			return false;
-		}
-
-		// Ray
-		int o_rx = source.room_x;
-		int o_ry = source.room_y;
-		int o_x = source.x;
-		int o_y = source.y;
-
-		return CrossRoomRayCast(o_rx, o_ry, o_x, o_y, d_x, d_y);
-	}
-
-	bool CrossRoomRayCast(int o_rx, int o_ry, int o_x, int o_y, int d_x, int d_y) {
-		// Raycast wall intersections
-		int num_walls = nav_walls.size();
-		bool any_intersections = false;
-		while (true) {
-			if (GetRoomState(RoomCoords(o_rx, o_ry)) == None) {
-				any_intersections = true;
-				break;
-			}
-
-			for (int i = 0; i < num_walls; i++) {
-				Wall& wall = nav_walls.at(i);
-				if (wall.room_x != o_rx || wall.room_y != o_ry) {
-					// Not in same room
-					continue;
-				}
-
-				if (wall.RayIntersect(o_x, o_y, d_x, d_y)) {
-					any_intersections = true;
-					break;
-				}
-			}
-
-			if (any_intersections) {
-				break;
-			}
-
-			// Find first intersection with screen edge
-			int x_step = d_x;
-			int y_step = d_y;
-			float t_x = INFINITY;
-			float t_y = INFINITY;
-			if (d_x != 0) {
-				int x_edge = d_x > 0 ? (precomputed_rooms[o_rx][o_ry].max_x_pos + 1) : (precomputed_rooms[o_rx][o_ry].min_x_pos - 1);
-				x_step = x_edge - o_x;
-				t_x = ((float)x_step) / ((float)d_x);
-			}
-			if (d_y != 0) {
-				int y_edge = d_y > 0 ? (precomputed_rooms[o_rx][o_ry].max_y_pos + 1) : (precomputed_rooms[o_rx][o_ry].min_y_pos - 1);
-				y_step = y_edge - o_y;
-				t_y = ((float)y_step) / ((float)d_y);
-			}
-
-			if (std::abs(x_step) >= std::abs(d_x) && std::abs(y_step) >= std::abs(d_y)) {
-				// We are already in final room
-				break;
-			}
-
-			if (t_x < t_y) {
-				// Follow x direction
-				o_x += x_step;
-				d_x -= x_step;
-				if (o_x < precomputed_rooms[o_rx][o_ry].min_x_pos) {
-					o_x += 320;
-					o_rx -= 1;
-				}
-				else if (o_x > precomputed_rooms[o_rx][o_ry].max_x_pos) {
-					o_x -= 320;
-					o_rx += 1;
-				}
-			} else {
-				// Follow y direction
-				// TODO: what about rooms with 232 height?
-				o_y += y_step;
-				d_y -= y_step;
-				if (o_y < precomputed_rooms[o_rx][o_ry].min_y_pos) {
-					o_y += 240;
-					o_ry -= 1;
-				}
-				else if (o_y > precomputed_rooms[o_rx][o_ry].max_y_pos) {
-					o_y -= 240;
-					o_ry += 1;
-				}
-			}
-		}
-
-		return !any_intersections;
-	}
-
-	bool CheckPlayerCollisionCurrentRoom(int x, int y) {
-		const SDL_Rect temprect = {x + VIRIDIAN_CX, y + VIRIDIAN_CY, VIRIDIAN_W, VIRIDIAN_H};
-
-		// Check walls
-		if (collision_kind == CollisionKind::Walls || collision_kind == CollisionKind::WallsAndSpikes) {
-			if (obj.checkwall(false, temprect)) {
-				return true;
-			}
-		}
-		// Check spikes
-		if (collision_kind == CollisionKind::WallsAndSpikes) {
-			for (size_t j = 0; j < obj.blocks.size(); j++)
-			{
-				if (obj.blocks[j].type == DAMAGE && help.intersects(obj.blocks[j].rect, temprect)) {
-					return true;
-				}
-			}
-		}
-		return false;
-	}
-
-	void FullPrecomputation(RoomCoords start) {
-		if (num_precomputed_rooms > 0) {
-			// Should only be called once
-			VVV_exit(1);
-			return;
-		}
-
-		LoadRoom(start);
-
-		std::vector<RoomCoords> queue;
-		PrecomputeCurrentRoomDims();
-		queue.push_back(start);
-
-		while (queue.size() > 0) {
-			RoomCoords current_room = queue.back();
-			queue.pop_back();
-
-			LoadRoom(current_room);
-			PrecomputeCurrentRoomWalls();
-			num_precomputed_rooms += 1;
-
-			int cur_rx = current_room.rx;
-			int cur_ry = current_room.ry;
-
-			int min_x = precomputed_rooms[cur_rx][cur_ry].min_x_pos;
-			int max_x = precomputed_rooms[cur_rx][cur_ry].max_x_pos;
-			int min_y = precomputed_rooms[cur_rx][cur_ry].min_y_pos;
-			int max_y = precomputed_rooms[cur_rx][cur_ry].max_y_pos;
-			bool warpx = precomputed_rooms[cur_rx][cur_ry].warpx;
-			bool warpy = precomputed_rooms[cur_rx][cur_ry].warpy;
-
-			// Check reachability of neighbouring rooms
-			bool up, down, left, right;
-			up = down = left = right = false;
-			if (!warpy) {
-				for (int x = min_x; (!up || !down) && x <= max_x; x++) {
-					if (!up && !CheckPlayerCollisionCurrentRoom(x, min_y)) {
-						up = true;
-					}
-					if (!down && !CheckPlayerCollisionCurrentRoom(x, max_y)) {
-						down = true;
-					}
-				}
-			}
-			if (!warpx) {
-				for (int y = min_y; (!left || !right) && y <= max_y; y++) {
-					if (!left && !CheckPlayerCollisionCurrentRoom(min_x, y)) {
-						left = true;
-					}
-					if (!right && !CheckPlayerCollisionCurrentRoom(max_x, y)) {
-						right = true;
-					}
-				}
-			}
-
-			// Add reachable neighbors to queue
-			if (up) {
-				RoomCoords room_above = current_room.next_above();
-				if (GetRoomState(room_above) == RoomInfoState::None) {
-					LoadRoom(room_above);
-					PrecomputeCurrentRoomDims();
-					queue.push_back(room_above);
-				}
-			}
-			if (down) {
-				RoomCoords room_below = current_room.next_below();
-				if (GetRoomState(room_below) == RoomInfoState::None) {
-					LoadRoom(room_below);
-					PrecomputeCurrentRoomDims();
-					queue.push_back(room_below);
-				}
-			}
-			if (left) {
-				RoomCoords room_left = current_room.next_left();
-				if (GetRoomState(room_left) == RoomInfoState::None) {
-					LoadRoom(room_left);
-					PrecomputeCurrentRoomDims();
-					queue.push_back(room_left);
-				}
-			}
-			if (right) {
-				RoomCoords room_right = current_room.next_right();
-				if (GetRoomState(room_right) == RoomInfoState::None) {
-					LoadRoom(room_right);
-					PrecomputeCurrentRoomDims();
-					queue.push_back(room_right);
-				}
-			}
-		}
-
-		// Compute navigation graph for all rooms reached
-		PrecomputeNavigationGraph();
-	}
-
-	void Precompute(void) {
-		RoomCoords cur = GetCurrentRoomCoords();
-		int rx = cur.rx;
-		int ry = cur.ry;
-
-		if (GetRoomState(cur) < RoomInfoState::Walls) {
-			FullPrecomputation(cur);
-			ResetState();
-		}
-	}
+	RoomData overworldRoomData[20][20];
+	RoomData outsideRoomData[20][20];
+	CollisionSetting collisionSetting;
 	
 	// ------------------
 	// Hook functions
 	// ------------------
 
 	void BeforeRenderHook(void) {
-		Precompute();
+
 	}
 
 	void AfterTileRenderHook(void) {
-		RoomCoords cur = GetCurrentRoomCoords();
-		if (GetRoomState(cur) >= RoomInfoState::Walls) {
-			int px = obj.entities[0].xp;
-			int py = obj.entities[0].yp;
-			int num_walls = nav_walls.size();
-			int num_corners = nav_corners.size();
 
-			graphics.set_blendmode(SDL_BLENDMODE_BLEND);
-
-			// Draw walls
-			SDL_SetRenderDrawColor(gameScreen.m_renderer, 0, 155, 0, 255);
-			for (int i = 0; i < num_walls; i++) {
-				Wall& w = nav_walls.at(i);
-				RenderWall(w);
-			}
-
-			// Draw corners
-			SDL_SetRenderDrawColor(gameScreen.m_renderer, 0, 255, 0, 255);
-			for (int i = 0; i < num_corners; i++) {
-				NavCorner& c = nav_corners.at(i);
-				RenderCorner(c);
-			}
-
-			// Draw active connections
-			SDL_SetRenderDrawColor(gameScreen.m_renderer, 0, 255, 255, 150);
-			for (int i = 0; i < num_corners; i++) {
-				NavCorner& c = nav_corners.at(i);
-				int num_edges = c.edges.size();
-				for (int j = 0; j < num_edges; j++) {
-					NavEdge& e = c.edges.at(j);
-
-					if (e.active) {
-						NavCorner& t = nav_corners.at(e.target);
-						RenderEdge(c, e);
-					}
-				}
-			}
-		}
 	}
 
 	void AfterRenderHook(void) {
-		int px = obj.entities[0].xp;
-		int py = obj.entities[0].yp;
-		graphics.set_blendmode(SDL_BLENDMODE_NONE);
 
-		// Draw player pos
-		SDL_SetRenderDrawColor(gameScreen.m_renderer, 255, 255, 255, 255);
-		RenderPixel(px, py);
+	}
 
-		// Draw goal pos
-		RoomCoords current_room = GetCurrentRoomCoords();
-		if (current_room.rx == goal_room.rx && current_room.ry == goal_room.ry) {
-			SDL_SetRenderDrawColor(gameScreen.m_renderer, 255, 255, 255, 255);
-			RenderPixel(goal_x, goal_y);
+	RoomData& GetRoomData(RoomPosition room) {
+		if (room.outside) {
+			if (0 <= room.rx && room.rx < 20 && 0 <= room.ry && room.ry < 20) {
+				return overworldRoomData[room.rx][room.ry];
+			}
+		} else {
+			if (0 <= room.rx && room.rx < 20 && 0 <= room.ry && room.ry < 20) {
+				return outsideRoomData[room.rx][room.ry];
+			}
+		}
+
+		VVV_exit(1);
+	}
+
+	void LoadRoom(RoomPosition room) {
+		IntVector native_coords = room.GetNativeRoomCoords();
+
+		if (game.roomx != native_coords.x || game.roomy != native_coords.y || map.finalmode != room.outside) {
+			map.finalmode = room.outside;
+			map.gotoroom(native_coords.x, native_coords.x);
 		}
 	}
 
-	// -------------------
-	// Rendering Functions
-	// -------------------
-
-	void RenderWall(Wall& wall) {
-		RoomCoords current_room = GetCurrentRoomCoords();
-		if (wall.room_x != current_room.rx || wall.room_y != current_room.ry) {
+	void InitializeRoomData(RoomPosition room_pos) {
+		// Can't handle towers (yet)
+		if (room_pos.IsTower()) {
+			VVV_exit(-1);
 			return;
 		}
 
-		int x, y, w, h;
-		switch (wall.orientation) {
-			default:
-				// Invalid wall, skip
-				return;
-			case WallOrientation::Up:
-				x = wall.x;
-				y = wall.y;
-				w = wall.width;
-				h = 1;
-				break;
-			case WallOrientation::Right:
-				x = wall.x;
-				y = wall.y;
-				w = 1;
-				h = wall.width;
-				break;
-			case WallOrientation::Down:
-				x = wall.x - wall.width;
-				y = wall.y - 1;
-				w = wall.width;
-				h = 1;
-				break;
-			case WallOrientation::Left:
-				x = wall.x - 1;
-				y = wall.y - wall.width;
-				w = 1;
-				h = wall.width;
-				break;
+		RoomData& result = GetRoomData(room_pos);
+		if (result.initialized) {
+			// Room has already been initialized
+			return;
+		}
+		result.initialized = true;
+
+		// First, load the room
+		LoadRoom(room_pos);
+
+		// Now, let's first do some basic properties
+		result.warpx = map.warpx;
+		result.warpy = map.warpy;
+
+		IntVector min = IntVector(result.GetMinXPos() - 1, result.GetMinYPos() - 1);
+		IntVector max = IntVector(result.GetMaxXPos() + 1, result.GetMaxYPos() + 1);
+
+		bool* collision_bitmap = GetCurrentRoomPlayerCollisionBitmap(min, max);
+		int bitmap_width = max.x - min.x + 1;
+
+		// Check if the screen edges are blocked off
+		result.left = result.right = result.up = result.down = false;
+		for (int x = min.x + 1; x <= max.x - 1; x++) {
+			if (!collision_bitmap[min.y * bitmap_width + x]) {
+				result.up = true;
+			}
+			if (!collision_bitmap[max.y * bitmap_width + x]) {
+				result.down = true;
+			}
+		}
+		for (int y = min.y + 1; y <= max.y - 1; y++) {
+			if (!collision_bitmap[y * bitmap_width + min.x]) {
+				result.up = true;
+			}
+			if (!collision_bitmap[y * bitmap_width + max.x]) {
+				result.down = true;
+			}
 		}
 
-		const SDL_Rect rect = { x + RENDER_OFFSET_X, y + RENDER_OFFSET_Y, w, h };
-		SDL_RenderFillRect(gameScreen.m_renderer, &rect);
+		// Now, let's find the walls and corners
+		
+		// First, vertical walls
+		for (int x = min.x + 1; x <= max.x; x++) {
+			bool started = false;
+			bool isLeftWall = false;
+			bool prevIsEmpty = true;
+			bool startIsConcave = false;
+			int wall_start = INT_MIN;
+
+			for (int y = min.y; y <= max.y; y++) {
+				bool left = collision_bitmap[y * bitmap_width + x - 1];
+				bool self = collision_bitmap[y * bitmap_width + x];
+
+				bool isWall = left != self;
+				bool newWallIsLeftWall = left && !self;
+
+				bool wallEndsHere = started && !(isWall && newWallIsLeftWall == isLeftWall);
+				bool wallStartsHere = isWall && !(started && newWallIsLeftWall == isLeftWall);
+
+				if (wallEndsHere) {
+					bool isEmpty = !left && !self;
+					bool endIsConcave = !isEmpty;
+					int wall_end = y;
+
+					RoomWall newWall;
+					newWall.type = isLeftWall ? WallType::LeftWall : WallType::RightWall;
+					// wall.plane is the last coordinate the player can stand at just next to the wall
+					newWall.plane = isLeftWall ? x : (x - 1);
+					newWall.min = wall_start;
+					newWall.max = wall_end;
+					newWall.minCornerConcave = startIsConcave;
+					newWall.maxCornerConcave = endIsConcave;
+
+					result.walls.push_back(newWall);
+					started = false;
+				}
+				if (wallStartsHere) {
+					isLeftWall = newWallIsLeftWall;
+					startIsConcave = !prevIsEmpty;
+					wall_start = (y - 1);
+					started = true;
+				}
+				prevIsEmpty = !left && !self;
+			}
+
+			// Finish off any running walls
+			if (started) {
+				RoomWall newWall;
+				newWall.type = isLeftWall ? WallType::LeftWall : WallType::RightWall;
+				// wall.plane is the last coordinate the player can stand at just next to the wall
+				newWall.plane = isLeftWall ? x : (x - 1);
+				newWall.min = wall_start;
+				newWall.max = max.y;
+				newWall.minCornerConcave = startIsConcave;
+				newWall.maxCornerConcave = false;
+
+				result.walls.push_back(newWall);
+			}
+		}
+
+		// Next, horizontal walls (i.e. floors and ceilings)
+		for (int y = min.y + 1; y <= max.y; y++) {
+			bool started = false;
+			bool isCeiling = false;
+			bool prevIsEmpty = true;
+			bool startIsConcave = false;
+			int wall_start = INT_MIN;
+
+			for (int x = min.x; x <= max.x; x++) {
+				bool up = collision_bitmap[bitmap_width * (y - 1) + x];
+				bool self = collision_bitmap[bitmap_width * y + x];
+
+				bool isWall = up != self;
+				bool newWallIsCeiling = up && !self;
+				bool isSameWall = isCeiling == newWallIsCeiling;
+
+				bool wallEndsHere = started && !(isWall && isSameWall);
+				bool wallStartsHere = isWall && !(started && isSameWall);
+
+				if (wallEndsHere) {
+					bool isEmpty = !up && !self;
+					bool endIsConcave = !isEmpty;
+					int wall_end = x;
+
+					RoomWall newWall;
+					newWall.type = isCeiling ? WallType::Ceiling : WallType::Floor;
+					// wall.plane is the last coordinate the player can stand at just next to the wall
+					newWall.plane = isCeiling ? y : (y - 1);
+					newWall.min = wall_start;
+					newWall.max = wall_end;
+					newWall.minCornerConcave = startIsConcave;
+					newWall.maxCornerConcave = endIsConcave;
+
+					result.walls.push_back(newWall);
+					started = false;
+				}
+				if (wallStartsHere) {
+					isCeiling = newWallIsCeiling;
+					startIsConcave = !prevIsEmpty;
+					wall_start = (x - 1);
+					started = true;
+				}
+				prevIsEmpty = !up && !self;
+			}
+
+			// Finish off any running walls
+			if (started) {
+				RoomWall newWall;
+				newWall.type = isCeiling ? WallType::Ceiling : WallType::Floor;
+				// wall.plane is the last coordinate the player can stand at just next to the wall
+				newWall.plane = isCeiling ? y : (y - 1);
+				newWall.min = wall_start;
+				newWall.max = max.x;
+				newWall.minCornerConcave = startIsConcave;
+				newWall.maxCornerConcave = false;
+
+				result.walls.push_back(newWall);
+			}
+		}
+
+		// Now we can gather the (convex) corners
+		for (int x = min.x + 1; x <= max.x; x++) {
+			for (int y = min.y + 1; y <= max.y; y++) {
+				bool up_left = collision_bitmap[bitmap_width * (y - 1) + x - 1];
+				bool left = collision_bitmap[y * bitmap_width + x - 1];
+				bool up = collision_bitmap[bitmap_width * (y - 1) + x];
+				bool self = collision_bitmap[bitmap_width * y + x];
+
+				int wall_count = up_left + left + up + self;
+				if (wall_count != 1) {
+					// Not a convex corner
+					continue;
+				}
+
+				Corner newCorner;
+				if (up_left) {
+					newCorner.type = BottomRight;
+					newCorner.x = x;
+					newCorner.y = y;
+				} else if (left) {
+					newCorner.type = TopRight;
+					newCorner.x = x;
+					newCorner.y = y - 1;
+				} else if (up) {
+					newCorner.type = BottomLeft;
+					newCorner.x = x - 1;
+					newCorner.y = y;
+				} else {
+					newCorner.type = TopLeft;
+					newCorner.x = x - 1;
+					newCorner.y = y - 1;
+				}
+
+				result.corners.push_back(newCorner);
+			}
+		}
+
+		// Free the collision bitmap
+		SDL_free((void*) collision_bitmap);
 	}
 
-	void RenderCorner(NavCorner& c) {
-		RoomCoords current_room = GetCurrentRoomCoords();
-		if (c.room_x != current_room.rx || c.room_y != current_room.ry) {
-			return;
+	bool CanConnectRooms(RoomPosition r1, RoomPosition r2) {
+		if (r1.outside != r2.outside) {
+			// different dimensions
+			return false;
+		}
+		if (r1.rx == r2.rx && r1.ry == r2.ry) {
+			// same room
+			return true;
+		}
+		if (r1.IsTower() || r2.IsTower()) {
+			// TODO: implement this
+			VVV_exit(-1);
+			return true;
 		}
 
-		int x1, y1;
-		int x2, y2;
-		int x3, y3;
-		int w = 2;
-		int h = 2;
+		RoomData& r1Data = GetRoomData(r1);
+		RoomData& r2Data = GetRoomData(r2);
+		if (!r1Data.initialized || !r2Data.initialized) {
+			// Room data hasn't been initialized yet!
+			VVV_exit(1);
+			return false;
+		}
 
-		switch (c.type) {
-			default:
-				// Invalid corner, skip
-				return;
-			case NavCornerType::BottomRight:
-				x1 = c.x - w;
-				y1 = c.y - h;
-				x2 = x1 - w;
-				y2 = y1;
-				x3 = x1;
-				y3 = y1 - h;
-				break;
-			case NavCornerType::BottomLeft:
-				x1 = c.x;
-				y1 = c.y - h;
-				x2 = x1 + w;
-				y2 = y1;
-				x3 = x1;
-				y3 = y1 - h;
-				break;
-			case NavCornerType::TopLeft:
-				x1 = c.x;
-				y1 = c.y;
-				x2 = x1 + w;
-				y2 = y1;
-				x3 = x1;
-				y3 = y1 + h;
-				break;
-			case NavCornerType::TopRight:
-				x1 = c.x - w;
-				y1 = c.y;
-				x2 = x1 - w;
-				y2 = y1;
-				x3 = x1;
-				y3 = y1 + h;
-				break;
+		bool canExitH = false;
+		bool canExitUp = false;
+		bool canExitDown = false;
+		bool canEnterH = false;
+		bool canEnterUp = false;
+		bool canEnterDown = false;
+		if (r1.rx != r2.rx) {
+			canEnterH = canExitH = true;
 
-			case NavCornerType::ConcaveTL:
-				x1 = c.x;
-				y1 = c.y;
-				x2 = x1 - w;
-				y2 = y1;
-				x3 = x1;
-				y3 = y1 - h;
-				break;
-			case NavCornerType::ConcaveTR:
-				x1 = c.x - w;
-				y1 = c.y;
-				x2 = x1 + w;
-				y2 = y1;
-				x3 = x1;
-				y3 = y1 - h;
-				break;
-			case NavCornerType::ConcaveBR:
-				x1 = c.x - w;
-				y1 = c.y - h;
-				x2 = x1 + w;
-				y2 = y1;
-				x3 = x1;
-				y3 = y1 + h;
-				break;
-			case NavCornerType::ConcaveBL:
-				x1 = c.x;
-				y1 = c.y - h;
-				x2 = x1 - w;
-				y2 = y1;
-				x3 = x1;
-				y3 = y1 + h;
-				break;
+			bool goingRight = r2.rx > r1.rx;
+			if (r1.outside && (r1.rx < TOWER_RX) != (r2.rx < TOWER_RX)) {
+				// Wrap around because tower is in the way
+				goingRight = r2.rx < TOWER_RX;
+			}
+			if (goingRight) {
+				canExitH = r1Data.right;
+				canEnterH = r2Data.left;
+			} else {
+				canExitH = r1Data.left;
+				canEnterH = r2Data.right;
+			}
+		}
 
-			case NavCornerType::QuadTLBR:
-			case NavCornerType::QuadBLTR:
-				// Unimplemented
+		canExitUp = r1Data.up;
+		canExitDown = r1Data.down;
+		canEnterUp = r2Data.up;
+		canEnterDown = r2Data.down;
+
+		if (canEnterUp && (canExitH || canExitDown)) {
+			return true;
+		}
+		if (canEnterDown && (canExitH || canExitUp)) {
+			return true;
+		}
+		if (canEnterH && (canExitUp || canExitH || canExitDown)) {
+			return true;
+		}
+
+		return false;
+	}
+
+	void ConnectCorners(RoomPosition room_i, int i, RoomPosition room_j, int j) {
+		RoomData& roomData1 = GetRoomData(room_i);
+		RoomData& roomData2 = GetRoomData(room_j);
+
+		Corner& c1 = roomData1.corners.at(i);
+		Corner& c2 = roomData2.corners.at(j);
+
+		int d_rx = GetHOffsetBetweenRooms(room_i, room_j);
+
+		int d_ry1 = room_j.ry - room_i.ry;
+		int d_ry2, d_ry3 = INT_MAX;
+		
+		if (d_ry1 >= 0) {
+			d_ry2 = d_ry1 - 20;
+		}
+		if (d_ry1 <= 0) {
+			d_ry3 = d_ry1 + 20;
+		}
+
+		// Sort by distance
+		if (std::abs(d_ry2) < std::abs(d_ry1)) {
+			int tmp = d_ry1;
+			d_ry1 = d_ry2;
+			d_ry2 = tmp;
+		}
+		if (std::abs(d_ry3) < std::abs(d_ry2)) {
+			int tmp = d_ry2;
+			d_ry2 = d_ry3;
+			d_ry3 = tmp;
+		}
+		if (std::abs(d_ry2) < std::abs(d_ry1)) {
+			int tmp = d_ry1;
+			d_ry1 = d_ry2;
+			d_ry2 = tmp;
+		}
+
+		std::vector<IntVector> ds;
+		if (d_ry1 < INT_MAX) {
+			ds.emplace_back(d_rx, d_ry1);
+		}
+		if (d_ry2 < INT_MAX) {
+			ds.emplace_back(d_rx, d_ry2);
+		}
+		if (d_ry3 < INT_MAX) {
+			ds.emplace_back(d_rx, d_ry3);
+		}
+
+		for (int d_idx = 0; d_idx < ds.size(); d_idx++) {
+			IntVector room_delta = ds.at(d_idx);
+			int dx = c2.x - c1.x + room_delta.x * 320;
+			int dy = c2.y - c1.y + room_delta.y * 240;
+
+			// Check if the corners are compatible
+			if (!CanConnectCorners(c1.type, c2.type, IntVector(dx, dy))) {
+				continue;
+			}
+
+			// Gravity: false -> down, true -> up
+			bool c1Gravity = (dy < 0);
+			bool c2Gravity = (dy < 0);
+			if (dy == 0) {
+				if (c1.type == CornerType::TopLeft || c1.type == TopRight) {
+					c1Gravity = true;
+				}
+				if (c2.type == CornerType::BottomLeft || c2.type == BottomRight) {
+					c2Gravity = true;
+				}
+			}
+
+			// TODO: clean this up
+			CornerID c1_id;
+			c1_id.room = room_i;
+			c1_id.cornerIndex = i;
+			NavigationNodeUnion c1_node_union = {};
+			c1_node_union.corner = c1_id;
+			NavigationNode c1_node = {};
+			c1_node.data = c1_node_union;
+			c1_node.type = NavigationNodeType::CornerNodeType;
+			c1_node.gravity = c1Gravity;
+
+			Ray ray = Ray(c1.x, c2.x, dx, dy);
+			float t = GlobalRaycast(room_i, ray);
+			if (t >= 1) {
+				// No intersection found between the corners
+				// TODO: connect them
+
+				break;
+			} else if (t < 0) {
+				// Something weird happened
 				VVV_exit(-1);
 				return;
-		}
-
-		const SDL_Rect rect1 = { x1 + RENDER_OFFSET_X, y1 + RENDER_OFFSET_Y, w, h };
-		const SDL_Rect rect2 = { x2 + RENDER_OFFSET_X, y2 + RENDER_OFFSET_Y, w, h };
-		const SDL_Rect rect3 = { x3 + RENDER_OFFSET_X, y3 + RENDER_OFFSET_Y, w, h };
-		SDL_RenderFillRect(gameScreen.m_renderer, &rect1);
-		SDL_RenderFillRect(gameScreen.m_renderer, &rect2);
-		SDL_RenderFillRect(gameScreen.m_renderer, &rect3);
-	}
-
-	void RenderEdge(NavCorner& c, NavEdge& edge) {
-		RoomCoords current_room = GetCurrentRoomCoords();
-		int rx = current_room.rx;
-		int ry = current_room.ry;
-
-		int d_rx = c.room_x - current_room.rx;
-		int d_ry = c.room_y - current_room.ry;
-		if (d_rx < -10) {
-			d_rx += 20;
-		}
-		else if (d_rx > 10) {
-			d_rx -= 20;
-		}
-		if (d_ry < -10) {
-			d_ry += 20;
-		}
-		else if (d_ry > 10) {
-			d_ry -= 20;
-		}
-
-		int o_x = 320 * d_rx + c.x;
-		int o_y = 240 * d_ry + c.y;
-
-		int d_x = edge.dx;
-		int d_y = edge.dy;
-
-		if (c.room_x != current_room.rx || c.room_y != current_room.ry) {
-			// Basically an AABB check
-			int min_x_pos = precomputed_rooms[rx][ry].min_x_pos;
-			int max_x_pos = precomputed_rooms[rx][ry].max_x_pos;
-			int min_y_pos = precomputed_rooms[rx][ry].min_y_pos;
-			int max_y_pos = precomputed_rooms[rx][ry].max_y_pos;
-
-			float t_min_x = ((float)(min_x_pos - o_x)) / ((float)d_x);
-			float t_max_x = ((float)(max_x_pos - o_x)) / ((float)d_x);
-			float t_min_y = ((float)(min_y_pos - o_y)) / ((float)d_y);
-			float t_max_y = ((float)(max_y_pos - o_y)) / ((float)d_y);
-
-			float t_min = std::max(t_min_x, t_min_y);
-			float t_max = std::min(t_max_x, t_max_y);
-
-			if (t_min > t_max) {
-				// Ray doesn't touch room
-				return;
 			}
 		}
-
-		SDL_RenderDrawLine(gameScreen.m_renderer, o_x + RENDER_OFFSET_X, o_y + RENDER_OFFSET_Y, o_x + d_x + RENDER_OFFSET_X, o_y + d_y + RENDER_OFFSET_Y);
 	}
 
-	void RenderPixel(int x, int y) {
-		const SDL_Rect rect = { x + RENDER_OFFSET_X, y + RENDER_OFFSET_Y, 1, 1 };
-		SDL_RenderFillRect(gameScreen.m_renderer, &rect);
-	}
-
-	// -------------------
-	// Interface to VVVVVV
-	// -------------------
-
-	void ResetState() {
-		Solver::load_scenario();
-	}
-
-	void LoadRoom(RoomCoords room_coords) {
-		int rx = room_coords.rx % 20;
-		int ry = room_coords.ry % 20;
-		if (!map.finalmode) {
-			rx += 100;
-			ry += 100;
-		}
-
-		if (game.roomx != rx || game.roomy != ry) {
-			map.gotoroom(rx, ry);
-		}
-	}
-
-	RoomCoords GetCurrentRoomCoords(void) {
-		int rx = game.roomx;
-		int ry = game.roomy;
-
-		if (!map.finalmode) {
-			rx -= 100;
-			ry -= 100;
-		}
-		else {
-			// TODO:
-			VVV_exit(-1);
-		}
-
-		return RoomCoords(rx, ry);
-	}
-
-	bool CheckSpike(int x, int y) {
-		SDL_Rect temprect;
-		temprect.x = x;
-		temprect.y = y;
-		temprect.w = 1;
-		temprect.h = 1;
-
-		for (size_t j = 0; j < obj.blocks.size(); j++)
-		{
-			if (obj.blocks[j].type == DAMAGE && help.intersects(obj.blocks[j].rect, temprect))
-			{
-				return true;
-			}
-		}
-		return false;
-	}
-
-	bool CheckPlayerCollision(int x, int y) {
-		SDL_Rect temprect;
-		temprect.x = x;
-		temprect.y = y;
-		temprect.w = 12;
-		temprect.h = 21;
-
-		return obj.checkwall(false, temprect);
-	}
-
-	bool CheckPlayerSpike(int x, int y) {
-		SDL_Rect temprect;
-		temprect.x = x;
-		temprect.y = y;
-		temprect.w = 12;
-		temprect.h = 21;
-
-		for (size_t j = 0; j < obj.blocks.size(); j++)
-		{
-			if (obj.blocks[j].type == DAMAGE && help.intersects(obj.blocks[j].rect, temprect))
-			{
-				return true;
-			}
-		}
-		return false;
-	}
-
-	// --------------------------------------
-	// More rigorously implemented stuff here
-	// --------------------------------------
-	float OverworldRaycast(Ray& r) {
-		// Note: Any rooms that are traversed must be initialized
-		int rx = r.origin.rx;
-		int ry = r.origin.ry;
-		int x = r.origin.x;
-		int y = r.origin.y;
-
-		int dx = r.direction.x;
-		int dy = r.direction.y;
-
-		bool changed_room = true;
-		while (changed_room) {
-			changed_room = false;
-
-			// Do a raycast within the current room
-			Ray room_ray = Ray(rx, ry, x, y, dx, dy);
-			float t_room = RoomRaycast(room_ray, rx, ry);
-			if (0 < t_room && t_room < INFINITY) {
-				// If we found a collision, return it
-				return t_room;
-			}
-
-			// Otherwise, keep going until the next room transition, if there is one
-			int next_x_edge = (dx > 0) ? GetXMax(rx, ry) + 1 : GetXMin(rx, ry) - 1;
-			int next_y_edge = (dy > 0) ? GetYMax(rx, ry) + 1 : GetYMin(rx, ry) - 1;
-
-			int x_edge_dist = next_x_edge - x;
-			int y_edge_dist = next_y_edge - y;
-
-			float t_x;
-			if (dx > 0 && dx >= x_edge_dist) {
-				t_x = x_edge_dist / ((float)dx);
-			} else if (dx < 0 && dx <= x_edge_dist) {
-				t_x = x_edge_dist / ((float)dx);
-			} else {
-				t_x = INFINITY;
-			}
-
-			float t_y;
-			if (dy > 0 && dy >= y_edge_dist) {
-				t_y = y_edge_dist / ((float) dy);
-			} else if (dy < 0 && dy <= y_edge_dist) {
-				t_y = y_edge_dist / ((float) dy);
-			} else {
-				t_y = INFINITY;
-			}
-
-			// Check room change conditions
-			if (t_x < t_y) {
-				// x edge is closer
-				if (dx > 0) {
-					x -= 320;
-					rx += 1;
-				} else {
-					x += 320;
-					rx -= 1;
+	bool CanConnectCorners(CornerType c1, CornerType c2, IntVector d) {
+		if (d.y == 0) {
+			if (d.x == 0) {
+				return false;
+			} else if (d.x > 0) {
+				if (c1 == CornerType::BottomRight || c1 == CornerType::TopRight) {
+					return false;
+				} else if (c2 == CornerType::BottomLeft || c2 == CornerType::TopLeft) {
+					return false;
 				}
-				changed_room = true;
-			} else if (t_y < INFINITY) {
-				// y edge is closer
-				if (dy > 0) {
-					y -= GetWarpY(rx, ry) ? 232 : 240;
-					ry += 1;
-				} else {
-					y += GetWarpY(rx, ry) ? 232 : 240;
-					ry -= 1;
+			} else {
+				// d.x < 0
+				if (c1 == CornerType::BottomLeft || c1 == CornerType::TopLeft) {
+					return false;
+				} else if (c2 == CornerType::BottomRight || c2 == CornerType::TopRight) {
+					return false;
 				}
-				changed_room = true;
+			}
+		} else if (d.y > 0) {
+			if (d.x == 0) {
+				if (c1 == CornerType::BottomLeft || c1 == CornerType::BottomRight) {
+					return false;
+				} else if (c2 == CornerType::TopLeft || c2 == CornerType::TopRight) {
+					return false;
+				}
+			} else if (d.x > 0) {
+				// Going down and right
+				if (c1 == CornerType::BottomRight || c1 == CornerType::TopLeft) {
+					return false;
+				} else if (c2 == CornerType::BottomRight || c2 == CornerType::TopLeft) {
+					return false;
+				}
+			} else {
+				// d.x < 0
+				// Going down and left
+				if (c1 == CornerType::BottomLeft || c1 == CornerType::TopRight) {
+					return false;
+				} else if (c2 == CornerType::BottomLeft || c2 == CornerType::TopRight) {
+					return false;
+				}
+			}
+		} else {
+			// d.y < 0
+			if (d.x == 0) {
+				if (c1 == CornerType::TopLeft || c1 == CornerType::TopRight) {
+					return false;
+				} else if (c2 == CornerType::BottomLeft || c2 == CornerType::BottomRight) {
+					return false;
+				}
+			} else if (d.x > 0) {
+				// Going up and right
+				if (c1 == CornerType::BottomLeft || c1 == CornerType::TopRight) {
+					return false;
+				} else if (c2 == CornerType::BottomLeft || c2 == CornerType::TopRight) {
+					return false;
+				}
+			} else {
+				// d.x < 0
+				// Going up and left
+				if (c1 == CornerType::BottomRight || c1 == CornerType::TopLeft) {
+					return false;
+				} else if (c2 == CornerType::BottomRight || c2 == CornerType::TopLeft) {
+					return false;
+				}
 			}
 		}
 
-		return INFINITY;
-	}
-
-	float RoomRaycast(Ray& r, int rx, int ry) {
-
-
-		return INFINITY;
+		return true;
 	}
 
 	// --------------------------------------
 	// Getter Functions
 	// --------------------------------------
-	bool GetWarpX(int rx, int ry) {
-		// TODO
-		return false;
-	}
-	bool GetWarpY(int rx, int ry) {
-		// TODO
-		return false;
+	RoomPosition GetCurrentRoomPosition() {
+		return RoomPosition::FromNativeRoomCoords(game.roomx, game.roomy);
 	}
 
-	int GetXMin(int rx, int ry) {
-		if (GetWarpX(rx, ry)) {
-			return -9;
+	int GetHOffsetBetweenRooms(RoomPosition from, RoomPosition to) {
+		int d_rx = to.rx - from.rx;
+		if ((from.rx < TOWER_RX) != (to.rx < TOWER_RX)) {
+			if (from.rx < TOWER_RX) {
+				d_rx -= 20;
+			}
+			else {
+				d_rx += 20;
+			}
+		}
+
+		return d_rx;
+	}
+
+	bool* GetCurrentRoomPlayerCollisionBitmap(IntVector min, IntVector max) {
+		int x_extent = max.x - min.x + 1;
+		int y_extent = max.y - min.y + 1;
+
+		bool* bitmap = (bool*) SDL_malloc(x_extent * y_extent * sizeof(bool));
+
+		for (int x = min.x; x <= max.x; x++) {
+			for (int y = min.y; y <= max.y; y++) {
+				// Player hitbox
+				const SDL_Rect temprect = { x + VIRIDIAN_CX, y + VIRIDIAN_CY, VIRIDIAN_W, VIRIDIAN_H };
+
+				bool collision = false;
+				// Check walls
+				if (collisionSetting == CollisionSetting::Walls || collisionSetting == CollisionSetting::WallsAndSpikes) {
+					if (obj.checkwall(false, temprect)) {
+						collision = true;
+					}
+				}
+				// Check spikes
+				if (collisionSetting == CollisionSetting::WallsAndSpikes) {
+					for (size_t j = 0; j < obj.blocks.size(); j++) {
+						if (obj.blocks[j].type == DAMAGE && help.intersects(obj.blocks[j].rect, temprect)) {
+							collision = true;
+						}
+					}
+				}
+
+				// Store result
+				bitmap[y * x_extent + x] = collision;
+			}
+		}
+
+		return bitmap;
+	}
+
+	// ------------------------
+	// Raycasting Functionality
+	// ------------------------
+	float GlobalRaycast(RoomPosition startingRoom, Ray& ray) {
+		RoomPosition currentRoom = startingRoom;
+		Ray currentRay = ray;
+		while (true) {
+			RoomData& room_data = GetRoomData(currentRoom);
+
+			// First, check if the ray can even enter the room
+			IntVector min = IntVector(room_data.GetMinXPos(), room_data.GetMinYPos());
+			IntVector max = IntVector(room_data.GetMaxXPos(), room_data.GetMaxYPos());
+
+			// AABB intersection
+			float t_left = ((float)(min.x - ray.origin.x)) / ((float)ray.direction.x);
+			float t_right = ((float)(max.x - ray.origin.x)) / ((float)ray.direction.x);
+			float t_top = ((float)(min.y - ray.origin.y)) / ((float)ray.direction.y);
+			float t_bottom = ((float)(max.y - ray.origin.y)) / ((float)ray.direction.y);
+
+			float t_x_min, t_x_max, t_y_min, t_y_max;
+			if (t_left < t_right) {
+				t_x_min = t_left;
+				t_x_max = t_right;
+			} else {
+				t_x_min = t_right;
+				t_x_max = t_left;
+			}
+			if (t_top < t_bottom) {
+				t_y_min = t_top;
+				t_y_max = t_bottom;
+			} else {
+				t_y_min = t_bottom;
+				t_y_max = t_top;
+			}
+
+			float t_min = SDL_max(t_x_min, t_y_min);
+			float t_max = SDL_min(t_x_max, t_y_max);
+
+			if (t_min >= t_max) {
+				// Ray never enters room
+				VVV_exit(1);
+				return INFINITY;
+			}
+
+			bool rayStartsInRoom = t_min <= 0;
+			bool rayEndsInRoom = t_max > 1;
+
+			// Check if the side the ray enters from is traversable
+			if (!rayStartsInRoom) {
+				if (!room_data.up && t_top == t_min) {
+					return t_min;
+				}
+				if (!room_data.down && t_bottom == t_min) {
+					return t_min;
+				}
+				if (!room_data.left && t_left == t_min) {
+					return t_min;
+				}
+				if (!room_data.right && t_right == t_min) {
+					return t_min;
+				}
+			}
+
+			float room_result = RoomRaycast(currentRoom, ray);
+			if (0 <= room_result && room_result < INFINITY) {
+				return room_result;
+			}
+
+			// Failsafe: if the exiting side is not traversable, stop the ray at the exiting side
+			// TODO: Could happen with warping rooms for example, not sure if this is the right approach
+			if (!rayEndsInRoom) {
+				if (t_top == t_max) {
+					// Ray exits top edge of screen
+					if (room_data.up) {
+						currentRoom.ry--;
+					} else {
+						return t_max;
+					}
+				}
+				if (t_bottom == t_max) {
+					if (room_data.down) {
+						// Ray exits bottom edge of screen
+						currentRoom.ry++;
+					} else {
+						return t_max;
+					}
+				}
+				if (t_left == t_max) {
+					if (room_data.left) {
+						// Ray exits left edge of screen
+						currentRoom.rx--;
+					} else {
+						return t_max;
+					}
+				}
+				if (t_right == t_max) {
+					if (room_data.right) {
+						// Ray exits right edge of screen
+						currentRoom.rx++;
+					} else {
+						return t_max;
+					}
+				}
+			} else {
+				// Reached end of ray, no intersection
+				return INFINITY;
+			}
+		}
+	}
+
+	float RoomRaycast(RoomPosition room_pos, Ray& ray) {
+		RoomData& room_data = GetRoomData(room_pos);
+		
+		// First, check if the ray can even enter the room
+		IntVector min = IntVector(room_data.GetMinXPos(), room_data.GetMinYPos());
+		IntVector max = IntVector(room_data.GetMaxXPos(), room_data.GetMaxYPos());
+
+		// AABB intersection
+		float t_left = ((float)(min.x - ray.origin.x)) / ((float)ray.direction.x);
+		float t_right = ((float)(max.x - ray.origin.x)) / ((float)ray.direction.x);
+		float t_top = ((float)(min.y - ray.origin.y)) / ((float)ray.direction.y);
+		float t_bottom = ((float)(max.y - ray.origin.y)) / ((float)ray.direction.y);
+		
+		float t_x_min, t_x_max, t_y_min, t_y_max;
+		if (t_left < t_right) {
+			t_x_min = t_left;
+			t_x_max = t_right;
 		} else {
-			return -14;
+			t_x_min = t_right;
+			t_x_max = t_left;
 		}
-	}
-	int GetXMax(int rx, int ry) {
-		if (GetWarpX(rx, ry)) {
-			return 310;
+		if (t_top < t_bottom) {
+			t_y_min = t_top;
+			t_y_max = t_bottom;
 		} else {
-			return 307;
+			t_y_min = t_bottom;
+			t_y_max = t_top;
 		}
+
+		float t_min = SDL_max(t_x_min, t_y_min);
+		float t_max = SDL_min(t_x_max, t_y_max);
+
+		if (t_min >= t_max) {
+			// Ray never enters room
+			return INFINITY;
+		}
+
+		bool rayStartsInRoom = t_min <= 0;
+		bool rayEndsInRoom = t_max > 1;
+
+		// Check if the side the ray enters from is traversable
+		if (!rayStartsInRoom) {
+			if (!room_data.up && t_top == t_min) {
+				return t_min;
+			}
+			if (!room_data.down && t_bottom == t_min) {
+				return t_min;
+			}
+			if (!room_data.left && t_left == t_min) {
+				return t_min;
+			}
+			if (!room_data.right && t_right == t_min) {
+				return t_min;
+			}
+		}
+
+		// Wall Intersection tests
+		int num_walls = room_data.walls.size();
+		float min_t = INFINITY;
+		for (int w = 0; w < num_walls; w++) {
+			RoomWall& wall = room_data.walls.at(w);
+
+			// Wall intersections, but keep the lowest result
+			// TODO: if we only care about binary result, this is inefficient
+			float result = WallRayIntersection(wall, ray);
+			if (result < min_t) {
+				min_t = result;
+			}
+		}
+		if (min_t <= INFINITY) {
+			return min_t;
+		}
+
+		// Failsafe: if the exiting side is not traversable, stop the ray at the exiting side
+		// TODO: Could happen with warping rooms for example, not sure if this is the right approach
+		if (!rayEndsInRoom) {
+			if (!room_data.up && t_top == t_max) {
+				return t_max;
+			}
+			if (!room_data.down && t_bottom == t_max) {
+				return t_max;
+			}
+			if (!room_data.left && t_left == t_max) {
+				return t_max;
+			}
+			if (!room_data.right && t_right == t_max) {
+				return t_max;
+			}
+		}
+
+		return INFINITY;
 	}
-	int GetYMin(int rx, int ry) {
-		if (GetWarpY(rx, ry)) {
-			return -11;
+
+	float WallRayIntersection(RoomWall& wall, Ray& ray) {
+		float t, coord;
+		int minCmp, maxCmp;
+
+		bool isHorizontal = wall.type == WallType::Ceiling || wall.type == WallType::Floor;
+		if (isHorizontal) {
+			// Horizontal surface
+			if (ray.direction.y == 0) {
+				// Never intersect parallel rays
+				return INFINITY;
+			} else {
+				t = ((float)(wall.plane - ray.origin.y)) / ((float)ray.direction.y);
+				coord = ((float) ray.origin.x) + ((float)ray.direction.x) * t;
+
+				// Does the ray exactly intersect the minCorner?
+				int x1 = wall.min - ray.origin.x;
+				int x2 = ray.direction.x - x1;
+				int y1 = wall.plane - ray.origin.y;
+				int y2 = ray.direction.y - y1;
+				minCmp = x1 * y2 - x2 * y1;
+				// Does the ray exactly intersect the maxCorner?
+				x1 = wall.max - ray.origin.x;
+				x2 = ray.direction.x - x1;
+				maxCmp = x1 * y2 - x2 * y1;
+			}
+		} else {
+			// Vertical wall
+			if (ray.direction.x == 0) {
+				// Never intersect parallel rays
+				return INFINITY;
+			} else {
+				// Vertical wall
+				t = ((float)(wall.plane - ray.origin.x)) / ((float)ray.direction.x);
+				coord = ray.origin.x + ray.direction.y * t;
+
+				// Does the ray exactly intersect the minCorner?
+				int x1 = wall.plane - ray.origin.x;
+				int x2 = ray.direction.x - x1;
+				int y1 = wall.min - ray.origin.y;
+				int y2 = ray.direction.y - y1;
+				minCmp = x1 * y2 - x2 * y1;
+				// Does the ray exactly intersect the maxCorner?
+				y1 = wall.max - ray.origin.y;
+				y2 = ray.direction.y - y1;
+				maxCmp = x1 * y2 - x2 * y1;
+			}
 		}
-		else {
-			return -2;
+
+		if (maxCmp <= minCmp) {
+			VVV_exit(1);
+			return INFINITY;
 		}
-	}
-	int GetYMax(int rx, int ry) {
-		if (GetWarpY(rx, ry)) {
-			return 226;
+
+		if (minCmp < 0 || maxCmp > 0) {
+			// Ray intersects plane before minCorner
+			return INFINITY;
+		} else if (minCmp > 0 && maxCmp < 0) {
+			// Ray intersects between minCorner and maxCorner -> intersection!
+			return t;
 		}
-		else {
-			return 237;
+		else if (maxCmp == 0) {
+			// Ray exactly intersects maxCorner
+			if (wall.maxCornerConcave) {
+				return t;
+			} else if (ray.direction.x < 0 && ray.direction.y > 0 && wall.type == WallType::Floor) {
+				return t;
+			} else if (ray.direction.x > 0 && ray.direction.y < 0 && wall.type == WallType::RightWall) {
+				return t;
+			} else if (ray.direction.x < 0 && ray.direction.y < 0 && (wall.type == WallType::Ceiling || wall.type == WallType::LeftWall)) {
+				return t;
+			} else {
+				// Ray points away from or parallel to a concave corner, no intersection
+				return INFINITY;
+			}
+		} else if (minCmp == 0) {
+			// Ray exactly intersects minCorner
+			if (wall.minCornerConcave) {
+				return t;
+			} else if (ray.direction.x < 0 && ray.direction.y > 0 && wall.type == WallType::LeftWall) {
+				return t;
+			} else if (ray.direction.x > 0 && ray.direction.y < 0 && wall.type == WallType::Ceiling) {
+				return t;
+			} else if (ray.direction.x > 0 && ray.direction.y > 0 && (wall.type == WallType::Floor || wall.type == WallType::RightWall)) {
+				return t;
+			} else {
+				// Ray points away from or parallel to a concave corner, no intersection
+				return INFINITY;
+			}
+		} else {
+			// Something weird happened (NaN?)
+			VVV_exit(1);
 		}
+
+		// Failsafe: no intersection
+		return INFINITY;
 	}
 }
