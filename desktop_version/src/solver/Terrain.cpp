@@ -1,5 +1,6 @@
 #include "Terrain.h"
 
+#include <algorithm>
 #include <SDL.h>
 
 #include "Graphics.h"
@@ -16,12 +17,13 @@
 
 namespace Terrain {
 	RoomPosition start_room = RoomPosition(2, 16);
-	int start_x = 10;
-	int start_y = 100;
+	int start_x = 191;
+	int start_y = 33;
+	bool start_gravity = 0;
 
-	RoomPosition goal_room = RoomPosition(3, 4);
-	int goal_x = 100;
-	int goal_y = 160;
+	RoomPosition goal_room = RoomPosition(2, 16);
+	int goal_x = 10;
+	int goal_y = 100;
 
 	RoomData overworldRoomData[20][20];
 	RoomData outsideRoomData[20][20];
@@ -32,7 +34,6 @@ namespace Terrain {
 	// ------------------
 	// Hook functions
 	// ------------------
-
 	void BeforeRenderHook(void) {
 		RoomPosition currentRoom = GetCurrentRoomPosition();
 		
@@ -98,8 +99,57 @@ namespace Terrain {
 				}
 			}
 
-			// TODO: Add start and goal nodes
-			// TODO: Prune dead end edges
+			// Prune dead end edges
+			int e = 0;
+			int numRemoved = 0;
+			while (e < edges.size() || numRemoved > 0) {
+				if (e >= edges.size()) {
+					e = 0;
+					numRemoved = 0;
+				}
+
+				bool shouldRemove = true;
+				NavigationEdge& edge = edges.at(e);
+				
+				NavigationNode& fromNode = GetRoomData(edge.from.room).nodes.at(edge.from.nodeIndex);
+				NavigationNode& toNode = GetRoomData(edge.to.room).nodes.at(edge.to.nodeIndex);
+
+				if (fromNode.type == StartNodeType) {
+					shouldRemove = false;
+				} else if (toNode.type == GoalNodeType) {
+					shouldRemove = false;
+				} else {
+					bool connectIn = false;
+					bool connectOut = false;
+					for (int e2 = 0; e2 < edges.size() && (!connectIn || !connectOut); e2++) {
+						NavigationEdge& other = edges.at(e2);
+						if (e == e2) {
+							continue;
+						}
+						if (edge.to != other.from && edge.from != other.to) {
+							continue;
+						}
+						if (CanConnectEdges(edge, other)) {
+							connectOut = true;
+						}
+						if (CanConnectEdges(other, edge)) {
+							connectIn = true;
+						}
+					}
+					if (connectIn && connectOut) {
+						shouldRemove = false;
+					}
+				}
+
+				if (shouldRemove) {
+					RemoveEdge(e);
+					numRemoved += 1;
+				} else {
+					e++;
+				}
+			}
+
+			// TODO: Prune "dead end loops"
 		}
 	}
 
@@ -211,26 +261,40 @@ namespace Terrain {
 				default:
 					return;
 				case NavigationNodeType::CornerNodeType:
-					CornerID c_id = n1.data.corner.corner;
-					Corner& corner = fromRoomData.corners.at(c_id.cornerIndex);
-					x1 = corner.x + 320 * d_rx;
-					y1 = corner.y - 240 * d_ry;
+					{
+						Corner& corner = fromRoomData.corners.at(n1.data.corner.corner.cornerIndex);
+						x1 = corner.x + 320 * d_rx;
+						y1 = corner.y - 240 * d_ry;
+					}
+					break;
+				case NavigationNodeType::StartNodeType:
+					{
+						StartNavigationNode s = n1.data.start;
+						x1 = s.pos.x + 320 * d_rx;
+						y1 = s.pos.y - 240 * d_ry;
+					}
 					break;
 			}
 			switch (n2.type) {
 				default:
 					return;
 				case NavigationNodeType::CornerNodeType:
-					CornerID c_id = n2.data.corner.corner;
-					Corner& corner = toRoomData.corners.at(c_id.cornerIndex);
-					x2 = corner.x;
-					y2 = corner.y;
+					{
+						Corner& corner = toRoomData.corners.at(n2.data.corner.corner.cornerIndex);
+						x2 = corner.x;
+						y2 = corner.y;
+					}
+					break;
+				case NavigationNodeType::GoalNodeType:
+					{
+						GoalNavigationNode g = n2.data.goal;
+						x2 = g.pos.x + 320 * d_rx;
+						y2 = g.pos.y - 240 * d_ry;
+					}
 					break;
 			}
 			x2 = x1 + edge.distance.x;
 			y2 = y1 + edge.distance.y;
-
-			
 
 			SDL_RenderDrawLine(gameScreen.m_renderer, x1, y1, x2, y2);
 		}
@@ -273,6 +337,29 @@ namespace Terrain {
 		}
 
 		VVV_exit(1);
+	}
+
+	Corner& GetCorner(CornerID corner_id) {
+		return GetRoomData(corner_id.room).corners.at(corner_id.cornerIndex);
+	}
+
+	NavigationNode& GetNavigationNode(NavigationNodeID node_id) {
+		return GetRoomData(node_id.room).nodes.at(node_id.nodeIndex);
+	}
+	
+	NavigationEdge RemoveEdge(int edgeIndex) {
+		int lastIndex = edges.size() - 1;
+		if (edgeIndex > lastIndex) {
+			VVV_exit(1);
+		} else if (edgeIndex < lastIndex) {
+			// Swap with last element
+			iter_swap(edges.begin() + edgeIndex, edges.begin() + lastIndex);
+		}
+
+		// Remove last
+		NavigationEdge result = edges.back();
+		edges.pop_back();
+		return result;
 	}
 
 	void LoadRoom(RoomPosition room) {
@@ -595,6 +682,15 @@ namespace Terrain {
 			return;
 		}
 
+		if (r == start_room) {
+			StartNavigationNode startNode(start_room, IntVector(start_x, start_y), start_gravity);
+			roomData.nodes.emplace_back(startNode);
+		}
+		if (r == goal_room) {
+			GoalNavigationNode goalNode(goal_room, IntVector(goal_x, goal_y));
+			roomData.nodes.emplace_back(goalNode);
+		}
+
 		int num_corners = roomData.corners.size();
 		int num_walls = roomData.walls.size();
 
@@ -632,7 +728,198 @@ namespace Terrain {
 		NavigationNode n1 = fromRoomData.nodes.at(from.nodeIndex);
 		NavigationNode n2 = toRoomData.nodes.at(to.nodeIndex);
 
+		if (n1.type == NavigationNodeType::GoalNodeType || n2.type == NavigationNodeType::StartNodeType) {
+			// Can't connect to from goal or to start
+			return;
+		}
+		if (n1.type == NavigationNodeType::StartNodeType && n2.type == NavigationNodeType::CornerNodeType) {
+			// Start node to corner node
+			StartNavigationNode s = n1.data.start;
+			CornerNavigationNode c = n2.data.corner;
+
+			Corner& cornerData = toRoomData.corners.at(c.corner.cornerIndex);
+
+			bool gravityChange = s.inverseGravity != c.inverseGravity;
+			// Gravity change implies dy == 0
+			bool goingLeft = c.inverseGravity;
+			bool goingUp = c.inverseGravity;
+			if (cornerData.type == BottomRight || cornerData.type == TopLeft) {
+				goingLeft = !c.inverseGravity;
+			}
+
+			int d_rx = GetHOffsetBetweenRooms(from.room, to.room);
+			int d_x = d_rx * 320 + cornerData.x - s.pos.x;
+
+			if (goingLeft && d_x > 0 || !goingLeft && d_x < 0) {
+				return;
+			}
+
+			int d_ry_base = to.room.ry - from.room.ry;
+			for (int d_ry = d_ry_base - 20; d_ry <= d_ry_base + 20; d_ry += 20) {
+				int d_y = d_ry * 240 + cornerData.y - s.pos.y;
+
+				if (gravityChange && d_y != 0) {
+					continue;
+				}
+				if (goingUp && d_y > 0 || !goingUp && d_y < 0) {
+					continue;
+				}
+
+				// Check if the corner is compatible with the direction
+				if (d_y == 0) {
+					if (d_x == 0) {
+						VVV_exit(1);
+						continue;
+					} else if (d_x > 0) {
+						if (cornerData.type == TopLeft || cornerData.type == BottomLeft) {
+							continue;
+						}
+					} else {
+						// d_x < 0
+						if (cornerData.type == TopRight || cornerData.type == BottomRight) {
+							continue;
+						}
+					}
+				} else if (d_y > 0) {
+					if (d_x == 0) {
+						if (cornerData.type == TopLeft || cornerData.type == TopRight) {
+							continue;
+						}
+					} else if (d_x > 0) {
+						if (cornerData.type == TopLeft || cornerData.type == BottomRight) {
+							continue;
+						}
+					} else {
+						// d_x < 0
+						if (cornerData.type == TopRight || cornerData.type == BottomLeft) {
+							continue;
+						}
+					}
+				} else {
+					// d_y < 0
+					if (d_x == 0) {
+						if (cornerData.type == BottomLeft || cornerData.type == BottomRight) {
+							continue;
+						}
+					} else if (d_x > 0) {
+						if (cornerData.type == TopRight|| cornerData.type == BottomLeft) {
+							continue;
+						}
+					} else {
+						// d_x < 0
+						if (cornerData.type == TopLeft || cornerData.type == BottomRight) {
+							continue;
+						}
+					}
+				}
+
+				Ray ray = Ray(s.pos.x, s.pos.y, d_x, d_y);
+				float t = GlobalRaycast(from.room, ray);
+				if (t >= 1) {
+					// No intersection found between the nodes, add the edge!
+					edges.emplace_back(from, to, IntVector(d_x, d_y));
+					continue;
+				} else if (t < 0) {
+					// Something weird happened
+					VVV_exit(-1);
+					return;
+				}
+			}
+			return;
+		}
+		if (n1.type == NavigationNodeType::CornerNodeType && n2.type == NavigationNodeType::GoalNodeType) {
+			// Start node to corner node
+			CornerNavigationNode c = n1.data.corner;
+			GoalNavigationNode g = n2.data.goal;
+
+			Corner& cornerData = fromRoomData.corners.at(c.corner.cornerIndex);
+
+			// Gravity change implies dy == 0
+			bool goingLeft = c.inverseGravity;
+			bool goingUp = c.inverseGravity;
+			if (cornerData.type == BottomRight || cornerData.type == TopLeft) {
+				goingLeft = !c.inverseGravity;
+			}
+
+			int d_rx = GetHOffsetBetweenRooms(from.room, to.room);
+			int d_x = d_rx * 320 + g.pos.x - cornerData.x;
+
+			if (goingLeft && d_x > 0 || !goingLeft && d_x < 0) {
+				return;
+			}
+
+			int d_ry_base = to.room.ry - from.room.ry;
+			for (int d_ry = d_ry_base - 20; d_ry <= d_ry_base + 20; d_ry += 20) {
+				int d_y = d_ry * 240 + g.pos.y - cornerData.y;
+
+				if (goingUp && d_y > 0 || !goingUp && d_y < 0) {
+					continue;
+				}
+
+				// Check if the corner is compatible with the direction
+				if (d_y == 0) {
+					if (d_x == 0) {
+						VVV_exit(1);
+						continue;
+					} else if (d_x > 0) {
+						if (cornerData.type == TopRight || cornerData.type == BottomRight) {
+							continue;
+						}
+					} else {
+						// d_x < 0
+						if (cornerData.type == TopLeft || cornerData.type == BottomLeft) {
+							continue;
+						}
+					}
+				} else if (d_y > 0) {
+					if (d_x == 0) {
+						if (cornerData.type == BottomLeft || cornerData.type == BottomRight) {
+							continue;
+						}
+					} else if (d_x > 0) {
+						if (cornerData.type == TopRight || cornerData.type == BottomLeft) {
+							continue;
+						}
+					} else {
+						// d_x < 0
+						if (cornerData.type == TopLeft || cornerData.type == BottomRight) {
+							continue;
+						}
+					}
+				} else {
+					// d_y < 0
+					if (d_x == 0) {
+						if (cornerData.type == TopLeft || cornerData.type == TopRight) {
+							continue;
+						}
+					} else if (d_x > 0) {
+						if (cornerData.type == TopRight || cornerData.type == BottomLeft) {
+							continue;
+						}
+					} else {
+						// d_x < 0
+						if (cornerData.type == TopLeft || cornerData.type == BottomRight) {
+							continue;
+						}
+					}
+				}
+
+				Ray ray = Ray(g.pos.x, g.pos.y, d_x, d_y);
+				float t = GlobalRaycast(from.room, ray);
+				if (t >= 1) {
+					// No intersection found between the nodes, add the edge!
+					edges.emplace_back(from, to, IntVector(d_x, d_y));
+					continue;
+				} else if (t < 0) {
+					// Something weird happened
+					VVV_exit(-1);
+					return;
+				}
+			}
+			return;
+		}
 		if (n1.type == NavigationNodeType::CornerNodeType && n2.type == NavigationNodeType::CornerNodeType) {
+			// Corner to corner
 			CornerNavigationNode c1 = n1.data.corner;
 			CornerNavigationNode c2 = n2.data.corner;
 			Corner& c1_data = fromRoomData.corners.at(c1.corner.cornerIndex);
@@ -722,6 +1009,7 @@ namespace Terrain {
 					return;
 				}
 			}
+			return;
 		}
 	}
 
@@ -793,6 +1081,123 @@ namespace Terrain {
 		}
 
 		return true;
+	}
+
+	bool CanConnectEdges(NavigationEdge& e1, NavigationEdge& e2) {
+		if (e1.from == e2.to || e1.to != e2.from) {
+			// Has to connect through same node, can't go back to original
+			return false;
+		}
+		if (e1.distance.x == -e2.distance.x && e1.distance.y == -e2.distance.y) {
+			// Can't be exact inverse
+			return false;
+		}
+
+		NavigationNode& firstNode = GetNavigationNode(e1.from);
+		NavigationNode& middleNode = GetNavigationNode(e1.to);
+		NavigationNode& lastNode = GetNavigationNode(e2.to);
+
+		IntVector d1 = e1.distance;
+		IntVector d2 = e2.distance;
+
+		// We mostly care about the type of the middle node
+		switch (middleNode.type) {
+			default:
+				return false;
+			case CornerNodeType:
+			{
+				// Can't change axis direction without going through 0
+				if (d1.x < 0 && d2.x > 0 || d1.x > 0 && d2.x < 0) {
+					return false;
+				}
+				if (d1.y < 0 && d2.y > 0 || d1.y > 0 && d2.y < 0) {
+					return false;
+				}
+
+				bool inverseGravity = middleNode.data.corner.inverseGravity;
+				Corner& corner = GetCorner(middleNode.data.corner.corner);
+				bool slopeIncrease;
+				switch (corner.type) {
+					default:
+						return false;
+					case TopLeft:
+						if (inverseGravity) {
+							if (d1.x == 0 && d2.y == 0) {
+								return true;
+							}
+							slopeIncrease = false;
+						} else {
+							if (d1.y == 0 && d2.x == 0) {
+								return true;
+							}
+							slopeIncrease = true;
+						}
+						break;
+					case TopRight:
+						if (inverseGravity) {
+							if (d1.x == 0 && d2.y == 0) {
+								return true;
+							}
+							slopeIncrease = true;
+						} else {
+							if (d1.y == 0 && d2.x == 0) {
+								return true;
+							}
+							slopeIncrease = false;
+						}
+						break;
+					case BottomRight:
+						if (inverseGravity) {
+							if (d1.y == 0 && d2.x == 0) {
+								return true;
+							}
+							slopeIncrease = true;
+						} else {
+							if (d1.x == 0 && d2.y == 0) {
+								return true;
+							}
+							slopeIncrease = false;
+						}
+						break;
+					case BottomLeft:
+						if (inverseGravity) {
+							if (d1.y == 0 && d2.x == 0) {
+								return true;
+							}
+							slopeIncrease = false;
+						} else {
+							if (d1.x == 0 && d2.y == 0) {
+								return true;
+							}
+							slopeIncrease = true;
+						}
+						break;
+				}
+
+				// Angle must be greater than 180 degrees (bend around corner)
+				// -> slope of edge should increase / decrease depending on corner type
+				// Note that Y axis is inverted so slopes are backwards
+				// Slope increase: d1.y / d1.x < d2.y / d2.x
+				// Slope decrease: d1.y / d1.x > d2.y / d2.x
+				// Since the xs have the same sign (or are 0) we can multiply by both without changing the direction of the inequality
+				// Slope increase: d1.y * d2.x < d2.y * d1.x
+				// Slope decrease: d1.y * d2.x > d2.y * d1.x
+				// Since the Y axes are inverted, the conditions are backwards
+				int slopeBefore = d1.y * d2.x;
+				int slopeAfter = d2.y * d1.x;
+				if (slopeBefore < slopeAfter) {
+					return !slopeIncrease;
+				} else if (slopeBefore > slopeAfter) {
+					return slopeIncrease;
+				} else {
+					// Slopes are the same
+					return false;
+				}
+				break;
+			}
+		}
+
+		return false;
 	}
 
 	// --------------------------------------

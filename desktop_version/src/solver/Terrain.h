@@ -62,6 +62,9 @@ namespace Terrain {
 		bool operator== (const RoomPosition& other) const {
 			return (outside == other.outside && rx == other.rx && ry == other.ry);
 		}
+		bool operator!= (const RoomPosition& other) const {
+			return (outside != other.outside || rx != other.rx || ry != other.ry);
+		}
 
 		IntVector GetNativeRoomCoords() {
 			IntVector result;
@@ -188,31 +191,63 @@ namespace Terrain {
 		int nodeIndex;
 
 		NavigationNodeID(RoomPosition r, int i) : room(r), nodeIndex(i) { }
+
+		bool operator== (const NavigationNodeID& other) const {
+			return (room == other.room && nodeIndex == other.nodeIndex);
+		}
+		bool operator!= (const NavigationNodeID& other) const {
+			return (room != other.room || nodeIndex != other.nodeIndex);
+		}
 	};
 
 	enum NavigationNodeType {
 		InvalidNodeType,
+		StartNodeType,
+		GoalNodeType,
 		CornerNodeType,
+	};
+	struct StartNavigationNode {
+		RoomPosition room;
+		IntVector pos;
+		bool inverseGravity;
+		// TODO: more stuff
+
+		StartNavigationNode(RoomPosition room, IntVector pos, bool inverseGravity) : room(room), pos(pos), inverseGravity(inverseGravity) { }
+	};
+	struct GoalNavigationNode {
+		RoomPosition room;
+		IntVector pos;
+		// TODO: more stuff
+
+		GoalNavigationNode(RoomPosition room, IntVector pos) : room(room), pos(pos) { }
 	};
 	struct CornerNavigationNode {
 		CornerID corner;
 		bool inverseGravity;
+
+		CornerNavigationNode(CornerID corner, bool inverseGravity) : corner(corner), inverseGravity(inverseGravity) { }
 	};
 	union NavigationNodeData {
 		struct EmptyStruct {} invalid;
+		StartNavigationNode start;
+		GoalNavigationNode goal;
 		CornerNavigationNode corner;
 
-		NavigationNodeData() {}
+		NavigationNodeData(StartNavigationNode start) : start(start) { }
+		NavigationNodeData(GoalNavigationNode goal) : goal(goal) { }
+		NavigationNodeData(CornerNavigationNode corner) : corner(corner) { }
 	};
 	struct NavigationNode {
 		NavigationNodeType type;
 		NavigationNodeData data;
 
-		NavigationNode(CornerID corner, bool inverseGravity) {
-			type = NavigationNodeType::CornerNodeType;
-			data.corner.corner = corner;
-			data.corner.inverseGravity = inverseGravity;
-		}
+		NavigationNode(NavigationNodeType type, NavigationNodeData data) : type(type), data(data) { }
+		
+		NavigationNode(StartNavigationNode start) : type(NavigationNodeType::StartNodeType), data(NavigationNodeData(start)) { }
+		NavigationNode(GoalNavigationNode goal) : type(NavigationNodeType::GoalNodeType), data(NavigationNodeData(goal)) { }
+		NavigationNode(CornerNavigationNode corner) : type(NavigationNodeType::CornerNodeType), data(NavigationNodeData(corner)) { }
+
+		NavigationNode(CornerID corner, bool inverseGravity) : type(NavigationNodeType::CornerNodeType), data(CornerNavigationNode(corner, inverseGravity)) { }
 	};
 	struct NavigationEdge {
 		NavigationNodeID from;
@@ -289,6 +324,9 @@ namespace Terrain {
 	// Functions
 	// --------------------------------------
 	RoomData& GetRoomData(RoomPosition room_pos);
+	Corner& GetCorner(CornerID corner_id);
+	NavigationNode& GetNavigationNode(NavigationNodeID node_id);
+	NavigationEdge RemoveEdge(int edgeIndex);
 	void LoadRoom(RoomPosition room_pos);
 	void InitializeConnectedRooms(RoomPosition startingRoom);
 	void InitializeRoomData(RoomPosition room_pos);
@@ -296,6 +334,7 @@ namespace Terrain {
 	void CreateRoomNodes(RoomPosition r);
 	void ConnectNodes(NavigationNodeID from, NavigationNodeID to);
 	bool CanConnectCorners(CornerType c1, CornerType c2, IntVector d);
+	bool CanConnectEdges(NavigationEdge& e1, NavigationEdge& e2);
 
 	// --------------------------------------
 	// Getter Functions / Reading
