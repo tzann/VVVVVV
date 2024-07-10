@@ -179,6 +179,13 @@ namespace Terrain {
 		int cornerIndex;
 
 		CornerID(RoomPosition r, int i) : room(r), cornerIndex(i) { }
+
+		bool operator== (const CornerID& other) const {
+			return (room == other.room && cornerIndex == other.cornerIndex);
+		}
+		bool operator!= (const CornerID& other) const {
+			return (room != other.room || cornerIndex != other.cornerIndex);
+		}
 	};
 	struct WallID {
 		RoomPosition room;
@@ -326,7 +333,9 @@ namespace Terrain {
 	RoomData& GetRoomData(RoomPosition room_pos);
 	Corner& GetCorner(CornerID corner_id);
 	NavigationNode& GetNavigationNode(NavigationNodeID node_id);
+	bool IsSameOrInverseNode(NavigationNodeID n1, NavigationNodeID n2);
 	NavigationEdge RemoveEdge(int edgeIndex);
+	void RemoveElement(std::vector<int>& v, int index);
 	void LoadRoom(RoomPosition room_pos);
 	void InitializeConnectedRooms(RoomPosition startingRoom);
 	void InitializeRoomData(RoomPosition room_pos);
@@ -335,6 +344,9 @@ namespace Terrain {
 	void ConnectNodes(NavigationNodeID from, NavigationNodeID to);
 	bool CanConnectCorners(CornerType c1, CornerType c2, IntVector d);
 	bool CanConnectEdges(NavigationEdge& e1, NavigationEdge& e2);
+
+	int PruneDeadEndEdges(void);
+	int PruneDominatedEdges(void);
 
 	// --------------------------------------
 	// Getter Functions / Reading

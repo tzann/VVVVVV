@@ -1,6 +1,10 @@
 #include "Terrain.h"
 
 #include <algorithm>
+#include <iterator>
+#include <set>
+#include <unordered_set>
+#include <functional>
 #include <SDL.h>
 
 #include "Graphics.h"
@@ -21,16 +25,16 @@ namespace Terrain {
 	int start_y = 33;
 	bool start_gravity = 0;
 
-	RoomPosition goal_room = RoomPosition(2, 16);
+	RoomPosition goal_room = RoomPosition(4, 4);
 	int goal_x = 10;
-	int goal_y = 100;
+	int goal_y = 170;
 
 	RoomData overworldRoomData[20][20];
 	RoomData outsideRoomData[20][20];
 	CollisionSetting collisionSetting = CollisionSetting::Walls;
 
 	std::vector<NavigationEdge> edges;
-	
+		
 	// ------------------
 	// Hook functions
 	// ------------------
@@ -50,7 +54,7 @@ namespace Terrain {
 
 			RoomData& currentRoomData = GetRoomData(currentRoom);
 			int num_nodes = currentRoomData.nodes.size();
-
+			// Connect nodes between rooms
 			for (int r1 = 0; r1 < 400; r1++) {
 				RoomPosition room_1(r1 % 20, r1 / 20);
 				RoomData& room_1_data = GetRoomData(room_1);
@@ -99,57 +103,19 @@ namespace Terrain {
 				}
 			}
 
-			// Prune dead end edges
-			int e = 0;
-			int numRemoved = 0;
-			while (e < edges.size() || numRemoved > 0) {
-				if (e >= edges.size()) {
-					e = 0;
-					numRemoved = 0;
-				}
-
-				bool shouldRemove = true;
-				NavigationEdge& edge = edges.at(e);
-				
-				NavigationNode& fromNode = GetRoomData(edge.from.room).nodes.at(edge.from.nodeIndex);
-				NavigationNode& toNode = GetRoomData(edge.to.room).nodes.at(edge.to.nodeIndex);
-
-				if (fromNode.type == StartNodeType) {
-					shouldRemove = false;
-				} else if (toNode.type == GoalNodeType) {
-					shouldRemove = false;
+			int totalPruned = 0;
+			while (true) {
+				int numPruned = 0;
+				numPruned += PruneDeadEndEdges();
+				numPruned += PruneDominatedEdges();
+				if (numPruned == 0) {
+					break;
 				} else {
-					bool connectIn = false;
-					bool connectOut = false;
-					for (int e2 = 0; e2 < edges.size() && (!connectIn || !connectOut); e2++) {
-						NavigationEdge& other = edges.at(e2);
-						if (e == e2) {
-							continue;
-						}
-						if (edge.to != other.from && edge.from != other.to) {
-							continue;
-						}
-						if (CanConnectEdges(edge, other)) {
-							connectOut = true;
-						}
-						if (CanConnectEdges(other, edge)) {
-							connectIn = true;
-						}
-					}
-					if (connectIn && connectOut) {
-						shouldRemove = false;
-					}
-				}
-
-				if (shouldRemove) {
-					RemoveEdge(e);
-					numRemoved += 1;
-				} else {
-					e++;
+					totalPruned += numPruned;
 				}
 			}
 
-			// TODO: Prune "dead end loops"
+			LoadRoom(goal_room);
 		}
 	}
 
@@ -346,6 +312,37 @@ namespace Terrain {
 	NavigationNode& GetNavigationNode(NavigationNodeID node_id) {
 		return GetRoomData(node_id.room).nodes.at(node_id.nodeIndex);
 	}
+
+	bool IsSameOrInverseNode(NavigationNodeID n1, NavigationNodeID n2) {
+		if (n1.room != n2.room) {
+			return false;
+		}
+		if (n1.nodeIndex == n2.nodeIndex) {
+			return true;
+		}
+
+		NavigationNode& node1 = GetNavigationNode(n1);
+		NavigationNode& node2 = GetNavigationNode(n2);
+		if (node1.type != node2.type) {
+			return false;
+		}
+
+		switch (node1.type) {
+			default:
+				return false;
+			case CornerNodeType:
+			{
+				CornerNavigationNode c1 = node1.data.corner;
+				CornerNavigationNode c2 = node2.data.corner;
+				if (c1.corner == c2.corner) {
+					return true;
+				}
+				return false;
+			}
+		}
+
+		return false;
+	}
 	
 	NavigationEdge RemoveEdge(int edgeIndex) {
 		int lastIndex = edges.size() - 1;
@@ -360,6 +357,18 @@ namespace Terrain {
 		NavigationEdge result = edges.back();
 		edges.pop_back();
 		return result;
+	}
+
+	void RemoveElement(std::vector<int>& v, int index) {
+		int lastIndex = v.size() - 1;
+		if (index > lastIndex) {
+			VVV_exit(1);
+		} else if (index < lastIndex) {
+			// Swap with last element
+			iter_swap(v.begin() + index, v.begin() + lastIndex);
+		}
+
+		v.pop_back();
 	}
 
 	void LoadRoom(RoomPosition room) {
@@ -729,7 +738,7 @@ namespace Terrain {
 		NavigationNode n2 = toRoomData.nodes.at(to.nodeIndex);
 
 		if (n1.type == NavigationNodeType::GoalNodeType || n2.type == NavigationNodeType::StartNodeType) {
-			// Can't connect to from goal or to start
+			// Can't connect from goal or to start
 			return;
 		}
 		if (n1.type == NavigationNodeType::StartNodeType && n2.type == NavigationNodeType::CornerNodeType) {
@@ -877,12 +886,12 @@ namespace Terrain {
 							continue;
 						}
 					} else if (d_x > 0) {
-						if (cornerData.type == TopRight || cornerData.type == BottomLeft) {
+						if (cornerData.type == TopLeft || cornerData.type == BottomRight) {
 							continue;
 						}
 					} else {
 						// d_x < 0
-						if (cornerData.type == TopLeft || cornerData.type == BottomRight) {
+						if (cornerData.type == TopRight || cornerData.type == BottomLeft) {
 							continue;
 						}
 					}
@@ -904,7 +913,7 @@ namespace Terrain {
 					}
 				}
 
-				Ray ray = Ray(g.pos.x, g.pos.y, d_x, d_y);
+				Ray ray = Ray(cornerData.x, cornerData.y, d_x, d_y);
 				float t = GlobalRaycast(from.room, ray);
 				if (t >= 1) {
 					// No intersection found between the nodes, add the edge!
@@ -1198,6 +1207,367 @@ namespace Terrain {
 		}
 
 		return false;
+	}
+
+	int PruneDeadEndEdges(void) {
+		int totalRemoved = 0;
+		// Prune dead end edges
+		int e = 0;
+		int numRemoved = 0;
+		while (e < edges.size() || numRemoved > 0) {
+			if (e >= edges.size()) {
+				e = 0;
+				numRemoved = 0;
+			}
+
+			NavigationEdge& edge = edges.at(e);
+
+			NavigationNode& fromNode = GetRoomData(edge.from.room).nodes.at(edge.from.nodeIndex);
+			NavigationNode& toNode = GetRoomData(edge.to.room).nodes.at(edge.to.nodeIndex);
+
+			bool connectIn = fromNode.type == StartNodeType;
+			bool connectOut = toNode.type == GoalNodeType;
+			for (int e2 = 0; e2 < edges.size() && (!connectIn || !connectOut); e2++) {
+				NavigationEdge& other = edges.at(e2);
+				if (e == e2) {
+					continue;
+				}
+				if (edge.to != other.from && edge.from != other.to) {
+					continue;
+				}
+				if (!connectOut && CanConnectEdges(edge, other)) {
+					connectOut = true;
+				}
+				if (!connectIn && CanConnectEdges(other, edge)) {
+					connectIn = true;
+				}
+			}
+
+			if (connectIn && connectOut) {
+				e++;
+			} else {
+				RemoveEdge(e);
+				numRemoved += 1;
+				totalRemoved += 1;
+			}
+		}
+
+		return totalRemoved;
+	}
+
+	// TODO: domination doesn't respect how edges connect
+	int PruneDominatedEdges(void) {
+		// -> Find places where a node dominates a sub-graph both from the perspective of the start node and the goal node
+
+		// Algorithm:
+		// dominator of the start node is the start itself
+		//     Dom(n0) = { n0 }
+		// for all other nodes, set all nodes as the dominators
+		//     for each n in N - {n0}
+		//         Dom(n) = N;
+		// iteratively eliminate nodes that are not dominators
+		//     while changes in any Dom(n)
+		//         for each n in N - {n0}:
+		//             Dom(n) = { n } union with intersection over Dom(p) for all p in pred(n)
+
+		// Need to keep track of:
+		//   1. dominator set for all nodes, starting from start node
+		//   2. dominator set for all nodes, starting from goal node
+		// if the intersection of these two sets for a node is not empty, remove its edges from the graph
+		std::vector<NavigationNodeID> queue;
+		for (int rx = 0; rx < 20; rx++) {
+			for (int ry = 0; ry < 20; ry++) {
+				RoomPosition room(GetCurrentRoomPosition().outside, rx, ry);
+				RoomData& roomData = GetRoomData(room);
+				for (int n = 0; n < roomData.nodes.size(); n++) {
+					NavigationNode& node = roomData.nodes.at(n);
+					if (node.type == StartNodeType || node.type == GoalNodeType) {
+						queue.emplace_back(room, n);
+					}
+				}
+			}
+		}
+
+		std::vector<NavigationNodeID> reachable_nodes;
+		while (queue.size() > 0) {
+			NavigationNodeID node_id = queue.back();
+			queue.pop_back();
+
+			bool alreadyReached = false;
+			for (int i = 0; i < reachable_nodes.size(); i++) {
+				if (reachable_nodes.at(i) == node_id) {
+					alreadyReached = true;
+					break;
+				}
+			}
+			if (alreadyReached) {
+				continue;
+			}
+
+			reachable_nodes.push_back(node_id);
+
+			for (int e = 0; e < edges.size(); e++) {
+				NavigationEdge& edge = edges.at(e);
+				if (edge.to == node_id) {
+					queue.push_back(edge.from);
+				}
+				if (edge.from == node_id) {
+					queue.push_back(edge.to);
+				}
+			}
+		}
+
+		std::vector<NavigationNodeID> reachable_node_duplicates;
+		// De-duplicate reachable nodes
+		for (int n = 0; n < reachable_nodes.size(); ) {
+			bool is_duplicate = false;
+			for (int n2 = 0; n2 < n; n2++) {
+				if (IsSameOrInverseNode(reachable_nodes.at(n), reachable_nodes.at(n2))) {
+					is_duplicate = true;
+					break;
+				}
+			}
+
+			if (is_duplicate) {
+				int lastIndex = reachable_nodes.size() - 1;
+				if (n < lastIndex) {
+					// Swap with last element
+					iter_swap(reachable_nodes.begin() + n, reachable_nodes.begin() + lastIndex);
+				}
+				reachable_node_duplicates.push_back(reachable_nodes.back());
+				reachable_nodes.pop_back();
+			}
+			else {
+				n++;
+			}
+		}
+
+		const int num_reachable_nodes = reachable_nodes.size();
+		std::vector<std::vector<int>> predecessor_list;
+		std::vector<std::vector<int>> successor_list;
+		std::vector<std::set<int>> start_dominator_sets;
+		std::vector<std::set<int>> goal_dominator_sets;
+		int start_node = num_reachable_nodes;
+		int goal_node = num_reachable_nodes;
+		for (int n = 0; n < num_reachable_nodes; n++) {
+			// Add empty lists
+			predecessor_list.emplace_back();
+			successor_list.emplace_back();
+			start_dominator_sets.emplace_back();
+			goal_dominator_sets.emplace_back();
+
+			// Remember start and goal nodes
+			// Set up dominator lists
+			NavigationNode& node = GetNavigationNode(reachable_nodes.at(n));
+			if (node.type == StartNodeType) {
+				start_node = n;
+				// Only start node dominates itself
+				start_dominator_sets.back().insert(n);
+			}
+			else {
+				// Add all nodes to dominator list
+				for (int n2 = 0; n2 < num_reachable_nodes; n2++) {
+					start_dominator_sets.back().insert(n2);
+				}
+			}
+
+			if (node.type == GoalNodeType) {
+				goal_node = n;
+				// Only goal node dominates itself
+				goal_dominator_sets.back().insert(n);
+			}
+			else {
+				// Add all nodes to dominator list
+				for (int n2 = 0; n2 < num_reachable_nodes; n2++) {
+					goal_dominator_sets.back().insert(n2);
+				}
+			}
+		}
+
+		// Add edges to adjacency list
+		for (int e = 0; e < edges.size(); e++) {
+			NavigationEdge& edge = edges.at(e);
+			int fromIndex = num_reachable_nodes;
+			for (int n = 0; n < num_reachable_nodes; n++) {
+				if (IsSameOrInverseNode(reachable_nodes.at(n), edge.from)) {
+					fromIndex = n;
+					break;
+				}
+			}
+			int toIndex = num_reachable_nodes;
+			for (int n = 0; n < num_reachable_nodes; n++) {
+				if (IsSameOrInverseNode(reachable_nodes.at(n), edge.to)) {
+					toIndex = n;
+					break;
+				}
+			}
+			if (fromIndex < num_reachable_nodes && toIndex < num_reachable_nodes) {
+				// Edge is between reachable nodes, add it to adjacency list
+				predecessor_list.at(toIndex).push_back(fromIndex);
+				successor_list.at(fromIndex).push_back(toIndex);
+			}
+		}
+
+		// Run dataflow algorithm
+		bool anythingChanged = true;
+		while (anythingChanged) {
+			anythingChanged = false;
+
+			for (int n = 0; n < num_reachable_nodes; n++) {
+				std::set<int> new_start_dominator_set;
+				std::set<int> new_goal_dominator_set;
+				for (int n2 = 0; n2 < num_reachable_nodes; n2++) {
+					if (n != start_node) {
+						new_start_dominator_set.insert(n2);
+					}
+					if (n != goal_node) {
+						new_goal_dominator_set.insert(n2);
+					}
+				}
+				// Intersection with all predecessors
+				int num_predecessors = predecessor_list.at(n).size();
+				for (int p = 0; p < num_predecessors; p++) {
+					int predecessor = predecessor_list.at(n).at(p);
+					std::set<int> results;
+					std::set_intersection(new_start_dominator_set.begin(), new_start_dominator_set.end(), start_dominator_sets.at(predecessor).begin(), start_dominator_sets.at(predecessor).end(), std::inserter(results, results.begin()));
+					new_start_dominator_set.clear();
+					new_start_dominator_set.insert(results.begin(), results.end());
+				}
+				// Intersection with all successors
+				int num_successors = successor_list.at(n).size();
+				for (int s = 0; s < num_successors; s++) {
+					int successor = successor_list.at(n).at(s);
+					std::set<int> results;
+					std::set_intersection(new_goal_dominator_set.begin(), new_goal_dominator_set.end(), goal_dominator_sets.at(successor).begin(), goal_dominator_sets.at(successor).end(), std::inserter(results, results.begin()));
+					new_goal_dominator_set.clear();
+					new_goal_dominator_set.insert(results.begin(), results.end());
+				}
+
+				// Every node dominates itself
+				new_start_dominator_set.insert(n);
+				new_goal_dominator_set.insert(n);
+
+				// Check if elements changed
+				bool shouldCopy = false;
+				if (new_start_dominator_set.size() != start_dominator_sets.at(n).size()) {
+					shouldCopy = true;
+				}
+				else if (new_goal_dominator_set.size() != goal_dominator_sets.at(n).size()) {
+					shouldCopy = true;
+				}
+				if (!shouldCopy) {
+					for (std::set<int>::iterator it = new_start_dominator_set.begin(); it != new_start_dominator_set.end(); ++it) {
+						int predecessor = *it;
+						if (start_dominator_sets.at(n).count(predecessor) == 0) {
+							// This element is new
+							shouldCopy = true;
+						}
+					}
+					for (std::set<int>::iterator it = new_goal_dominator_set.begin(); it != new_goal_dominator_set.end(); ++it) {
+						int successor = *it;
+						if (goal_dominator_sets.at(n).count(successor) == 0) {
+							// This element is new
+							shouldCopy = true;
+						}
+					}
+				}
+
+				if (shouldCopy) {
+					// Copy new dominator sets to set list
+					start_dominator_sets.at(n).clear();
+					start_dominator_sets.at(n).insert(new_start_dominator_set.begin(), new_start_dominator_set.end());
+					goal_dominator_sets.at(n).clear();
+					goal_dominator_sets.at(n).insert(new_goal_dominator_set.begin(), new_goal_dominator_set.end());
+					anythingChanged = true;
+				}
+			}
+		}
+
+		auto cmp = [](NavigationNodeID a, NavigationNodeID b) {
+			if (a.room.outside < b.room.outside) {
+				return true;
+			}
+			else if (a.room.outside == b.room.outside) {
+				if (a.room.rx < b.room.rx) {
+					return true;
+				}
+				else if (a.room.rx == b.room.rx) {
+					if (a.room.ry < b.room.ry) {
+						return true;
+					}
+					else if (a.room.ry == b.room.ry) {
+						return a.nodeIndex < b.nodeIndex;
+					}
+				}
+			}
+			return false;
+			};
+		std::set<NavigationNodeID, std::function<bool(NavigationNodeID, NavigationNodeID)>> double_dominated(cmp);
+		std::set<NavigationNodeID, std::function<bool(NavigationNodeID, NavigationNodeID)>> start_dominators(cmp);
+		std::set<NavigationNodeID, std::function<bool(NavigationNodeID, NavigationNodeID)>> goal_dominators(cmp);
+
+		for (int n = 0; n < num_reachable_nodes; n++) {
+			NavigationNodeID node_id = reachable_nodes.at(n);
+
+			std::set<int> results;
+			std::set_intersection(start_dominator_sets.at(n).begin(), start_dominator_sets.at(n).end(), goal_dominator_sets.at(n).begin(), goal_dominator_sets.at(n).end(), std::inserter(results, results.begin()));
+			if (results.size() > 1 && n != start_node && n != goal_node) {
+				// A node should always be dominated by itself
+				// Any more means it's a "dead end"
+				double_dominated.insert(node_id);
+			}
+			// Remember which nodes dominate start and goal nodes (they are bottlenecks)
+			if (start_dominator_sets.at(goal_node).count(n) > 0) {
+				goal_dominators.insert(node_id);
+			}
+			if (goal_dominator_sets.at(start_node).count(n) > 0) {
+				start_dominators.insert(node_id);
+			}
+		}
+
+		// Find the nodes we want to keep
+		std::set<NavigationNodeID, std::function<bool(NavigationNodeID, NavigationNodeID)>> nodes_to_keep(cmp);
+		for (int n = 0; n < reachable_nodes.size(); n++) {
+			NavigationNodeID node = reachable_nodes.at(n);
+
+			if (double_dominated.count(node) == 0) {
+				nodes_to_keep.insert(node);
+			}
+		}
+		// Re-duplicate nodes
+		for (int n = 0; n < reachable_node_duplicates.size(); n++) {
+			NavigationNodeID duplicate_node = reachable_node_duplicates.at(n);
+
+			bool shouldInsert = false;
+			for (std::set<NavigationNodeID, std::function<bool(NavigationNodeID, NavigationNodeID)>>::iterator it = nodes_to_keep.begin(); it != nodes_to_keep.end(); ++it) {
+				NavigationNodeID node_to_keep = *it;
+
+				if (IsSameOrInverseNode(duplicate_node, node_to_keep)) {
+					shouldInsert = true;
+					break;
+				}
+			}
+
+			if (shouldInsert) {
+				nodes_to_keep.insert(duplicate_node);
+			}
+		}
+
+		// Prune edges that don't connect to keepable nodes
+		int numRemoved = 0;
+		for (int e = 0; e < edges.size();) {
+			NavigationEdge& edge = edges.at(e);
+			if (nodes_to_keep.count(edge.from) == 0 || nodes_to_keep.count(edge.to) == 0) {
+				// Edge can be removed
+				RemoveEdge(e);
+				numRemoved++;
+			}
+			else {
+				e++;
+			}
+		}
+
+		return numRemoved;
 	}
 
 	// --------------------------------------
