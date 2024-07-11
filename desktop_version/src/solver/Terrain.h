@@ -335,6 +335,7 @@ namespace Terrain {
 	NavigationNode& GetNavigationNode(NavigationNodeID node_id);
 	bool IsSameOrInverseNode(NavigationNodeID n1, NavigationNodeID n2);
 	NavigationEdge RemoveEdge(int edgeIndex);
+	bool DoEdgesCross(NavigationEdge& e1, NavigationEdge& e2);
 	void RemoveElement(std::vector<int>& v, int index);
 	void LoadRoom(RoomPosition room_pos);
 	void InitializeConnectedRooms(RoomPosition startingRoom);
@@ -347,6 +348,7 @@ namespace Terrain {
 
 	int PruneDeadEndEdges(void);
 	int PruneDominatedEdges(void);
+	int PruneBackAndCrossedEdges(void);
 
 	// --------------------------------------
 	// Getter Functions / Reading

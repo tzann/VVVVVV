@@ -104,7 +104,7 @@ namespace Terrain {
 			}
 
 			int totalPruned = 0;
-			while (true) {
+			while (false) {
 				int numPruned = 0;
 				numPruned += PruneDeadEndEdges();
 				numPruned += PruneDominatedEdges();
@@ -112,6 +112,25 @@ namespace Terrain {
 					break;
 				} else {
 					totalPruned += numPruned;
+				}
+			}
+
+			for (int e = 0; e < edges.size();) {
+				NavigationEdge& edge = edges.at(e);
+
+				bool isCrossed = false;
+				for (int e2 = e + 1; e2 < edges.size(); e2++) {
+					NavigationEdge& other = edges.at(e2);
+					if (DoEdgesCross(edge, other)) {
+						isCrossed = true;
+						break;
+					}
+				}
+
+				if (isCrossed) {
+					RemoveEdge(e);
+				} else {
+					e++;
 				}
 			}
 
@@ -357,6 +376,100 @@ namespace Terrain {
 		NavigationEdge result = edges.back();
 		edges.pop_back();
 		return result;
+	}
+
+	bool DoEdgesCross(NavigationEdge& e1, NavigationEdge& e2) {
+		NavigationNode& e1_from = GetNavigationNode(e1.from);
+		NavigationNode& e1_to = GetNavigationNode(e1.to);
+		NavigationNode& e2_from = GetNavigationNode(e2.from);
+		NavigationNode& e2_to = GetNavigationNode(e2.to);
+
+		RoomPosition e1_room;
+		IntVector e1_origin;
+		IntVector e1_dir = e1.distance;
+
+		RoomPosition e2_room;
+		IntVector e2_origin;
+		IntVector e2_dir = e2.distance;
+		switch (e1_from.type) {
+			default:
+				return false;
+			case StartNodeType:
+				e1_room = e1_from.data.start.room;
+				e1_origin = e1_from.data.start.pos;
+				break;
+			case GoalNodeType:
+				e1_room = e1_from.data.goal.room;
+				e1_origin = e1_from.data.goal.pos;
+				break;
+			case CornerNodeType:
+			{
+				Corner& c = GetCorner(e1_from.data.corner.corner);
+				e1_room = e1_from.data.corner.corner.room;
+				e1_origin = IntVector(c.x, c.y);
+				break;
+			}
+		}
+		switch (e2_from.type) {
+			default:
+				return false;
+			case StartNodeType:
+				e2_room = e2_from.data.start.room;
+				e2_origin = e2_from.data.start.pos;
+				break;
+			case GoalNodeType:
+				e2_room = e2_from.data.goal.room;
+				e2_origin = e2_from.data.goal.pos;
+				break;
+			case CornerNodeType:
+			{
+				Corner& c = GetCorner(e2_from.data.corner.corner);
+				e2_room = e2_from.data.corner.corner.room;
+				e2_origin = IntVector(c.x, c.y);
+				break;
+			}
+		}
+
+		int d_rx = GetHOffsetBetweenRooms(e1_room, e2_room);
+
+		int d_ry_base = e2_room.ry - e1_room.ry;
+		for (int d_ry = d_ry_base - 20; d_ry <= d_ry_base + 20; d_ry += 20) {
+			IntVector e2_offset = IntVector(d_rx * 320, d_ry * 240);
+			IntVector e2_origin_offset = IntVector(e2_offset.x + e2_origin.x - e1_origin.x, e2_offset.y + e2_origin.y - e1_origin.y);
+
+			int dir_cross_prod = e1_dir.x * e2_dir.y - e1_dir.y * e2_dir.x;
+			int d1_o2_cross_prod = e1_dir.y * e2_origin_offset.x - e1_dir.x * e2_origin_offset.y;
+			int d2_o2_cross_prod = e2_dir.y * e2_origin_offset.x - e2_dir.x * e2_origin_offset.y;
+		
+			int term_A = dir_cross_prod;
+			int term_B = d2_o2_cross_prod;
+			int term_C = dir_cross_prod;
+			int term_D = d1_o2_cross_prod;
+
+			if ((term_A < 0) != (term_B < 0) || term_B == 0) {
+				// t_1 <= 0 -> no crossing
+				continue;
+			}
+			if (std::abs(term_A) <= std::abs(term_B)) {
+				// t_1 >= 1 -> no crossing
+				continue;
+			}
+			if ((term_C < 0) != (term_D < 0) || (term_D == 0)) {
+				// t_2 < 0 -> no crossing
+				continue;
+			}
+			if (std::abs(term_C) <= std::abs(term_D)) {
+				// t_2 >= 1 -> no crossing
+				continue;
+			}
+
+			float t_1 = ((float)term_B) / ((float)term_A);
+			float t_2 = ((float)term_D) / ((float)term_C);
+
+			return true;
+		}
+
+		return false;
 	}
 
 	void RemoveElement(std::vector<int>& v, int index) {
@@ -1568,6 +1681,137 @@ namespace Terrain {
 		}
 
 		return numRemoved;
+	}
+
+	int PruneBackAndCrossedEdges(void) {
+		// Basically: Each edge is a node in the graph, use their connectivity to create edges and then run a dominator algorithm
+		// Using the dominators, prune edges that can only connect to another edge they are dominated by, or edges that are crossed (geometrically) by an edge they are dominated by
+
+		// Edges are identified by their indices in the edges vector
+		std::vector<std::vector<int>> predecessors;
+		int num_edges = edges.size();
+		for (int e = 0; e < num_edges; e++) {
+			NavigationEdge& edge = edges.at(e);
+
+			predecessors.emplace_back();
+			
+			for (int o = 0; o < num_edges; o++) {
+				if (o == e) {
+					continue;
+				}
+				NavigationEdge& other = edges.at(o);
+
+				if (CanConnectEdges(other, edge)) {
+					predecessors.back().push_back(o);
+				}
+			}
+		}
+
+		// Now we'll add an extra start and goal "edge" for the dominator algorithm
+		int start_edge_index = predecessors.size();
+		predecessors.emplace_back();
+		int goal_edge_index = predecessors.size();
+		predecessors.emplace_back();
+		for (int e = 0; e < num_edges; e++) {
+			NavigationEdge& edge = edges.at(e);
+
+			NavigationNode& fromNode = GetNavigationNode(edge.from);
+			NavigationNode& toNode = GetNavigationNode(edge.to);
+
+			if (fromNode.type == StartNodeType) {
+				predecessors.at(e).push_back(start_edge_index);
+			}
+			if (toNode.type == GoalNodeType) {
+				predecessors.at(goal_edge_index).push_back(e);
+			}
+		}
+
+		// Initialize dominator sets
+		std::vector<std::set<int>> dominator_sets;
+		for (int i = 0; i < predecessors.size(); i++) {
+			dominator_sets.emplace_back();
+			if (i != start_edge_index) {
+				for (int j = 0; j < predecessors.size(); j++) {
+					dominator_sets.back().insert(j);
+				}
+			} else {
+				// Start node is only dominated by itself
+				dominator_sets.back().insert(i);
+			}
+		}
+		
+		// Run the actual algorithm
+		bool anythingChanged = true;
+		while (anythingChanged) {
+			anythingChanged = false;
+			for (int i = 0; i < predecessors.size(); i++) {
+				std::set<int> new_dominator_set;
+				
+				// Intersection of all predecessor dominator sets
+				int num_predecessors = predecessors.at(i).size();
+				int p = 0;
+				if (p < num_predecessors) {
+					int predecessor = predecessors.at(i).at(p);
+					new_dominator_set.insert(dominator_sets.at(predecessor).begin(), dominator_sets.at(predecessor).end());
+					p++;
+					while (p < num_predecessors) {
+						predecessor = predecessors.at(i).at(p);
+						std::set<int> results;
+						std::set_intersection(new_dominator_set.begin(), new_dominator_set.end(), dominator_sets.at(predecessor).begin(), dominator_sets.at(predecessor).end(), std::inserter(results, results.begin()));
+						new_dominator_set.clear();
+						new_dominator_set.insert(results.begin(), results.end());
+						p++;
+					}
+				}
+
+				// Every node dominates itself
+				new_dominator_set.insert(i);
+
+				// Check if anything changed
+				bool shouldCopy = new_dominator_set.size() != dominator_sets.at(i).size();
+				if (!shouldCopy) {
+					// Element-wise check
+					for (std::set<int>::iterator it = new_dominator_set.begin(); it != new_dominator_set.end(); ++it) {
+						int predecessor = *it;
+						if (dominator_sets.at(i).count(predecessor) == 0) {
+							// This element is new
+							shouldCopy = true;
+						}
+					}
+				}
+
+				if (shouldCopy) {
+					// Copy new dominator set to set list
+					dominator_sets.at(i).clear();
+					dominator_sets.at(i).insert(new_dominator_set.begin(), new_dominator_set.end());
+					anythingChanged = true;
+				}
+			}
+		}
+
+		std::set<int> edges_to_remove;
+		for (int i = 0; i < predecessors.size(); i++) {
+			if (i == start_edge_index || i == goal_edge_index) {
+				// Ignore our "fake" edges
+				continue;
+			}
+			NavigationEdge& edge = edges.at(i);
+
+			int num_dominators = dominator_sets.at(i).size();
+			for (std::set<int>::iterator it = dominator_sets.at(i).begin(); it != dominator_sets.at(i).end(); ++it) {
+				int d = *it;
+				if (d == start_edge_index || d == goal_edge_index) {
+					// Ignore our "fake" edges
+					continue;
+				}
+
+				NavigationEdge& dominator = edges.at(d);
+				// Do the edges cross? in that case we can delete the dominated edge
+
+			}
+		}
+
+		return 0;
 	}
 
 	// --------------------------------------
