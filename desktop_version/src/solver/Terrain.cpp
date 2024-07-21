@@ -25,9 +25,15 @@ namespace Terrain {
 	int start_y = 33;
 	bool start_gravity = 0;
 
+	// Lab IL end
 	RoomPosition goal_room = RoomPosition(4, 4);
 	int goal_x = 10;
 	int goal_y = 170;
+	
+	// Rascasse top left corner
+	// RoomPosition goal_room = RoomPosition(1, 17);
+	// int goal_x = 10;
+	// int goal_y = 46;
 
 	RoomData overworldRoomData[20][20];
 	RoomData outsideRoomData[20][20];
@@ -104,10 +110,11 @@ namespace Terrain {
 			}
 
 			int totalPruned = 0;
-			while (false) {
+			while (true) {
 				int numPruned = 0;
 				numPruned += PruneDeadEndEdges();
-				numPruned += PruneDominatedEdges();
+				// numPruned += PruneDominatedEdges();
+				numPruned += PruneBackAndCrossedEdges();
 				if (numPruned == 0) {
 					break;
 				} else {
@@ -115,26 +122,7 @@ namespace Terrain {
 				}
 			}
 
-			for (int e = 0; e < edges.size();) {
-				NavigationEdge& edge = edges.at(e);
-
-				bool isCrossed = false;
-				for (int e2 = e + 1; e2 < edges.size(); e2++) {
-					NavigationEdge& other = edges.at(e2);
-					if (DoEdgesCross(edge, other)) {
-						isCrossed = true;
-						break;
-					}
-				}
-
-				if (isCrossed) {
-					RemoveEdge(e);
-				} else {
-					e++;
-				}
-			}
-
-			LoadRoom(goal_room);
+			LoadRoom(RoomPosition(7, 16));
 		}
 	}
 
@@ -154,7 +142,18 @@ namespace Terrain {
 			SDL_SetRenderDrawColor(gameScreen.m_renderer, 0, 255, 255, 100);
 			int num_edges = edges.size();
 			for (int e = 0; e < num_edges; e++) {
-				RenderEdge(e);
+				NavigationEdge& edge = edges.at(e);
+				if (IsEdgePossibleWithoutFlipping(edge, 6, 10)) {
+					RenderEdge(e);
+				}
+			}
+
+			SDL_SetRenderDrawColor(gameScreen.m_renderer, 255, 255, 0, 100);
+			for (int e = 0; e < num_edges; e++) {
+				NavigationEdge& edge = edges.at(e);
+				if (!IsEdgePossibleWithoutFlipping(edge, 6, 10)) {
+					RenderEdge(e);
+				}
 			}
 		}
 	}
@@ -175,7 +174,7 @@ namespace Terrain {
 	// -------------------
 
 	void RenderPixel(int x, int y) {
-		const SDL_Rect rect = { x, y, 1, 1 };
+		const SDL_Rect rect = { x + VIRIDIAN_CX, y + VIRIDIAN_CY, 1, 1 };
 		SDL_RenderFillRect(gameScreen.m_renderer, &rect);
 	}
 
@@ -210,7 +209,7 @@ namespace Terrain {
 					break;
 			}
 
-			SDL_RenderDrawLine(gameScreen.m_renderer, x1, y1, x2, y2);
+			SDL_RenderDrawLine(gameScreen.m_renderer, x1 + VIRIDIAN_CX, y1 + VIRIDIAN_CY, x2 + VIRIDIAN_CX, y2 + VIRIDIAN_CY);
 		}
 	}
 
@@ -281,7 +280,7 @@ namespace Terrain {
 			x2 = x1 + edge.distance.x;
 			y2 = y1 + edge.distance.y;
 
-			SDL_RenderDrawLine(gameScreen.m_renderer, x1, y1, x2, y2);
+			SDL_RenderDrawLine(gameScreen.m_renderer, x1 + VIRIDIAN_CX, y1 + VIRIDIAN_CY, x2 + VIRIDIAN_CX, y2 + VIRIDIAN_CY);
 		}
 	}
 
@@ -292,7 +291,7 @@ namespace Terrain {
 		IntVector min = IntVector(currentRoomData.GetMinXPos() - 6, currentRoomData.GetMinYPos() - 10);
 		IntVector max = IntVector(currentRoomData.GetMaxXPos() + 6, currentRoomData.GetMaxYPos() + 10);
 
-		bool* collision_bitmap = GetCurrentRoomPlayerCollisionBitmap(min, max);
+		uint8_t* collision_bitmap = GetCurrentRoomPlayerCollisionBitmap(min, max);
 		int bitmap_width = max.x - min.x + 1;
 		int bitmap_height = max.x - min.x + 1;
 
@@ -326,6 +325,10 @@ namespace Terrain {
 
 	Corner& GetCorner(CornerID corner_id) {
 		return GetRoomData(corner_id.room).corners.at(corner_id.cornerIndex);
+	}
+
+	RoomWall& GetWall(WallID wall_id) {
+		return GetRoomData(wall_id.room).walls.at(wall_id.wallIndex);
 	}
 
 	NavigationNode& GetNavigationNode(NavigationNodeID node_id) {
@@ -376,6 +379,288 @@ namespace Terrain {
 		NavigationEdge result = edges.back();
 		edges.pop_back();
 		return result;
+	}
+
+	// Important: this function must be SOUND
+	// That is, it should only say an edge is *impossible* if it verifiably is - otherwise, the heuristic might become inadmissible
+	// When in doubt, we should assume that it is possible
+	bool IsEdgePossibleWithoutFlipping(NavigationEdge& edge, int maxHSpeed, int maxVSpeed) {
+		NavigationNode& from_node = GetNavigationNode(edge.from);
+		NavigationNode& to_node = GetNavigationNode(edge.to);
+
+		IntVector abs_d = IntVector(std::abs(edge.distance.x), std::abs(edge.distance.y));
+
+		bool fromNodeImposesVerticalConstraint = false;
+		IntVector fromPos;
+		bool startInverseGravity = false;
+		bool gravityChange = false;
+		switch (from_node.type) {
+			case StartNodeType:
+				startInverseGravity = from_node.data.start.inverseGravity;
+				fromPos = from_node.data.start.pos;
+				fromNodeImposesVerticalConstraint = true;
+				break;
+			case GoalNodeType:
+				fromPos = from_node.data.goal.pos;
+				fromNodeImposesVerticalConstraint = true;
+				break;
+			case CornerNodeType:
+			{
+				Corner& fromCorner = GetCorner(from_node.data.corner.corner);
+				bool inverseGravity = from_node.data.corner.inverseGravity;
+				startInverseGravity = inverseGravity;
+				fromPos = IntVector(fromCorner.x, fromCorner.y);
+				switch (fromCorner.type) {
+					default:
+						fromNodeImposesVerticalConstraint = false;
+						break;
+					case TopLeft:
+					case TopRight:
+						fromNodeImposesVerticalConstraint = inverseGravity;
+						break;
+					case BottomLeft:
+					case BottomRight:
+						fromNodeImposesVerticalConstraint = !inverseGravity;
+						break;
+				}
+				break;
+			}
+		}
+		switch (to_node.type) {
+			case StartNodeType:
+			case GoalNodeType:
+				gravityChange = false;
+				break;
+			case CornerNodeType:
+			{
+				gravityChange = (to_node.data.corner.inverseGravity != startInverseGravity);
+				break;
+			}
+		}
+		// Gravity trivially implies a flip is needed
+		if (gravityChange) {
+			return false;
+		} else if (edge.distance.x == 0) {
+			// Straight down or up is easy
+			return true;
+		}
+
+		if (!fromNodeImposesVerticalConstraint) {
+			// Might still be possible, we can't really tell yet
+			// TODO: investigate this case further
+			return true;
+		}
+
+		// The edge is "impossible" if the number of frames to traverse it horizontally is greater than the number of frames to traverse it vertically
+		// Note however that horizontal movement happens first - so we sort of get an extra frame of horizontal movement in close calls
+		// (abs_d + maxHSpeed - 1) / maxHSpeed - 1 can be simplified to:
+		int hFrames = (abs_d.x - 1) / maxHSpeed;
+		int minVDist;
+		switch (hFrames) {
+		case 1:
+			minVDist = 2; // 2.75f rounded down
+			break;
+		case 2:
+			minVDist = 2 + 5; // 5.5f rounded down
+			break;
+		case 3:
+			minVDist = 2 + 5 + 8; // 8.25f rounded down
+			break;
+		default:
+			if (hFrames <= 0) {
+				minVDist = 0;
+			} else {
+				minVDist = 2 + 5 + 8 + maxVSpeed * (hFrames - 3);
+			}
+			break;
+		}
+
+		// Edge is possible (possibly only with ideal starting conditions)
+		if (minVDist <= abs_d.y) {
+			return true;
+		}
+
+		// Try to find a sequence of walkable surfaces that let you get to the destination
+		RoomData& fromRoomData = GetRoomData(edge.from.room);
+		std::vector<RoomPosition> rooms = GetTouchedRooms(edge);
+
+		// Find all valid surfaces in the rooms
+		std::vector<RoomWall> surfaces;
+		for (int r = 0; r < rooms.size(); r++) {
+			RoomPosition& room = rooms.at(r);
+			RoomData& roomData = GetRoomData(room);
+			int d_rx = room.rx - edge.from.room.rx;
+			int d_ry = room.ry - edge.from.room.ry;
+
+			if (d_rx < 0 && edge.distance.x > 0) {
+				d_rx += 20;
+			} else if (d_rx > 0 && edge.distance.x < 0) {
+				d_rx -= 20;
+			}
+			if (d_ry < 0 && edge.distance.y > 0) {
+				d_ry += 20;
+			} else if (d_ry > 0 && edge.distance.y < 0) {
+				d_ry -= 20;
+			}
+
+			IntVector roomOffset = IntVector(d_rx * 320, d_ry * 240);
+			int num_walls = roomData.walls.size();
+			for (int w = 0; w < num_walls; w++) {
+				RoomWall& wall = roomData.walls.at(w);
+				if (startInverseGravity && wall.type != WallType::Ceiling) {
+					continue;
+				}
+				if (!startInverseGravity && wall.type != WallType::Floor) {
+					continue;
+				}
+				
+				RoomWall tmp_wall;
+				tmp_wall.type = wall.type;
+				tmp_wall.walkable = wall.walkable;
+				tmp_wall.minCornerConcave = wall.minCornerConcave;
+				tmp_wall.maxCornerConcave = wall.maxCornerConcave;
+				tmp_wall.min = wall.min + roomOffset.x - fromPos.x;
+				tmp_wall.max = wall.max + roomOffset.x - fromPos.x;
+				tmp_wall.plane = wall.plane + roomOffset.y - fromPos.y;
+
+				// Wall is outside horizontal or vertical range of edge
+				if (edge.distance.y > 0 && (0 > tmp_wall.plane || tmp_wall.plane > edge.distance.y) || edge.distance.y < 0 && (edge.distance.y > tmp_wall.plane || tmp_wall.plane > 0)) {
+					continue;
+				} else if (edge.distance.x > 0 && (0 > tmp_wall.max || tmp_wall.min > edge.distance.x) || edge.distance.x < 0 && (edge.distance.x > tmp_wall.max || tmp_wall.min > 0)) {
+					continue;
+				}
+
+				// Only add surfaces that the edge goes over (not underneath)
+				bool edgeGoesOverSurface = false;
+				if (edge.distance.x > 0) {
+					bool maxCornerIsBelow = std::abs(tmp_wall.plane * edge.distance.x) >= std::abs(edge.distance.y * tmp_wall.max);
+					bool minCornerIsAbove;
+					if (tmp_wall.min < 0) {
+						minCornerIsAbove = false;
+					} else {
+						minCornerIsAbove = std::abs(tmp_wall.plane * edge.distance.x) < std::abs(edge.distance.y * tmp_wall.min);
+					}
+					if (maxCornerIsBelow && !minCornerIsAbove) {
+						edgeGoesOverSurface = true;
+					}
+				} else {
+					bool maxCornerIsBelow;
+					if (tmp_wall.max > 0) {
+						maxCornerIsBelow = true;
+					} else {
+						maxCornerIsBelow = std::abs(tmp_wall.plane * edge.distance.x) >= std::abs(edge.distance.y * tmp_wall.max);
+					}
+					bool minCornerIsAbove = std::abs(tmp_wall.plane * edge.distance.x) < std::abs(edge.distance.y * tmp_wall.min);
+					if (maxCornerIsBelow && !minCornerIsAbove) {
+						edgeGoesOverSurface = true;
+					}
+				}
+
+				if (edgeGoesOverSurface) {
+					surfaces.emplace_back(tmp_wall);
+				}
+			}
+		}
+
+		// Sort the surfaces by Y plane and X
+		std::function<bool(RoomWall, RoomWall)> cmp_asc_both = [](const RoomWall& a, const RoomWall& b)
+			{
+				return (a.plane == b.plane) ? (a.min < b.min) : (a.plane < b.plane);
+			};
+		std::function<bool(RoomWall, RoomWall)>  cmp_asc_y_desc_x = [](const RoomWall& a, const RoomWall& b)
+			{
+				return (a.plane == b.plane) ? (a.min > b.min) : (a.plane < b.plane);
+			};
+		std::function<bool(RoomWall, RoomWall)>  cmp_desc_y_asc_x = [](const RoomWall& a, const RoomWall& b)
+			{
+				return (a.plane == b.plane) ? (a.min < b.min) : (a.plane > b.plane);
+			};
+		std::function<bool(RoomWall, RoomWall)>  cmp_desc_both = [](const RoomWall& a, const RoomWall& b)
+			{
+				return (a.plane == b.plane) ? (a.min > b.min) : (a.plane > b.plane);
+			};
+
+		std::function<bool(RoomWall, RoomWall)>&  cmp_desc_x = (edge.distance.y > 0) ? cmp_asc_y_desc_x : cmp_desc_both;
+		std::function<bool(RoomWall, RoomWall)>&  cmp_asc_x = (edge.distance.y > 0) ? cmp_asc_both : cmp_desc_y_asc_x;
+		std::function<bool(RoomWall, RoomWall)>&  cmp = (edge.distance.x > 0) ? cmp_asc_x : cmp_desc_x;
+		std::sort(surfaces.begin(), surfaces.end(), cmp);
+
+		// Make sure we can go over all surfaces and end up high enough
+		IntVector currentPos = IntVector(0, 0);
+		for (int s = 0; s < surfaces.size(); s++) {
+			RoomWall& surface = surfaces.at(s);
+
+			int d_y = surface.plane - currentPos.y;
+			int d_x_min = surface.min - currentPos.x;
+			int d_x_max = surface.max - currentPos.x;
+
+			
+			if (edge.distance.y > 0 && d_y < 0 || edge.distance.y < 0 && d_y > 0) {
+				// We are already past this surface
+				// This shouldn't actually happen due to sorting
+				VVV_exit(-1);
+				continue;
+			}
+
+			// You get an extra frame if you land exactly on the right height
+			// TODO: account for acceleration here
+			int frames = d_y / maxVSpeed + 1;
+			int max_x_dist = edge.distance.x > 0 ? (frames * maxHSpeed) : (-frames * maxHSpeed);
+
+			// The position we'd land on the platform at
+			IntVector landingPos = IntVector(currentPos.x + max_x_dist, surface.plane);
+
+			bool landingIsPossible;
+			bool landingIsForced;
+			bool landingIsBeneficial;
+			if (edge.distance.x > 0) {
+				landingIsPossible = landingPos.x >= surface.min && surface.walkable && !surface.maxCornerConcave;
+				landingIsForced = landingPos.x <= surface.max;
+				landingIsBeneficial = std::abs(maxHSpeed * surface.plane) - std::abs(maxVSpeed * surface.max) < std::abs(maxHSpeed * currentPos.y) - std::abs(maxVSpeed * currentPos.x);
+			} else {
+				landingIsPossible = landingPos.x <= surface.max && surface.walkable && !surface.minCornerConcave;
+				landingIsForced = landingPos.x >= surface.min;
+				landingIsBeneficial = std::abs(maxHSpeed * surface.plane) - std::abs(maxVSpeed * surface.min) < std::abs(maxHSpeed * currentPos.y) - std::abs(maxVSpeed * currentPos.x);
+			}
+
+			if (landingIsForced && !landingIsPossible) {
+				return false;
+			}
+			if (landingIsPossible && (landingIsForced || landingIsBeneficial)) {
+				currentPos.x = edge.distance.x > 0 ? surface.max : surface.min;
+				currentPos.y = surface.plane;
+			}
+
+			// Check we aren't past the end yet
+			if (std::abs(currentPos.x) >= std::abs(edge.distance.x)) {
+				return true;
+			} else if (std::abs(currentPos.y) >= std::abs(edge.distance.y)) {
+				return false;
+			}
+		}
+
+		// Check if we can reach the end from where we are
+		int x_dist = std::abs(edge.distance.x - currentPos.x);
+		int y_dist = std::abs(edge.distance.y - currentPos.y);
+
+		int frames;
+		if (y_dist <= 15) {
+			if (y_dist < 0) {
+				frames = 0;
+			} else if (y_dist < 2) {
+				frames = 1;
+			} else if (y_dist < 2 + 5) {
+				frames = 2;
+			} else if (y_dist < 2 + 5 + 8) {
+				frames = 3;
+			} else {
+				frames = 4;
+			}
+		} else {
+			frames = 4 + (y_dist - 15) / maxVSpeed;
+		}
+
+		return x_dist <= frames * maxHSpeed;
 	}
 
 	bool DoEdgesCross(NavigationEdge& e1, NavigationEdge& e2) {
@@ -430,6 +715,15 @@ namespace Terrain {
 			}
 		}
 
+		// Edge in same direction
+		if (IsSameOrInverseNode(e1.from, e2.from) && IsSameOrInverseNode(e1.to, e2.to)) {
+			return true;
+		}
+		// Edge in opposite direction
+		if (IsSameOrInverseNode(e1.from, e2.to) && IsSameOrInverseNode(e2.from, e1.to)) {
+			return true;
+		}
+
 		int d_rx = GetHOffsetBetweenRooms(e1_room, e2_room);
 
 		int d_ry_base = e2_room.ry - e1_room.ry;
@@ -446,21 +740,89 @@ namespace Terrain {
 			int term_C = dir_cross_prod;
 			int term_D = d1_o2_cross_prod;
 
-			if ((term_A < 0) != (term_B < 0) || term_B == 0) {
-				// t_1 <= 0 -> no crossing
+			if ((term_A < 0) != (term_B < 0)) {
+				// t_1 < 0 -> no crossing
 				continue;
 			}
-			if (std::abs(term_A) <= std::abs(term_B)) {
-				// t_1 >= 1 -> no crossing
+			if (std::abs(term_A) < std::abs(term_B)) {
+				// t_1 > 1 -> no crossing
 				continue;
 			}
-			if ((term_C < 0) != (term_D < 0) || (term_D == 0)) {
+			if ((term_C < 0) != (term_D < 0)) {
 				// t_2 < 0 -> no crossing
 				continue;
 			}
-			if (std::abs(term_C) <= std::abs(term_D)) {
-				// t_2 >= 1 -> no crossing
+			if (std::abs(term_C) < std::abs(term_D)) {
+				// t_2 > 1 -> no crossing
 				continue;
+			}
+
+			// Special cases:
+			if (term_B == 0 && term_D != 0 || term_B != 0 && term_D == 0) {
+				// t_1 = t_2 = 0 -> crossing
+				continue;
+			}
+			if (std::abs(term_A) != std::abs(term_B) && std::abs(term_C) == std::abs(term_D)) {
+				// t_1 = t_2 = 1 -> crossing
+				continue;
+			}
+			if (std::abs(term_A) == std::abs(term_B) && std::abs(term_C) != std::abs(term_D)) {
+				// t_1 = t_2 = 1 -> crossing
+				continue;
+			}
+			if ((term_B == 0 || term_D == 0) && (term_A == 0 || term_C == 0)) {
+				// Edges lie on the same line -> special logic needed
+				if (std::abs(e1_dir.y) > std::abs(e1_dir.x)) {
+					// dy can't be zero
+					if ((e1_dir.y < 0) != (e2_dir.y < 0)) {
+						// Edges point in opposite directions (so they can add together)
+						if ((e1_dir.y < 0) != (e2_origin_offset.y < 0)) {
+							// Both edges point away from each others origins
+							continue;
+						} else if (e1_dir.y - e2_dir.y < e2_origin_offset.y) {
+							// Both edges combined can't reach other origin -> no intersection
+							continue;
+						}
+					} else {
+						// Edges point in same direction
+						if ((e1_dir.y < 0) != (e2_origin_offset.y < 0)) {
+							// Edge 1 points away from second's origin
+							if (e2_dir.y < e2_origin_offset.y) {
+								// Second edge is farther away than it's length -> no intersection
+								continue;
+							}
+						} else if (e1_dir.y < e2_origin_offset.y) {
+							// First edge can't reach other origin -> no intersection
+							continue;
+						}
+					}
+				} else {
+					// dx can't be zero
+					if ((e1_dir.x < 0) != (e2_dir.x < 0)) {
+						// Edges point in opposite directions (so they can add together)
+						if ((e1_dir.x < 0) != (e2_origin_offset.x < 0)) {
+							// Both edges point away from each others origins
+							continue;
+						}
+						else if (e1_dir.x - e2_dir.x < e2_origin_offset.x) {
+							// Both edges combined can't reach other origin -> no intersection
+							continue;
+						}
+					}
+					else {
+						// Edges point in same direction
+						if ((e1_dir.x < 0) != (e2_origin_offset.x < 0)) {
+							// Edge 1 points away from second's origin
+							if (e2_dir.x < e2_origin_offset.x) {
+								// Second edge is farther away than it's length -> no intersection
+								continue;
+							}
+						} else if (e1_dir.x < e2_origin_offset.x) {
+							// First edge can't reach other origin -> no intersection
+							continue;
+						}
+					}
+				}
 			}
 
 			float t_1 = ((float)term_B) / ((float)term_A);
@@ -549,7 +911,7 @@ namespace Terrain {
 		IntVector min = IntVector(result.GetMinXPos() - 1, result.GetMinYPos() - 1);
 		IntVector max = IntVector(result.GetMaxXPos() + 1, result.GetMaxYPos() + 1);
 
-		bool* collision_bitmap = GetCurrentRoomPlayerCollisionBitmap(min, max);
+		uint8_t* collision_bitmap = GetCurrentRoomPlayerCollisionBitmap(min, max);
 		int bitmap_width = max.x - min.x + 1;
 
 		// Check if the screen edges are blocked off
@@ -582,8 +944,8 @@ namespace Terrain {
 			int wall_start = INT_MIN;
 
 			for (int y = min.y; y <= max.y; y++) {
-				bool left = collision_bitmap[(y - min.y) * bitmap_width + (x - 1 - min.x)];
-				bool self = collision_bitmap[(y - min.y) * bitmap_width + (x - min.x)];
+				bool left = collision_bitmap[(y - min.y) * bitmap_width + (x - 1 - min.x)] > 0;
+				bool self = collision_bitmap[(y - min.y) * bitmap_width + (x - min.x)] > 0;
 
 				bool isWall = left != self;
 				bool newWallIsLeftWall = left && !self;
@@ -634,21 +996,24 @@ namespace Terrain {
 
 		// Next, horizontal walls (i.e. floors and ceilings)
 		for (int y = min.y + 1; y <= max.y; y++) {
-			bool started = false;
+			uint8_t started = false;
 			bool isCeiling = false;
 			bool prevIsEmpty = true;
 			bool startIsConcave = false;
 			int wall_start = INT_MIN;
 
 			for (int x = min.x; x <= max.x; x++) {
-				bool up = collision_bitmap[bitmap_width * (y - min.y - 1) + (x - min.x)];
-				bool self = collision_bitmap[bitmap_width * (y - min.y) + (x - min.x)];
+				uint8_t up_kind = collision_bitmap[bitmap_width * (y - min.y - 1) + (x - min.x)];
+				uint8_t self_kind = collision_bitmap[bitmap_width * (y - min.y) + (x - min.x)];
+
+				bool up = up_kind != 0;
+				bool self = self_kind != 0;
 
 				bool isWall = up != self;
 				bool newWallIsCeiling = up && !self;
 				bool isSameWall = isCeiling == newWallIsCeiling;
 
-				bool wallEndsHere = started && !(isWall && isSameWall);
+				bool wallEndsHere = (started != 0) && !(isWall && isSameWall);
 				bool wallStartsHere = isWall && !(started && isSameWall);
 
 				if (wallEndsHere) {
@@ -664,21 +1029,22 @@ namespace Terrain {
 					newWall.max = wall_end;
 					newWall.minCornerConcave = startIsConcave;
 					newWall.maxCornerConcave = endIsConcave;
+					newWall.walkable = (started == 1);
 
 					result.walls.push_back(newWall);
-					started = false;
+					started = 0;
 				}
 				if (wallStartsHere) {
 					isCeiling = newWallIsCeiling;
 					startIsConcave = !prevIsEmpty;
 					wall_start = (x - 1);
-					started = true;
+					started = std::max(up_kind, self_kind);
 				}
 				prevIsEmpty = !up && !self;
 			}
 
 			// Finish off any running walls
-			if (started) {
+			if (started != 0) {
 				RoomWall newWall;
 				newWall.type = isCeiling ? WallType::Ceiling : WallType::Floor;
 				// wall.plane is the last coordinate the player can stand at just next to the wall
@@ -687,6 +1053,7 @@ namespace Terrain {
 				newWall.max = max.x;
 				newWall.minCornerConcave = startIsConcave;
 				newWall.maxCornerConcave = false;
+				newWall.walkable = (started == 1);
 
 				result.walls.push_back(newWall);
 			}
@@ -706,23 +1073,46 @@ namespace Terrain {
 					continue;
 				}
 
+				// Let's measure the vertical and horizontal gaps
+				// TODO: should a 1-wide gap be 0 or 1? (fencepost problem)
+				int verticalGap = 0;
+				int horizontalGap = 0;
+
+				int x_increment = (up_left || left) ? 1 : -1;
+				int y_increment = (up_left || up) ? 1 : -1;
+				for (int gap_x = (up_left || left) ? x : (x - 1); gap_x != min.x && gap_x != max.x; gap_x += x_increment) {
+					bool gap_up = collision_bitmap[bitmap_width * (y - min.y - 1) + (gap_x - min.x)];
+					bool gap_self = collision_bitmap[bitmap_width * (y - min.y) + (gap_x - min.x)];
+
+					if (gap_up || gap_self) {
+						break;
+					}
+					horizontalGap++;
+				}
+				for (int gap_y = (up_left || up) ? y : (y - 1); gap_y != min.y && gap_y != max.y; gap_y += y_increment) {
+					bool gap_left = collision_bitmap[bitmap_width * (gap_y - min.y) + (x - min.x - 1)];
+					bool gap_self = collision_bitmap[bitmap_width * (gap_y - min.y) + (x - min.x)];
+
+					if (gap_left || gap_self) {
+						break;
+					}
+					verticalGap++;
+				}
+
+				// Lastly, create the actual corner struct
 				Corner newCorner;
+				newCorner.x = (up_left || left) ? x : (x - 1);
+				newCorner.y = (up_left || up) ? y : (y - 1);
+				newCorner.horizontalGap = horizontalGap;
+				newCorner.verticalGap = verticalGap;
 				if (up_left) {
 					newCorner.type = BottomRight;
-					newCorner.x = x;
-					newCorner.y = y;
 				} else if (left) {
 					newCorner.type = TopRight;
-					newCorner.x = x;
-					newCorner.y = y - 1;
 				} else if (up) {
 					newCorner.type = BottomLeft;
-					newCorner.x = x - 1;
-					newCorner.y = y;
 				} else {
 					newCorner.type = TopLeft;
-					newCorner.x = x - 1;
-					newCorner.y = y - 1;
 				}
 
 				result.corners.push_back(newCorner);
@@ -1322,6 +1712,185 @@ namespace Terrain {
 		return false;
 	}
 
+	// TODO: finish this
+	bool CanConnectCornersViaSurface(CornerID c1_id, WallID w_id, CornerID c2_id) {
+		RoomWall& surface = GetWall(w_id);
+
+		bool startInverseGravity = surface.type == WallType::Ceiling;
+		bool endInverseGravity = surface.type == WallType::Floor;
+		if (!startInverseGravity && !endInverseGravity) {
+			return false;
+		}
+		
+		RoomPosition fromRoom = c1_id.room;
+		RoomPosition wallRoom = w_id.room;
+		RoomPosition toRoom = c2_id.room;
+
+		Corner& fromCorner = GetCorner(c1_id);
+		Corner& toCorner = GetCorner(c2_id);
+
+		bool startGoingRight;
+			switch (fromCorner.type) {
+			default:
+				return false;
+			case BottomLeft: case TopRight:
+				startGoingRight = !startInverseGravity;
+				break;
+			case TopLeft: case BottomRight:
+				startGoingRight = startInverseGravity;
+				break;
+		}
+		bool endGoingRight;
+		switch (toCorner.type) {
+			default:
+				return false;
+			case BottomLeft: case TopRight:
+				endGoingRight = !endInverseGravity;
+				break;
+			case TopLeft: case BottomRight:
+				endGoingRight = endInverseGravity;
+				break;
+		}
+
+		// Treat fromCorner as origin for simplicity, get offsets to everything else
+		int wall_d_rx = GetHOffsetBetweenRooms(fromRoom, wallRoom);
+		int to_d_rx = GetHOffsetBetweenRooms(fromRoom, toRoom);
+
+		int wall_d_ry_base = wallRoom.ry - fromRoom.ry;
+		int to_d_ry_base = toRoom.ry - fromRoom.ry;
+		
+		for (int wall_d_ry = wall_d_ry_base - 20; wall_d_ry <= wall_d_ry_base + 20; wall_d_ry += 20) {
+			IntVector wall_room_offset = IntVector(320 * wall_d_rx, 240 * wall_d_ry);
+
+			int wall_dy = surface.plane - fromCorner.y + wall_room_offset.y;
+			int wall_dx_min = surface.min - fromCorner.x + wall_room_offset.x;
+			int wall_dx_max = surface.max - fromCorner.x + wall_room_offset.x;
+
+			// Is the wall on the wrong side of the first corner?
+			if (startInverseGravity && wall_dy > 0) {
+				continue;
+			} else if (!startInverseGravity && wall_dy < 0) {
+				continue;
+			} else if (startGoingRight && wall_dx_max < 0) {
+				continue;
+			} else if (!startGoingRight && wall_dx_min > 0) {
+				continue;
+			}
+
+			int validWallRangeMin = wall_dx_min;
+			int validWallRangeMax = wall_dx_max;
+			if (startGoingRight) {
+				validWallRangeMin = SDL_max(0, validWallRangeMin);
+			} else {
+				validWallRangeMax = SDL_min(0, validWallRangeMax);
+			}
+			
+			for (int to_d_ry = to_d_ry_base - 20; to_d_ry <= to_d_ry_base + 20; to_d_ry += 20) {
+				IntVector to_room_offset = IntVector(320 * to_d_rx, 240 * to_d_ry);
+				IntVector wall_to_room_offset = IntVector(320 * (to_d_rx - wall_d_rx), 240 * (to_d_ry - wall_d_ry));
+
+				// Distances to second corner from wall
+				int to_dy = toCorner.y - surface.plane + wall_to_room_offset.y;
+				int to_dx_min = toCorner.x - surface.min - wall_to_room_offset.x;
+				int to_dx_max = toCorner.x - surface.max - wall_to_room_offset.x;
+
+				// Is the wall on the wrong side of the second corner?
+				if (endInverseGravity && to_dy > 0) {
+					continue;
+				} else if (!endInverseGravity && to_dy < 0) {
+					continue;
+				} else if (endGoingRight && to_dx_min < 0) {
+					continue;
+				} else if (!endGoingRight && to_dx_max > 0) {
+					continue;
+				}
+
+				if (endGoingRight) {
+					validWallRangeMax = SDL_min(wall_dx_max + to_dx_max, validWallRangeMax);
+				} else {
+					validWallRangeMin = SDL_max(wall_dx_min + to_dx_min, validWallRangeMin);
+				}
+
+				if (validWallRangeMin > validWallRangeMax) {
+					// No valid place to flip on the surface
+					continue;
+				}
+
+				if (startGoingRight != endGoingRight) {
+					// Only need to check the right- / leftmost pixel of the surface
+
+				}
+			}
+		}
+	}
+
+	std::vector<RoomPosition> GetTouchedRooms(NavigationEdge& edge) {
+		std::vector<RoomPosition> result;
+
+		RoomPosition currentRoom = edge.from.room;
+		IntVector currentPos;
+		IntVector distance = edge.distance;
+
+		NavigationNode& fromNode = GetNavigationNode(edge.from);
+		switch (fromNode.type) {
+			default:
+				return result;
+			case StartNodeType:
+				currentPos = fromNode.data.start.pos;
+				break;
+			case GoalNodeType:
+				currentPos = fromNode.data.goal.pos;
+				break;
+			case CornerNodeType:
+			{
+				Corner& fromCorner = GetCorner(fromNode.data.corner.corner);
+				currentPos = IntVector(fromCorner.x, fromCorner.y);
+				break;
+			}
+		}
+
+		// Basically a room-only raycast
+		while (true) {
+			RoomData& roomData = GetRoomData(currentRoom);
+
+			// Find next intersection with room edge
+			IntVector min = IntVector(roomData.GetMinXPos(), roomData.GetMinYPos());
+			IntVector max = IntVector(roomData.GetMaxXPos(), roomData.GetMaxYPos());
+
+			// AABB intersection
+			float t_left = ((float)(min.x - currentPos.x)) / ((float)distance.x);
+			float t_right = ((float)(max.x - currentPos.x)) / ((float)distance.x);
+			float t_top = ((float)(min.y - currentPos.y)) / ((float)distance.y);
+			float t_bottom = ((float)(max.y - currentPos.y)) / ((float)distance.y);
+
+			float t_max = SDL_min(SDL_max(t_left, t_right), SDL_max(t_top, t_bottom));
+
+			result.push_back(currentRoom);
+
+			// Edge ends in this room
+			if (t_max > 1) {
+				break;
+			}
+
+			// Change to next room
+			if (t_top == t_max) {
+				currentRoom = currentRoom.NextRoomUp();
+				currentPos.y += 240;
+			} else if (t_bottom == t_max) {
+				currentRoom = currentRoom.NextRoomDown();
+				currentPos.y -= 240;
+			} else if (t_left == t_max) {
+				currentRoom = currentRoom.NextRoomLeft();
+				currentPos.x += 320;
+			} else {
+				currentRoom = currentRoom.NextRoomRight();
+				currentPos.x -= 320;
+			}
+		}
+
+		return result;
+	}
+
 	int PruneDeadEndEdges(void) {
 		int totalRemoved = 0;
 		// Prune dead end edges
@@ -1331,6 +1900,10 @@ namespace Terrain {
 			if (e >= edges.size()) {
 				e = 0;
 				numRemoved = 0;
+
+				if (e >= edges.size()) {
+					break;
+				}
 			}
 
 			NavigationEdge& edge = edges.at(e);
@@ -1340,7 +1913,7 @@ namespace Terrain {
 
 			bool connectIn = fromNode.type == StartNodeType;
 			bool connectOut = toNode.type == GoalNodeType;
-			for (int e2 = 0; e2 < edges.size() && (!connectIn || !connectOut); e2++) {
+			for (int e2 = 0; (e2 < edges.size()) && (!connectIn || !connectOut); e2++) {
 				NavigationEdge& other = edges.at(e2);
 				if (e == e2) {
 					continue;
@@ -1689,10 +2262,12 @@ namespace Terrain {
 
 		// Edges are identified by their indices in the edges vector
 		std::vector<std::vector<int>> predecessors;
+		std::vector<std::vector<int>> successors;
 		int num_edges = edges.size();
 		for (int e = 0; e < num_edges; e++) {
 			NavigationEdge& edge = edges.at(e);
 
+			successors.emplace_back();
 			predecessors.emplace_back();
 			
 			for (int o = 0; o < num_edges; o++) {
@@ -1701,6 +2276,9 @@ namespace Terrain {
 				}
 				NavigationEdge& other = edges.at(o);
 
+				if (CanConnectEdges(edge, other)) {
+					successors.back().push_back(o);
+				}
 				if (CanConnectEdges(other, edge)) {
 					predecessors.back().push_back(o);
 				}
@@ -1709,8 +2287,10 @@ namespace Terrain {
 
 		// Now we'll add an extra start and goal "edge" for the dominator algorithm
 		int start_edge_index = predecessors.size();
+		successors.emplace_back();
 		predecessors.emplace_back();
 		int goal_edge_index = predecessors.size();
+		successors.emplace_back();
 		predecessors.emplace_back();
 		for (int e = 0; e < num_edges; e++) {
 			NavigationEdge& edge = edges.at(e);
@@ -1719,17 +2299,21 @@ namespace Terrain {
 			NavigationNode& toNode = GetNavigationNode(edge.to);
 
 			if (fromNode.type == StartNodeType) {
+				successors.at(start_edge_index).push_back(e);
 				predecessors.at(e).push_back(start_edge_index);
 			}
 			if (toNode.type == GoalNodeType) {
+				successors.at(e).push_back(goal_edge_index);
 				predecessors.at(goal_edge_index).push_back(e);
 			}
 		}
 
 		// Initialize dominator sets
 		std::vector<std::set<int>> dominator_sets;
+		std::vector<std::set<int>> reverse_dominator_sets;
 		for (int i = 0; i < predecessors.size(); i++) {
 			dominator_sets.emplace_back();
+			reverse_dominator_sets.emplace_back();
 			if (i != start_edge_index) {
 				for (int j = 0; j < predecessors.size(); j++) {
 					dominator_sets.back().insert(j);
@@ -1737,6 +2321,15 @@ namespace Terrain {
 			} else {
 				// Start node is only dominated by itself
 				dominator_sets.back().insert(i);
+			}
+			if (i != goal_edge_index) {
+				for (int j = 0; j < predecessors.size(); j++) {
+					reverse_dominator_sets.back().insert(j);
+				}
+			}
+			else {
+				// Goal node is only dominated by itself
+				reverse_dominator_sets.back().insert(i);
 			}
 		}
 		
@@ -1746,6 +2339,7 @@ namespace Terrain {
 			anythingChanged = false;
 			for (int i = 0; i < predecessors.size(); i++) {
 				std::set<int> new_dominator_set;
+				std::set<int> new_reverse_dominator_set;
 				
 				// Intersection of all predecessor dominator sets
 				int num_predecessors = predecessors.at(i).size();
@@ -1763,12 +2357,29 @@ namespace Terrain {
 						p++;
 					}
 				}
+				// Intersection of all successor reverse dominator sets
+				int num_successors = successors.at(i).size();
+				int s = 0;
+				if (s < num_successors) {
+					int successor = successors.at(i).at(s);
+					new_reverse_dominator_set.insert(reverse_dominator_sets.at(successor).begin(), reverse_dominator_sets.at(successor).end());
+					s++;
+					while (s < num_successors) {
+						successor = successors.at(i).at(s);
+						std::set<int> results;
+						std::set_intersection(new_reverse_dominator_set.begin(), new_reverse_dominator_set.end(), reverse_dominator_sets.at(successor).begin(), reverse_dominator_sets.at(successor).end(), std::inserter(results, results.begin()));
+						new_reverse_dominator_set.clear();
+						new_reverse_dominator_set.insert(results.begin(), results.end());
+						s++;
+					}
+				}
 
 				// Every node dominates itself
 				new_dominator_set.insert(i);
+				new_reverse_dominator_set.insert(i);
 
 				// Check if anything changed
-				bool shouldCopy = new_dominator_set.size() != dominator_sets.at(i).size();
+				bool shouldCopy = (new_dominator_set.size() != dominator_sets.at(i).size()) || (new_reverse_dominator_set.size() != reverse_dominator_sets.at(i).size());
 				if (!shouldCopy) {
 					// Element-wise check
 					for (std::set<int>::iterator it = new_dominator_set.begin(); it != new_dominator_set.end(); ++it) {
@@ -1776,6 +2387,15 @@ namespace Terrain {
 						if (dominator_sets.at(i).count(predecessor) == 0) {
 							// This element is new
 							shouldCopy = true;
+							break;
+						}
+					}
+					for (std::set<int>::iterator it = new_reverse_dominator_set.begin(); it != new_reverse_dominator_set.end(); ++it) {
+						int successor = *it;
+						if (reverse_dominator_sets.at(i).count(successor) == 0) {
+							// This element is new
+							shouldCopy = true;
+							break;
 						}
 					}
 				}
@@ -1784,6 +2404,8 @@ namespace Terrain {
 					// Copy new dominator set to set list
 					dominator_sets.at(i).clear();
 					dominator_sets.at(i).insert(new_dominator_set.begin(), new_dominator_set.end());
+					reverse_dominator_sets.at(i).clear();
+					reverse_dominator_sets.at(i).insert(new_reverse_dominator_set.begin(), new_reverse_dominator_set.end());
 					anythingChanged = true;
 				}
 			}
@@ -1797,21 +2419,69 @@ namespace Terrain {
 			}
 			NavigationEdge& edge = edges.at(i);
 
-			int num_dominators = dominator_sets.at(i).size();
 			for (std::set<int>::iterator it = dominator_sets.at(i).begin(); it != dominator_sets.at(i).end(); ++it) {
 				int d = *it;
 				if (d == start_edge_index || d == goal_edge_index) {
 					// Ignore our "fake" edges
 					continue;
 				}
+				if (i == d) {
+					// Ignore edge dominating itself
+					continue;
+				}
 
 				NavigationEdge& dominator = edges.at(d);
 				// Do the edges cross? in that case we can delete the dominated edge
+				if (DoEdgesCross(dominator, edge)) {
+					edges_to_remove.insert(i);
+					break;
+				}
+			}
 
+			for (std::set<int>::iterator it = reverse_dominator_sets.at(i).begin(); it != reverse_dominator_sets.at(i).end(); ++it) {
+				int d = *it;
+				if (d == start_edge_index || d == goal_edge_index) {
+					// Ignore our "fake" edges
+					continue;
+				}
+				if (i == d) {
+					// Ignore edge dominating itself
+					continue;
+				}
+
+				NavigationEdge& dominator = edges.at(d);
+				// Do the edges cross? in that case we can delete the dominated edge
+				if (DoEdgesCross(dominator, edge)) {
+					edges_to_remove.insert(i);
+					break;
+				}
+			}
+
+			// Is the edge dominated by all its successors? If so, delete it (it's a backwards edge)
+			bool nonDomSuccessors = false;
+			for (int s = 0; s < successors.at(i).size(); s++) {
+				int successor = successors.at(i).at(s);
+
+				if (dominator_sets.at(i).count(successor) == 0) {
+					nonDomSuccessors = true;
+					break;
+				}
+			}
+
+			if (!nonDomSuccessors) {
+				edges_to_remove.insert(i);
 			}
 		}
 
-		return 0;
+		int numRemoved = 0;
+		for (int e = edges.size() - 1; e >= 0; e--) {
+			if (edges_to_remove.count(e) > 0) {
+				RemoveEdge(e);
+				numRemoved++;
+			}
+		}
+
+		return numRemoved;
 	}
 
 	// --------------------------------------
@@ -1835,29 +2505,31 @@ namespace Terrain {
 		return d_rx;
 	}
 
-	bool* GetCurrentRoomPlayerCollisionBitmap(IntVector min, IntVector max) {
+	uint8_t* GetCurrentRoomPlayerCollisionBitmap(IntVector min, IntVector max) {
 		int x_extent = max.x - min.x + 1;
 		int y_extent = max.y - min.y + 1;
 
-		bool* bitmap = (bool*) SDL_malloc(x_extent * y_extent * sizeof(bool));
+		uint8_t* bitmap = (uint8_t*) SDL_malloc(x_extent * y_extent * sizeof(uint8_t));
 
 		for (int x = min.x; x <= max.x; x++) {
 			for (int y = min.y; y <= max.y; y++) {
 				// Player hitbox
 				const SDL_Rect temprect = { x + VIRIDIAN_CX, y + VIRIDIAN_CY, VIRIDIAN_W, VIRIDIAN_H };
 
-				bool collision = false;
+				uint8_t collision = false;
 				// Check walls
 				if (collisionSetting == CollisionSetting::Walls || collisionSetting == CollisionSetting::WallsAndSpikes) {
 					if (obj.checkwall(false, temprect)) {
-						collision = true;
+						// 1: wall
+						collision = 1;
 					}
 				}
 				// Check spikes
 				if (collisionSetting == CollisionSetting::WallsAndSpikes) {
 					for (size_t j = 0; j < obj.blocks.size(); j++) {
 						if (obj.blocks[j].type == DAMAGE && help.intersects(obj.blocks[j].rect, temprect)) {
-							collision = true;
+							// 2: damage
+							collision = 2;
 						}
 					}
 				}

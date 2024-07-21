@@ -157,6 +157,7 @@ namespace Terrain {
 	struct Corner {
 		int x, y;
 		CornerType type;
+		int verticalGap, horizontalGap;
 	};
 
 	enum WallType {
@@ -173,6 +174,8 @@ namespace Terrain {
 		int min, max;			// The minimum and maximum coordinates of the wall on the parallel axis
 		bool minCornerConcave;  // true if rays cannot pass through the min corner
 		bool maxCornerConcave;  // true if rays cannot pass through the max corner
+
+		bool walkable;
 	};
 	struct CornerID {
 		RoomPosition room;
@@ -332,9 +335,11 @@ namespace Terrain {
 	// --------------------------------------
 	RoomData& GetRoomData(RoomPosition room_pos);
 	Corner& GetCorner(CornerID corner_id);
+	RoomWall& GetWall(WallID wall_id);
 	NavigationNode& GetNavigationNode(NavigationNodeID node_id);
 	bool IsSameOrInverseNode(NavigationNodeID n1, NavigationNodeID n2);
 	NavigationEdge RemoveEdge(int edgeIndex);
+	bool IsEdgePossibleWithoutFlipping(NavigationEdge& edge, int maxHSpeed, int maxVSpeed);
 	bool DoEdgesCross(NavigationEdge& e1, NavigationEdge& e2);
 	void RemoveElement(std::vector<int>& v, int index);
 	void LoadRoom(RoomPosition room_pos);
@@ -345,6 +350,9 @@ namespace Terrain {
 	void ConnectNodes(NavigationNodeID from, NavigationNodeID to);
 	bool CanConnectCorners(CornerType c1, CornerType c2, IntVector d);
 	bool CanConnectEdges(NavigationEdge& e1, NavigationEdge& e2);
+	bool CanConnectCornersViaSurface(CornerID c1_id, WallID w_id, CornerID c2_id);
+
+	std::vector<RoomPosition> GetTouchedRooms(NavigationEdge& e);
 
 	int PruneDeadEndEdges(void);
 	int PruneDominatedEdges(void);
@@ -355,7 +363,7 @@ namespace Terrain {
 	// --------------------------------------
 	RoomPosition GetCurrentRoomPosition();
 	int GetHOffsetBetweenRooms(RoomPosition from, RoomPosition to);
-	bool* GetCurrentRoomPlayerCollisionBitmap(IntVector min, IntVector max);
+	uint8_t* GetCurrentRoomPlayerCollisionBitmap(IntVector min, IntVector max);
 
 	// ------------------------
 	// Raycasting Functionality
