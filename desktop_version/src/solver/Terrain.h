@@ -3,6 +3,7 @@
 
 #include <cstddef>
 #include <vector>
+#include <set>
 
 #include "Exit.h"
 
@@ -10,6 +11,11 @@
 #define VIRIDIAN_CY (2)
 #define VIRIDIAN_W (12)
 #define VIRIDIAN_H (21)
+
+#define X_ACCEL_EFF (1.9f)
+#define Y_ACCEL_EFF (2.75f)
+#define MAX_X_SPEED (6)
+#define MAX_Y_SPEED (10)
 
 #define TOWER_RX (9)
 
@@ -32,9 +38,6 @@ namespace Terrain {
 		WallsAndSpikes,
 	};
 
-	struct LocalPosition {
-		int x, y;
-	};
 	struct IntVector {
 		int x, y;
 
@@ -44,6 +47,49 @@ namespace Terrain {
 		}
 
 		IntVector(int x, int y) : x(x), y(y) { }
+
+		bool operator== (const IntVector& other) const {
+			return (x == other.x && y == other.y);
+		}
+		bool operator!= (const IntVector& other) const {
+			return !(*this == other);
+		}
+		bool operator< (const IntVector& other) const {
+			if (y != other.y) {
+				return y < other.y;
+			}
+			else if (x != other.x) {
+				return x < other.x;
+			}
+			// Equality
+			return false;
+		}
+		bool operator<=(const IntVector& other) const {
+			return (*this < other) || (*this == other);
+		}
+		bool operator>=(const IntVector& other) const {
+			return !(*this < other);
+		}
+		bool operator> (const IntVector& other) const {
+			return !(*this <= other);
+		}
+
+		IntVector& operator+=(const IntVector& rhs) {
+			x += rhs.x;
+			y += rhs.y;
+			return *this;
+		}
+		IntVector operator+(const IntVector& other) {
+			return IntVector(x + other.x, y + other.y);
+		}
+		IntVector& operator-=(const IntVector& rhs) {
+			x -= rhs.x;
+			y -= rhs.y;
+			return *this;
+		}
+		IntVector operator-(const IntVector& other) {
+			return IntVector(x - other.x, y - other.y);
+		}
 	};
 	struct RoomPosition {
 		bool outside;
@@ -63,7 +109,27 @@ namespace Terrain {
 			return (outside == other.outside && rx == other.rx && ry == other.ry);
 		}
 		bool operator!= (const RoomPosition& other) const {
-			return (outside != other.outside || rx != other.rx || ry != other.ry);
+			return !(*this == other);
+		}
+		bool operator< (const RoomPosition& other) const {
+			if (outside != other.outside) {
+				return outside < other.outside;
+			} else if (ry != other.ry) {
+				return ry < other.ry;
+			} else if (rx != other.rx) {
+				return rx < other.rx;
+			}
+			// Equality
+			return false;
+		}
+		bool operator<=(const RoomPosition& other) const {
+			return (*this < other) || (*this == other);
+		}
+		bool operator>=(const RoomPosition& other) const {
+			return !(*this < other);
+		}
+		bool operator> (const RoomPosition& other) const {
+			return !(*this <= other);
 		}
 
 		IntVector GetNativeRoomCoords() {
@@ -132,11 +198,14 @@ namespace Terrain {
 
 	struct GlobalPosition {
 		RoomPosition room;
-		LocalPosition pos;
+		IntVector pos;
+
+		GlobalPosition() { }
+		GlobalPosition(RoomPosition room, IntVector pos) : room(room), pos(pos) { }
 	};
 
 	struct Ray {
-		LocalPosition origin;
+		IntVector origin;
 		IntVector direction;
 
 		Ray(int x, int y, int dx, int dy) {
@@ -155,7 +224,7 @@ namespace Terrain {
 	};
 
 	struct Corner {
-		int x, y;
+		IntVector pos;
 		CornerType type;
 		int verticalGap, horizontalGap;
 	};
@@ -339,7 +408,7 @@ namespace Terrain {
 	NavigationNode& GetNavigationNode(NavigationNodeID node_id);
 	bool IsSameOrInverseNode(NavigationNodeID n1, NavigationNodeID n2);
 	NavigationEdge RemoveEdge(int edgeIndex);
-	bool IsEdgePossibleWithoutFlipping(NavigationEdge& edge, int maxHSpeed, int maxVSpeed);
+	bool IsEdgePossibleWithoutFlipping(NavigationEdge& edge);
 	bool DoEdgesCross(NavigationEdge& e1, NavigationEdge& e2);
 	void RemoveElement(std::vector<int>& v, int index);
 	void LoadRoom(RoomPosition room_pos);
@@ -352,7 +421,17 @@ namespace Terrain {
 	bool CanConnectEdges(NavigationEdge& e1, NavigationEdge& e2);
 	bool CanConnectCornersViaSurface(CornerID c1_id, WallID w_id, CornerID c2_id);
 
-	std::vector<RoomPosition> GetTouchedRooms(NavigationEdge& e);
+	bool SurfaceIsVisibleFrom(GlobalPosition sourcePos, WallID w_id);
+
+	std::set<RoomPosition> GetTouchedRooms(GlobalPosition from, GlobalPosition to, bool y_dir);
+
+	int GetMinXFrames(int d_x);
+	int GetMaxXFrames(int d_x);
+	int GetMinYFrames(int d_y);
+	int GetMaxYFrames(int d_y);
+
+	GlobalPosition PlayerRoomChangeLogic(GlobalPosition& globalPos);
+	IntVector ToLocalCoords(bool invX, bool invY, GlobalPosition referencePos, RoomPosition room, IntVector pos);
 
 	int PruneDeadEndEdges(void);
 	int PruneDominatedEdges(void);
@@ -362,7 +441,13 @@ namespace Terrain {
 	// Getter Functions / Reading
 	// --------------------------------------
 	RoomPosition GetCurrentRoomPosition();
+	GlobalPosition GetPlayerPosition();
+	IntVector GetDistanceOffsetBetweenRooms(RoomPosition from, RoomPosition to, bool invY);
 	int GetHOffsetBetweenRooms(RoomPosition from, RoomPosition to);
+	int GetVOffsetBetweenRooms(RoomPosition from, RoomPosition to, bool invY);
+	int GetMinPositiveVOffsetBetweenRooms(RoomPosition from, RoomPosition to);
+	int GetMinNegativeVOffsetBetweenRooms(RoomPosition from, RoomPosition to);
+	uint8_t GetPlayerCollisionAt(GlobalPosition pos);
 	uint8_t* GetCurrentRoomPlayerCollisionBitmap(IntVector min, IntVector max);
 
 	// ------------------------

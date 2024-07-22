@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <iterator>
-#include <set>
 #include <unordered_set>
 #include <functional>
 #include <SDL.h>
@@ -37,7 +36,7 @@ namespace Terrain {
 
 	RoomData overworldRoomData[20][20];
 	RoomData outsideRoomData[20][20];
-	CollisionSetting collisionSetting = CollisionSetting::Walls;
+	CollisionSetting collisionSetting = CollisionSetting::WallsAndSpikes;
 
 	std::vector<NavigationEdge> edges;
 		
@@ -49,6 +48,7 @@ namespace Terrain {
 		
 		if (!GetRoomData(currentRoom).initialized) {
 			InitializeConnectedRooms(currentRoom);
+			return;
 			for (int rx = 0; rx < 20; rx++) {
 				for (int ry = 0; ry < 20; ry++) {
 					RoomPosition room(currentRoom.outside, rx, ry);
@@ -130,20 +130,26 @@ namespace Terrain {
 		RoomPosition currentRoom = GetCurrentRoomPosition();
 		RoomData& currentRoomData = GetRoomData(currentRoom);
 
+		GlobalPosition playerPos = GetPlayerPosition();
+
 		if (currentRoomData.initialized) {
 			SDL_SetRenderDrawBlendMode(gameScreen.m_renderer, SDL_BLENDMODE_BLEND);
 			SDL_SetRenderDrawColor(gameScreen.m_renderer, 0, 255, 0, 150);
 			int num_walls = currentRoomData.walls.size();
 			for (int w = 0; w < num_walls; w++) {
 				WallID w_id(currentRoom, w);
-				RenderWall(w_id);
+				RoomWall& wall = GetWall(w_id);
+
+				if (wall.walkable && SurfaceIsVisibleFrom(playerPos, w_id)) {
+					RenderWall(w_id);
+				}
 			}
 
 			SDL_SetRenderDrawColor(gameScreen.m_renderer, 0, 255, 255, 100);
 			int num_edges = edges.size();
 			for (int e = 0; e < num_edges; e++) {
 				NavigationEdge& edge = edges.at(e);
-				if (IsEdgePossibleWithoutFlipping(edge, 6, 10)) {
+				if (IsEdgePossibleWithoutFlipping(edge)) {
 					RenderEdge(e);
 				}
 			}
@@ -151,7 +157,7 @@ namespace Terrain {
 			SDL_SetRenderDrawColor(gameScreen.m_renderer, 255, 255, 0, 100);
 			for (int e = 0; e < num_edges; e++) {
 				NavigationEdge& edge = edges.at(e);
-				if (!IsEdgePossibleWithoutFlipping(edge, 6, 10)) {
+				if (!IsEdgePossibleWithoutFlipping(edge)) {
 					RenderEdge(e);
 				}
 			}
@@ -247,8 +253,8 @@ namespace Terrain {
 				case NavigationNodeType::CornerNodeType:
 					{
 						Corner& corner = fromRoomData.corners.at(n1.data.corner.corner.cornerIndex);
-						x1 = corner.x + 320 * d_rx;
-						y1 = corner.y - 240 * d_ry;
+						x1 = corner.pos.x + 320 * d_rx;
+						y1 = corner.pos.y - 240 * d_ry;
 					}
 					break;
 				case NavigationNodeType::StartNodeType:
@@ -265,8 +271,8 @@ namespace Terrain {
 				case NavigationNodeType::CornerNodeType:
 					{
 						Corner& corner = toRoomData.corners.at(n2.data.corner.corner.cornerIndex);
-						x2 = corner.x;
-						y2 = corner.y;
+						x2 = corner.pos.x;
+						y2 = corner.pos.y;
 					}
 					break;
 				case NavigationNodeType::GoalNodeType:
@@ -384,126 +390,145 @@ namespace Terrain {
 	// Important: this function must be SOUND
 	// That is, it should only say an edge is *impossible* if it verifiably is - otherwise, the heuristic might become inadmissible
 	// When in doubt, we should assume that it is possible
-	bool IsEdgePossibleWithoutFlipping(NavigationEdge& edge, int maxHSpeed, int maxVSpeed) {
+	bool IsEdgePossibleWithoutFlipping(NavigationEdge& edge) {
 		NavigationNode& from_node = GetNavigationNode(edge.from);
 		NavigationNode& to_node = GetNavigationNode(edge.to);
 
-		IntVector abs_d = IntVector(std::abs(edge.distance.x), std::abs(edge.distance.y));
-
-		bool fromNodeImposesVerticalConstraint = false;
-		IntVector fromPos;
 		bool startInverseGravity = false;
-		bool gravityChange = false;
+		GlobalPosition fromNodePos(edge.from.room, IntVector(0, 0));
+		int fromVGap = 0;
+		IntVector fromPosMin;
+		IntVector fromPosMax;
 		switch (from_node.type) {
+			default:
+				return false;
 			case StartNodeType:
 				startInverseGravity = from_node.data.start.inverseGravity;
-				fromPos = from_node.data.start.pos;
-				fromNodeImposesVerticalConstraint = true;
-				break;
-			case GoalNodeType:
-				fromPos = from_node.data.goal.pos;
-				fromNodeImposesVerticalConstraint = true;
+				fromPosMin = from_node.data.start.pos;
+				fromPosMax = from_node.data.start.pos;
+				fromNodePos = GlobalPosition(edge.from.room, from_node.data.start.pos);
 				break;
 			case CornerNodeType:
 			{
 				Corner& fromCorner = GetCorner(from_node.data.corner.corner);
-				bool inverseGravity = from_node.data.corner.inverseGravity;
-				startInverseGravity = inverseGravity;
-				fromPos = IntVector(fromCorner.x, fromCorner.y);
+				startInverseGravity = from_node.data.corner.inverseGravity;
+				fromNodePos = GlobalPosition(edge.from.room, fromCorner.pos);
+				fromVGap = (fromCorner.type == TopLeft || fromCorner.type == TopRight) ? (1 - fromCorner.verticalGap) : (fromCorner.verticalGap - 1);
 				switch (fromCorner.type) {
 					default:
-						fromNodeImposesVerticalConstraint = false;
-						break;
+						return false;
 					case TopLeft:
 					case TopRight:
-						fromNodeImposesVerticalConstraint = inverseGravity;
+						fromPosMin = IntVector(fromCorner.pos.x, fromCorner.pos.y - fromCorner.verticalGap + 1);
+						fromPosMax = fromCorner.pos;
 						break;
 					case BottomLeft:
 					case BottomRight:
-						fromNodeImposesVerticalConstraint = !inverseGravity;
+						fromPosMin = fromCorner.pos;
+						fromPosMax = IntVector(fromCorner.pos.x, fromCorner.pos.y + fromCorner.verticalGap - 1);
 						break;
 				}
 				break;
 			}
 		}
+
+		bool gravityChange = false;
+		GlobalPosition toNodePos(edge.to.room, IntVector(0, 0));
+		int toVGap = 0;
+		IntVector toPosMin;
+		IntVector toPosMax;
 		switch (to_node.type) {
-			case StartNodeType:
+			default:
+				return false;
 			case GoalNodeType:
 				gravityChange = false;
+				toPosMin = to_node.data.goal.pos;
+				toPosMax = to_node.data.goal.pos;
+				toNodePos = GlobalPosition(edge.to.room, to_node.data.goal.pos);
 				break;
 			case CornerNodeType:
 			{
+				Corner& toCorner = GetCorner(to_node.data.corner.corner);
 				gravityChange = (to_node.data.corner.inverseGravity != startInverseGravity);
+				toNodePos = GlobalPosition(edge.to.room, toCorner.pos);
+				toVGap = (toCorner.type == TopLeft || toCorner.type == TopRight) ? (1 - toCorner.verticalGap) : (toCorner.verticalGap - 1);
+				switch (toCorner.type) {
+					default:
+						return false;
+					case TopLeft:
+					case TopRight:
+						toPosMin = IntVector(toCorner.pos.x, toCorner.pos.y - toCorner.verticalGap + 1);
+						toPosMax = toCorner.pos;
+						break;
+					case BottomLeft:
+					case BottomRight:
+						toPosMin = toCorner.pos;
+						toPosMax = IntVector(toCorner.pos.x, toCorner.pos.y + toCorner.verticalGap - 1);
+						break;
+				}
 				break;
 			}
 		}
-		// Gravity trivially implies a flip is needed
+		// Gravity change trivially implies a flip is needed
 		if (gravityChange) {
 			return false;
-		} else if (edge.distance.x == 0) {
-			// Straight down or up is easy
-			return true;
 		}
 
-		if (!fromNodeImposesVerticalConstraint) {
-			// Might still be possible, we can't really tell yet
-			// TODO: investigate this case further
-			return true;
+		bool invX = edge.distance.x < 0;
+		bool invY = startInverseGravity;
+		GlobalPosition referencePos(edge.from.room, invY ? fromPosMax : fromPosMin);
+
+		IntVector fromPosMinLocal = ToLocalCoords(invX, invY, referencePos, edge.from.room, invY ? fromPosMax : fromPosMin);
+		IntVector fromPosMaxLocal = ToLocalCoords(invX, invY, referencePos, edge.from.room, invY ? fromPosMin : fromPosMax);
+		IntVector toPosMinLocal = ToLocalCoords(invX, invY, referencePos, edge.to.room, invY ? toPosMax : toPosMin);
+		IntVector toPosMaxLocal = ToLocalCoords(invX, invY, referencePos, edge.to.room, invY ? toPosMin : toPosMax);
+
+		int x_distance = toPosMinLocal.x;
+		int max_y_distance = toPosMaxLocal.y - fromPosMinLocal.y;
+		if (max_y_distance < 0) {
+			// Shouldn't happen but just in case
+			return false;
 		}
 
 		// The edge is "impossible" if the number of frames to traverse it horizontally is greater than the number of frames to traverse it vertically
 		// Note however that horizontal movement happens first - so we sort of get an extra frame of horizontal movement in close calls
 		// (abs_d + maxHSpeed - 1) / maxHSpeed - 1 can be simplified to:
-		int hFrames = (abs_d.x - 1) / maxHSpeed;
-		int minVDist;
-		switch (hFrames) {
-		case 1:
-			minVDist = 2; // 2.75f rounded down
-			break;
-		case 2:
-			minVDist = 2 + 5; // 5.5f rounded down
-			break;
-		case 3:
-			minVDist = 2 + 5 + 8; // 8.25f rounded down
-			break;
-		default:
-			if (hFrames <= 0) {
-				minVDist = 0;
-			} else {
-				minVDist = 2 + 5 + 8 + maxVSpeed * (hFrames - 3);
-			}
-			break;
-		}
+		int hFrames = GetMinXFrames(x_distance);
+		int vFrames = GetMaxYFrames(max_y_distance);
 
 		// Edge is possible (possibly only with ideal starting conditions)
-		if (minVDist <= abs_d.y) {
+		if (hFrames <= vFrames + 1) {
 			return true;
 		}
 
 		// Try to find a sequence of walkable surfaces that let you get to the destination
-		RoomData& fromRoomData = GetRoomData(edge.from.room);
-		std::vector<RoomPosition> rooms = GetTouchedRooms(edge);
+		std::set<RoomPosition> rooms_1 = GetTouchedRooms(fromNodePos, toNodePos, edge.distance.y < 0);
+		std::set<RoomPosition> rooms_2;
+		
+		// Just in case gaps go across screen boundaries:
+		// This is technically not sound but probably is good enough
+		if (fromVGap != 0 || toVGap != 0) {
+			GlobalPosition fromNodeGapPos(fromNodePos);
+			GlobalPosition toNodeGapPos(toNodePos);
+			fromNodeGapPos.pos.y += fromVGap;
+			toNodeGapPos.pos.y += toVGap;
+			fromNodeGapPos = PlayerRoomChangeLogic(fromNodeGapPos);
+			toNodeGapPos = PlayerRoomChangeLogic(toNodeGapPos);
+			rooms_2 = GetTouchedRooms(fromNodeGapPos, toNodeGapPos, edge.distance.y + toVGap - fromVGap < 0);	
+		}
+
+		std::vector<RoomPosition> rooms;
+		std::set_union(rooms_1.begin(), rooms_1.end(), rooms_2.begin(), rooms_2.end(), std::inserter(rooms, rooms.begin()));
+
+		IntVector edgeStartLocal = ToLocalCoords(invX, invY, referencePos, fromNodePos.room, fromNodePos.pos);
+		IntVector edgeEndLocal = ToLocalCoords(invX, invY, referencePos, toNodePos.room, toNodePos.pos);
 
 		// Find all valid surfaces in the rooms
 		std::vector<RoomWall> surfaces;
 		for (int r = 0; r < rooms.size(); r++) {
 			RoomPosition& room = rooms.at(r);
 			RoomData& roomData = GetRoomData(room);
-			int d_rx = room.rx - edge.from.room.rx;
-			int d_ry = room.ry - edge.from.room.ry;
 
-			if (d_rx < 0 && edge.distance.x > 0) {
-				d_rx += 20;
-			} else if (d_rx > 0 && edge.distance.x < 0) {
-				d_rx -= 20;
-			}
-			if (d_ry < 0 && edge.distance.y > 0) {
-				d_ry += 20;
-			} else if (d_ry > 0 && edge.distance.y < 0) {
-				d_ry -= 20;
-			}
-
-			IntVector roomOffset = IntVector(d_rx * 320, d_ry * 240);
 			int num_walls = roomData.walls.size();
 			for (int w = 0; w < num_walls; w++) {
 				RoomWall& wall = roomData.walls.at(w);
@@ -514,45 +539,38 @@ namespace Terrain {
 					continue;
 				}
 				
+				IntVector minCornerLocal = ToLocalCoords(invX, invY, referencePos, room, IntVector(wall.min, wall.plane));
+				IntVector maxCornerLocal = ToLocalCoords(invX, invY, referencePos, room, IntVector(wall.max, wall.plane));
+
 				RoomWall tmp_wall;
 				tmp_wall.type = wall.type;
 				tmp_wall.walkable = wall.walkable;
 				tmp_wall.minCornerConcave = wall.minCornerConcave;
 				tmp_wall.maxCornerConcave = wall.maxCornerConcave;
-				tmp_wall.min = wall.min + roomOffset.x - fromPos.x;
-				tmp_wall.max = wall.max + roomOffset.x - fromPos.x;
-				tmp_wall.plane = wall.plane + roomOffset.y - fromPos.y;
+				tmp_wall.min = SDL_min(minCornerLocal.x, maxCornerLocal.x);
+				tmp_wall.max = SDL_max(minCornerLocal.x, maxCornerLocal.x);
+				tmp_wall.plane = minCornerLocal.y;
 
 				// Wall is outside horizontal or vertical range of edge
-				if (edge.distance.y > 0 && (0 > tmp_wall.plane || tmp_wall.plane > edge.distance.y) || edge.distance.y < 0 && (edge.distance.y > tmp_wall.plane || tmp_wall.plane > 0)) {
+				if (tmp_wall.plane < 0 || tmp_wall.plane > max_y_distance) {
 					continue;
-				} else if (edge.distance.x > 0 && (0 > tmp_wall.max || tmp_wall.min > edge.distance.x) || edge.distance.x < 0 && (edge.distance.x > tmp_wall.max || tmp_wall.min > 0)) {
+				} else if (tmp_wall.max < 0 || tmp_wall.min > x_distance) {
 					continue;
 				}
 
 				// Only add surfaces that the edge goes over (not underneath)
-				bool edgeGoesOverSurface = false;
-				if (edge.distance.x > 0) {
-					bool maxCornerIsBelow = std::abs(tmp_wall.plane * edge.distance.x) >= std::abs(edge.distance.y * tmp_wall.max);
-					bool minCornerIsAbove;
-					if (tmp_wall.min < 0) {
-						minCornerIsAbove = false;
-					} else {
-						minCornerIsAbove = std::abs(tmp_wall.plane * edge.distance.x) < std::abs(edge.distance.y * tmp_wall.min);
-					}
-					if (maxCornerIsBelow && !minCornerIsAbove) {
-						edgeGoesOverSurface = true;
-					}
+				bool edgeGoesOverSurface;
+				if (tmp_wall.min < 0) {
+					edgeGoesOverSurface = true;
+				} else if (tmp_wall.min > x_distance) {
+					edgeGoesOverSurface = false;
 				} else {
-					bool maxCornerIsBelow;
-					if (tmp_wall.max > 0) {
-						maxCornerIsBelow = true;
-					} else {
-						maxCornerIsBelow = std::abs(tmp_wall.plane * edge.distance.x) >= std::abs(edge.distance.y * tmp_wall.max);
-					}
-					bool minCornerIsAbove = std::abs(tmp_wall.plane * edge.distance.x) < std::abs(edge.distance.y * tmp_wall.min);
-					if (maxCornerIsBelow && !minCornerIsAbove) {
+					bool minCornerIsBelow = (edgeEndLocal.x - edgeStartLocal.x) * (tmp_wall.plane - edgeEndLocal.y) >= (edgeEndLocal.y - edgeStartLocal.y) * (tmp_wall.min - edgeEndLocal.x);
+
+					if (minCornerIsBelow) {
 						edgeGoesOverSurface = true;
+					} else {
+						edgeGoesOverSurface = false;
 					}
 				}
 
@@ -562,27 +580,11 @@ namespace Terrain {
 			}
 		}
 
-		// Sort the surfaces by Y plane and X
-		std::function<bool(RoomWall, RoomWall)> cmp_asc_both = [](const RoomWall& a, const RoomWall& b)
+		// Sort the surfaces by Y plane and min X pos
+		std::function<bool(RoomWall, RoomWall)> cmp = [](const RoomWall& a, const RoomWall& b)
 			{
 				return (a.plane == b.plane) ? (a.min < b.min) : (a.plane < b.plane);
 			};
-		std::function<bool(RoomWall, RoomWall)>  cmp_asc_y_desc_x = [](const RoomWall& a, const RoomWall& b)
-			{
-				return (a.plane == b.plane) ? (a.min > b.min) : (a.plane < b.plane);
-			};
-		std::function<bool(RoomWall, RoomWall)>  cmp_desc_y_asc_x = [](const RoomWall& a, const RoomWall& b)
-			{
-				return (a.plane == b.plane) ? (a.min < b.min) : (a.plane > b.plane);
-			};
-		std::function<bool(RoomWall, RoomWall)>  cmp_desc_both = [](const RoomWall& a, const RoomWall& b)
-			{
-				return (a.plane == b.plane) ? (a.min > b.min) : (a.plane > b.plane);
-			};
-
-		std::function<bool(RoomWall, RoomWall)>&  cmp_desc_x = (edge.distance.y > 0) ? cmp_asc_y_desc_x : cmp_desc_both;
-		std::function<bool(RoomWall, RoomWall)>&  cmp_asc_x = (edge.distance.y > 0) ? cmp_asc_both : cmp_desc_y_asc_x;
-		std::function<bool(RoomWall, RoomWall)>&  cmp = (edge.distance.x > 0) ? cmp_asc_x : cmp_desc_x;
 		std::sort(surfaces.begin(), surfaces.end(), cmp);
 
 		// Make sure we can go over all surfaces and end up high enough
@@ -593,74 +595,49 @@ namespace Terrain {
 			int d_y = surface.plane - currentPos.y;
 			int d_x_min = surface.min - currentPos.x;
 			int d_x_max = surface.max - currentPos.x;
-
 			
-			if (edge.distance.y > 0 && d_y < 0 || edge.distance.y < 0 && d_y > 0) {
+			if (d_y < 0) {
 				// We are already past this surface
 				// This shouldn't actually happen due to sorting
 				VVV_exit(-1);
 				continue;
 			}
 
-			// You get an extra frame if you land exactly on the right height
-			// TODO: account for acceleration here
-			int frames = d_y / maxVSpeed + 1;
-			int max_x_dist = edge.distance.x > 0 ? (frames * maxHSpeed) : (-frames * maxHSpeed);
+			// How far can we move before we touch the surface
+			int frames = GetMaxYFrames(d_y);
+			int max_x_dist = frames * MAX_X_SPEED;
 
 			// The position we'd land on the platform at
 			IntVector landingPos = IntVector(currentPos.x + max_x_dist, surface.plane);
 
-			bool landingIsPossible;
-			bool landingIsForced;
-			bool landingIsBeneficial;
-			if (edge.distance.x > 0) {
-				landingIsPossible = landingPos.x >= surface.min && surface.walkable && !surface.maxCornerConcave;
-				landingIsForced = landingPos.x <= surface.max;
-				landingIsBeneficial = std::abs(maxHSpeed * surface.plane) - std::abs(maxVSpeed * surface.max) < std::abs(maxHSpeed * currentPos.y) - std::abs(maxVSpeed * currentPos.x);
-			} else {
-				landingIsPossible = landingPos.x <= surface.max && surface.walkable && !surface.minCornerConcave;
-				landingIsForced = landingPos.x >= surface.min;
-				landingIsBeneficial = std::abs(maxHSpeed * surface.plane) - std::abs(maxVSpeed * surface.min) < std::abs(maxHSpeed * currentPos.y) - std::abs(maxVSpeed * currentPos.x);
-			}
+			bool landingIsPossible = landingPos.x >= surface.min && surface.walkable && !surface.maxCornerConcave;
+			bool landingIsForced = landingPos.x < surface.max;
+			bool landingIsBeneficial = MAX_X_SPEED * surface.plane - MAX_Y_SPEED * surface.max < MAX_X_SPEED * currentPos.y - MAX_Y_SPEED * currentPos.x;
 
 			if (landingIsForced && !landingIsPossible) {
 				return false;
 			}
 			if (landingIsPossible && (landingIsForced || landingIsBeneficial)) {
-				currentPos.x = edge.distance.x > 0 ? surface.max : surface.min;
+				currentPos.x = surface.max;
 				currentPos.y = surface.plane;
-			}
 
-			// Check we aren't past the end yet
-			if (std::abs(currentPos.x) >= std::abs(edge.distance.x)) {
-				return true;
-			} else if (std::abs(currentPos.y) >= std::abs(edge.distance.y)) {
-				return false;
+				// Check if we can reach the end from where we ended up
+				int x_frames = GetMinXFrames(x_distance - currentPos.x);
+				int y_frames = GetMaxYFrames(max_y_distance - currentPos.y);
+
+				if (x_frames <= y_frames + 1) {
+					return true;
+				} else if (currentPos.y > max_y_distance) {
+					return false;
+				}
 			}
 		}
 
-		// Check if we can reach the end from where we are
-		int x_dist = std::abs(edge.distance.x - currentPos.x);
-		int y_dist = std::abs(edge.distance.y - currentPos.y);
+		// Check if we can reach the end from where we ended up
+		int x_frames = GetMinXFrames(x_distance - currentPos.x);
+		int y_frames = GetMaxYFrames(max_y_distance - currentPos.y);
 
-		int frames;
-		if (y_dist <= 15) {
-			if (y_dist < 0) {
-				frames = 0;
-			} else if (y_dist < 2) {
-				frames = 1;
-			} else if (y_dist < 2 + 5) {
-				frames = 2;
-			} else if (y_dist < 2 + 5 + 8) {
-				frames = 3;
-			} else {
-				frames = 4;
-			}
-		} else {
-			frames = 4 + (y_dist - 15) / maxVSpeed;
-		}
-
-		return x_dist <= frames * maxHSpeed;
+		return x_frames <= y_frames + 1;
 	}
 
 	bool DoEdgesCross(NavigationEdge& e1, NavigationEdge& e2) {
@@ -691,7 +668,7 @@ namespace Terrain {
 			{
 				Corner& c = GetCorner(e1_from.data.corner.corner);
 				e1_room = e1_from.data.corner.corner.room;
-				e1_origin = IntVector(c.x, c.y);
+				e1_origin = c.pos;
 				break;
 			}
 		}
@@ -710,7 +687,7 @@ namespace Terrain {
 			{
 				Corner& c = GetCorner(e2_from.data.corner.corner);
 				e2_room = e2_from.data.corner.corner.room;
-				e2_origin = IntVector(c.x, c.y);
+				e2_origin = c.pos;
 				break;
 			}
 		}
@@ -1073,6 +1050,9 @@ namespace Terrain {
 					continue;
 				}
 
+				int corner_x = (up_left || left) ? x : (x - 1);
+				int corner_y = (up_left || up) ? y : (y - 1);
+
 				// Let's measure the vertical and horizontal gaps
 				// TODO: should a 1-wide gap be 0 or 1? (fencepost problem)
 				int verticalGap = 0;
@@ -1080,7 +1060,7 @@ namespace Terrain {
 
 				int x_increment = (up_left || left) ? 1 : -1;
 				int y_increment = (up_left || up) ? 1 : -1;
-				for (int gap_x = (up_left || left) ? x : (x - 1); gap_x != min.x && gap_x != max.x; gap_x += x_increment) {
+				for (int gap_x = corner_x; true; gap_x += x_increment) {
 					bool gap_up = collision_bitmap[bitmap_width * (y - min.y - 1) + (gap_x - min.x)];
 					bool gap_self = collision_bitmap[bitmap_width * (y - min.y) + (gap_x - min.x)];
 
@@ -1088,8 +1068,12 @@ namespace Terrain {
 						break;
 					}
 					horizontalGap++;
+					if (gap_x <= min.x || gap_x >= max.x) {
+						horizontalGap = -1;
+						break;
+					}
 				}
-				for (int gap_y = (up_left || up) ? y : (y - 1); gap_y != min.y && gap_y != max.y; gap_y += y_increment) {
+				for (int gap_y = corner_y; true; gap_y += y_increment) {
 					bool gap_left = collision_bitmap[bitmap_width * (gap_y - min.y) + (x - min.x - 1)];
 					bool gap_self = collision_bitmap[bitmap_width * (gap_y - min.y) + (x - min.x)];
 
@@ -1097,12 +1081,16 @@ namespace Terrain {
 						break;
 					}
 					verticalGap++;
+					if (gap_y <= min.y || gap_y >= max.y) {
+						verticalGap = -1;
+						break;
+					}
 				}
 
 				// Lastly, create the actual corner struct
 				Corner newCorner;
-				newCorner.x = (up_left || left) ? x : (x - 1);
-				newCorner.y = (up_left || up) ? y : (y - 1);
+				newCorner.pos.x = corner_x;
+				newCorner.pos.y = corner_y;
 				newCorner.horizontalGap = horizontalGap;
 				newCorner.verticalGap = verticalGap;
 				if (up_left) {
@@ -1121,6 +1109,106 @@ namespace Terrain {
 
 		// Free the collision bitmap
 		SDL_free((void*) collision_bitmap);
+
+		// Measure screen-crossing gaps
+		int num_corners = result.corners.size();
+		for (int c = 0; c < num_corners; c++) {
+			Corner& corner = result.corners.at(c);
+
+			GlobalPosition cornerPos(room_pos, corner.pos);
+
+			if (corner.horizontalGap == -1) {
+				int gapSize = 0;
+
+				IntVector offset, shift;
+				switch (corner.type) {
+					case TopLeft:
+						offset = IntVector(0, 1);
+						shift = IntVector(-1, 0);
+						break;
+					case BottomLeft:
+						offset = IntVector(0, -1);
+						shift = IntVector(-1, 0);
+						break;
+					case TopRight:
+						offset = IntVector(0, 1);
+						shift = IntVector(1, 0);
+						break;
+					case BottomRight:
+						offset = IntVector(0, -1);
+						shift = IntVector(1, 0);
+						break;
+				}
+
+				GlobalPosition currentPos = cornerPos;
+				while (true) {
+					if (GetPlayerCollisionAt(currentPos) != 0) {
+						break;
+					}
+					currentPos.pos.x += offset.x;
+					currentPos.pos.y += offset.y;
+					if (GetPlayerCollisionAt(currentPos) != 0) {
+						break;
+					}
+					currentPos.pos.x -= offset.x;
+					currentPos.pos.y -= offset.y;
+
+					currentPos.pos.x += shift.x;
+					currentPos.pos.y += shift.y;
+					currentPos = PlayerRoomChangeLogic(currentPos);
+					gapSize++;
+				}
+
+				corner.horizontalGap = gapSize;
+			}
+			if (corner.verticalGap == -1) {
+				int gapSize = 0;
+
+				IntVector offset, shift;
+				switch (corner.type) {
+				case TopLeft:
+					offset = IntVector(1, 0);
+					shift = IntVector(0, -1);
+					break;
+				case TopRight:
+					offset = IntVector(-1, 0);
+					shift = IntVector(0, -1);
+					break;
+				case BottomLeft:
+					offset = IntVector(1, 0);
+					shift = IntVector(0, 1);
+					break;
+				case BottomRight:
+					offset = IntVector(-1, 0);
+					shift = IntVector(0, 1);
+					break;
+				}
+
+				GlobalPosition currentPos = cornerPos;
+				while (true) {
+					if (GetPlayerCollisionAt(currentPos) != 0) {
+						break;
+					}
+					currentPos.pos.x += offset.x;
+					currentPos.pos.y += offset.y;
+					if (GetPlayerCollisionAt(currentPos) != 0) {
+						break;
+					}
+					currentPos.pos.x -= offset.x;
+					currentPos.pos.y -= offset.y;
+
+					currentPos.pos.x += shift.x;
+					currentPos.pos.y += shift.y;
+					currentPos = PlayerRoomChangeLogic(currentPos);
+					gapSize++;
+				}
+
+				corner.verticalGap = gapSize;
+			}
+		}
+
+		// Load the room again just to end predictably
+		LoadRoom(room_pos);
 	}
 
 	bool CanConnectRooms(RoomPosition r1, RoomPosition r2) {
@@ -1260,7 +1348,7 @@ namespace Terrain {
 			}
 
 			int d_rx = GetHOffsetBetweenRooms(from.room, to.room);
-			int d_x = d_rx * 320 + cornerData.x - s.pos.x;
+			int d_x = d_rx * 320 + cornerData.pos.x - s.pos.x;
 
 			if (goingLeft && d_x > 0 || !goingLeft && d_x < 0) {
 				return;
@@ -1268,7 +1356,7 @@ namespace Terrain {
 
 			int d_ry_base = to.room.ry - from.room.ry;
 			for (int d_ry = d_ry_base - 20; d_ry <= d_ry_base + 20; d_ry += 20) {
-				int d_y = d_ry * 240 + cornerData.y - s.pos.y;
+				int d_y = d_ry * 240 + cornerData.pos.y - s.pos.y;
 
 				if (gravityChange && d_y != 0) {
 					continue;
@@ -1354,7 +1442,7 @@ namespace Terrain {
 			}
 
 			int d_rx = GetHOffsetBetweenRooms(from.room, to.room);
-			int d_x = d_rx * 320 + g.pos.x - cornerData.x;
+			int d_x = d_rx * 320 + g.pos.x - cornerData.pos.x;
 
 			if (goingLeft && d_x > 0 || !goingLeft && d_x < 0) {
 				return;
@@ -1362,7 +1450,7 @@ namespace Terrain {
 
 			int d_ry_base = to.room.ry - from.room.ry;
 			for (int d_ry = d_ry_base - 20; d_ry <= d_ry_base + 20; d_ry += 20) {
-				int d_y = d_ry * 240 + g.pos.y - cornerData.y;
+				int d_y = d_ry * 240 + g.pos.y - cornerData.pos.y;
 
 				if (goingUp && d_y > 0 || !goingUp && d_y < 0) {
 					continue;
@@ -1416,7 +1504,7 @@ namespace Terrain {
 					}
 				}
 
-				Ray ray = Ray(cornerData.x, cornerData.y, d_x, d_y);
+				Ray ray = Ray(cornerData.pos.x, cornerData.pos.y, d_x, d_y);
 				float t = GlobalRaycast(from.room, ray);
 				if (t >= 1) {
 					// No intersection found between the nodes, add the edge!
@@ -1487,7 +1575,7 @@ namespace Terrain {
 			}
 
 			int d_rx = GetHOffsetBetweenRooms(from.room, to.room);
-			int d_x = d_rx * 320 + c2_data.x - c1_data.x;
+			int d_x = d_rx * 320 + c2_data.pos.x - c1_data.pos.x;
 
 			if (goingLeft && d_x > 0 || goingRight && d_x < 0) {
 				return;
@@ -1495,7 +1583,7 @@ namespace Terrain {
 
 			int d_ry_base = to.room.ry - from.room.ry;
 			for (int d_ry = d_ry_base - 20; d_ry <= d_ry_base + 20; d_ry += 20) {
-				int d_y = d_ry * 240 + c2_data.y - c1_data.y;
+				int d_y = d_ry * 240 + c2_data.pos.y - c1_data.pos.y;
 
 				if (gravityChange && d_y != 0) {
 					continue;
@@ -1509,7 +1597,7 @@ namespace Terrain {
 					continue;
 				}
 
-				Ray ray = Ray(c1_data.x, c1_data.y, d_x, d_y);
+				Ray ray = Ray(c1_data.pos.x, c1_data.pos.y, d_x, d_y);
 				float t = GlobalRaycast(from.room, ray);
 				if (t >= 1) {
 					// No intersection found between the corners, add the edge!
@@ -1762,9 +1850,9 @@ namespace Terrain {
 		for (int wall_d_ry = wall_d_ry_base - 20; wall_d_ry <= wall_d_ry_base + 20; wall_d_ry += 20) {
 			IntVector wall_room_offset = IntVector(320 * wall_d_rx, 240 * wall_d_ry);
 
-			int wall_dy = surface.plane - fromCorner.y + wall_room_offset.y;
-			int wall_dx_min = surface.min - fromCorner.x + wall_room_offset.x;
-			int wall_dx_max = surface.max - fromCorner.x + wall_room_offset.x;
+			int wall_dy = surface.plane - fromCorner.pos.y + wall_room_offset.y;
+			int wall_dx_min = surface.min - fromCorner.pos.x + wall_room_offset.x;
+			int wall_dx_max = surface.max - fromCorner.pos.x + wall_room_offset.x;
 
 			// Is the wall on the wrong side of the first corner?
 			if (startInverseGravity && wall_dy > 0) {
@@ -1790,9 +1878,9 @@ namespace Terrain {
 				IntVector wall_to_room_offset = IntVector(320 * (to_d_rx - wall_d_rx), 240 * (to_d_ry - wall_d_ry));
 
 				// Distances to second corner from wall
-				int to_dy = toCorner.y - surface.plane + wall_to_room_offset.y;
-				int to_dx_min = toCorner.x - surface.min - wall_to_room_offset.x;
-				int to_dx_max = toCorner.x - surface.max - wall_to_room_offset.x;
+				int to_dy = toCorner.pos.y - surface.plane + wall_to_room_offset.y;
+				int to_dx_min = toCorner.pos.x - surface.min - wall_to_room_offset.x;
+				int to_dx_max = toCorner.pos.x - surface.max - wall_to_room_offset.x;
 
 				// Is the wall on the wrong side of the second corner?
 				if (endInverseGravity && to_dy > 0) {
@@ -1824,30 +1912,246 @@ namespace Terrain {
 		}
 	}
 
-	std::vector<RoomPosition> GetTouchedRooms(NavigationEdge& edge) {
-		std::vector<RoomPosition> result;
+	bool SurfaceIsVisibleFrom(GlobalPosition sourcePos, WallID w_id) {
+		RoomWall& target = GetWall(w_id);
 
-		RoomPosition currentRoom = edge.from.room;
-		IntVector currentPos;
-		IntVector distance = edge.distance;
-
-		NavigationNode& fromNode = GetNavigationNode(edge.from);
-		switch (fromNode.type) {
+		bool invY;
+		switch (target.type) {
 			default:
-				return result;
-			case StartNodeType:
-				currentPos = fromNode.data.start.pos;
+				return false;
+			case WallType::Ceiling:
+				// Corner must be below the ceiling to see it
+				invY = true;
 				break;
-			case GoalNodeType:
-				currentPos = fromNode.data.goal.pos;
+			case WallType::Floor:
+				// Corner must be above the floor to see it
+				invY = false;
 				break;
-			case CornerNodeType:
-			{
-				Corner& fromCorner = GetCorner(fromNode.data.corner.corner);
-				currentPos = IntVector(fromCorner.x, fromCorner.y);
+		}
+
+		IntVector room_offset = GetDistanceOffsetBetweenRooms(sourcePos.room, w_id.room, invY);
+		
+		GlobalPosition targetMinPos = GlobalPosition(w_id.room, IntVector(target.min + 1, target.plane));
+		GlobalPosition targetMaxPos = GlobalPosition(w_id.room, IntVector(target.max - 1, target.plane));
+
+		bool invX;
+		if (sourcePos.room.rx == targetMaxPos.room.rx) {
+			invX = targetMaxPos.pos.x - sourcePos.pos.x < sourcePos.pos.x - targetMinPos.pos.x;
+		} else {
+			invX = targetMaxPos.room.rx < sourcePos.room.rx;
+		}
+
+		// Get a list of all rooms between the corner and surfaces
+		std::set<RoomPosition> rooms_1 = GetTouchedRooms(sourcePos, targetMinPos, invY);
+		std::set<RoomPosition> rooms_2 = GetTouchedRooms(sourcePos, targetMaxPos, invY);
+
+		std::vector<RoomPosition> rooms;
+		std::set_union(rooms_1.begin(), rooms_1.end(), rooms_2.begin(), rooms_2.end(), std::inserter(rooms, rooms.begin()));
+
+		// Construct local coordinate frame (corner at 0, 0, wall at positive coordinates)
+		IntVector localTargetMin = ToLocalCoords(invX, invY, sourcePos, targetMinPos.room, targetMinPos.pos);
+		IntVector localTargetMax = ToLocalCoords(invX, invY, sourcePos, targetMaxPos.room, targetMaxPos.pos);
+		if (invX) {
+			int tmp = localTargetMin.x;
+			localTargetMin.x = localTargetMax.x;
+			localTargetMax.x = tmp;
+		}
+
+		if (localTargetMin.y < 0) {
+			localTargetMin.y += 240 * 20;
+		}
+		if (localTargetMax.y < 0) {
+			localTargetMax.y += 240 * 20;
+		}
+
+		IntVector min = IntVector(SDL_min(0, localTargetMin.x), SDL_min(0, localTargetMin.y));
+		IntVector max = IntVector(SDL_max(0, localTargetMax.x), SDL_max(0, localTargetMax.y));
+
+		std::vector<RoomWall> surfaces;
+		for (int r = 0; r < rooms.size(); r++) {
+			RoomPosition room = rooms.at(r);
+			RoomData& roomData = GetRoomData(room);
+			for (int w = 0; w < roomData.walls.size(); w++) {
+				RoomWall& wall = roomData.walls.at(w);
+
+				// Wall faces away from corner
+				if (invY && wall.type == WallType::Floor) {
+					continue;
+				} else if (!invY && wall.type == WallType::Ceiling) {
+					continue;
+				}
+
+				// Don't include the target surface itself
+				if (w == w_id.wallIndex && room == w_id.room) {
+					continue;
+				}
+
+				GlobalPosition wallMin, wallMax;
+				bool isHorizontalSurface;
+				switch (wall.type) {
+					default:
+						continue;
+					case WallType::Ceiling:
+					case WallType::Floor:
+						isHorizontalSurface = true;
+						wallMin = GlobalPosition(room, IntVector(wall.min, wall.plane));
+						wallMax = GlobalPosition(room, IntVector(wall.max, wall.plane));
+						break;
+					case WallType::LeftWall:
+					case WallType::RightWall:
+						isHorizontalSurface = false;
+						wallMin = GlobalPosition(room, IntVector(wall.plane, wall.min));
+						wallMax = GlobalPosition(room, IntVector(wall.plane, wall.max));
+						break;
+				}
+
+				IntVector localWallMin = ToLocalCoords(invX, invY, sourcePos, wallMin.room, wallMin.pos);
+				IntVector localWallMax = ToLocalCoords(invX, invY, sourcePos, wallMax.room, wallMax.pos);
+				if (isHorizontalSurface) {
+					if (localWallMin.y < 0) {
+						localWallMin.y += 240 * 20;
+					}
+					if (localWallMax.y < 0) {
+						localWallMax.y += 240 * 20;
+					}
+					if (invX) {
+						int tmp = localWallMin.x;
+						localWallMin.x = localWallMax.x;
+						localWallMax.x = tmp;
+					}
+				}
+				if (invY && !isHorizontalSurface) {
+					int tmp = localWallMin.y;
+					localWallMin.y = localWallMax.y;
+					localWallMax.y = tmp;
+				}
+
+				if (localWallMin.x > max.x || localWallMax.x < min.x || localWallMin.y > max.y || localWallMax.y < min.y) {
+					// Wall is outside useful bounds
+					continue;
+				}
+				if (!isHorizontalSurface) {
+					// Wall faces away from corner (so a different wall should be hit first)
+					if (wall.type == WallType::RightWall && invX || wall.type == WallType::LeftWall && !invX) {
+						if (localWallMin.x > 0) {
+							continue;
+						}
+					} else {
+						if (localWallMin.x < 0) {
+							continue;
+						}
+					}
+				}
+
+				RoomWall localSurface(wall);
+				localSurface.plane = isHorizontalSurface ? localWallMin.y : localWallMin.x;
+				localSurface.min = isHorizontalSurface ? localWallMin.x : localWallMin.y;
+				localSurface.max = isHorizontalSurface ? localWallMax.x : localWallMax.y;
+
+				switch (localSurface.type) {
+					default:
+						continue;
+					case WallType::Ceiling:
+						if (invY) {
+							localSurface.type = Floor;
+						}
+						if (invX) {
+							int tmp = localSurface.min;
+							localSurface.min = localSurface.max;
+							localSurface.max = tmp;
+						}
+						break;
+					case WallType::Floor:
+						if (invY) {
+							localSurface.type = Ceiling;
+						}
+						if (invX) {
+							int tmp = localSurface.min;
+							localSurface.min = localSurface.max;
+							localSurface.max = tmp;
+						}
+						break;
+					case WallType::LeftWall:
+						if (invX) {
+							localSurface.type = RightWall;
+						}
+						if (invY) {
+							int tmp = localSurface.min;
+							localSurface.min = localSurface.max;
+							localSurface.max = tmp;
+						}
+						break;
+					case WallType::RightWall:
+						if (invX) {
+							localSurface.type = LeftWall;
+						}
+						if (invY) {
+							int tmp = localSurface.min;
+							localSurface.min = localSurface.max;
+							localSurface.max = tmp;
+						}
+						break;
+				}
+
+
+				surfaces.push_back(localSurface);
+			}
+		}
+
+		if (surfaces.empty()) {
+			return true;
+		}
+
+		Ray minCornerRay = Ray(0, 0, localTargetMin.x, localTargetMin.y);
+		bool anyMinIntersection = false;
+		for (int s = 0; s < surfaces.size(); s++) {
+			float t = WallRayIntersection(surfaces.at(s), minCornerRay);
+			if (0 <= t && t < 1) {
+				anyMinIntersection = true;
 				break;
 			}
 		}
+		if (!anyMinIntersection) {
+			// Min corner is visible
+			return true;
+		}
+
+		Ray maxCornerRay = Ray(0, 0, localTargetMax.x, localTargetMax.y);
+		bool anyMaxIntersection = false;
+		for (int s = 0; s < surfaces.size(); s++) {
+			float t = WallRayIntersection(surfaces.at(s), maxCornerRay);
+			if (0 <= t && t < 1) {
+				anyMaxIntersection = true;
+				break;
+			}
+		}
+		if (!anyMaxIntersection) {
+			// Max corner is visible
+			return true;
+		}
+
+		// TODO: fix this
+		return false;
+	}
+
+	std::set<RoomPosition> GetTouchedRooms(GlobalPosition from, GlobalPosition to, bool invY) {
+		std::set<RoomPosition> result;
+
+		int d_rx = GetHOffsetBetweenRooms(from.room, to.room);
+		int d_x = 320 * d_rx + to.pos.x - from.pos.x;
+		int d_ry = invY ? GetMinNegativeVOffsetBetweenRooms(from.room, to.room) : GetMinPositiveVOffsetBetweenRooms(from.room, to.room);
+		int d_y = 240 * d_ry + to.pos.y - from.pos.y;
+
+		// Special case: d_y doesn't match invY (edge in same room but on wrong side
+		if (invY && d_y > 0) {
+			d_y -= 240 * 20;
+		} else if (!invY && d_y < 0) {
+			d_y += 240 * 20;
+		}
+
+		RoomPosition currentRoom = from.room;
+		IntVector currentPos = from.pos;
+		IntVector distance(d_x, d_y);
 
 		// Basically a room-only raycast
 		while (true) {
@@ -1865,7 +2169,7 @@ namespace Terrain {
 
 			float t_max = SDL_min(SDL_max(t_left, t_right), SDL_max(t_top, t_bottom));
 
-			result.push_back(currentRoom);
+			result.insert(currentRoom);
 
 			// Edge ends in this room
 			if (t_max > 1) {
@@ -1890,6 +2194,131 @@ namespace Terrain {
 
 		return result;
 	}
+
+	// The min number of frames that need to elapse before walking past this distance
+	int GetMinXFrames(int d_x) {
+		if (d_x < 0) {
+			return 0;
+		} else {
+			return 1 + (d_x / MAX_X_SPEED);
+		}
+	}
+	// The max number of frames that need to elapse before walking past this distance (assuming constantly moving in that direction)
+	int GetMaxXFrames(int d_x) {
+		if (d_x < 0) {
+			return 0;
+		} else if (d_x <= 1 + 3 + 5) {
+			if (d_x <= 0) {
+				return 1;
+			} else if (d_x <= 1) {
+				return 2;
+			} else if (d_x <= 1 + 3) {
+				return 3;
+			} else {
+				return 4;
+			}
+		} else {
+			return 4 + (d_x - (1 + 3 + 5)) / MAX_X_SPEED;
+		}
+	}
+	// The min number of frames that need to elapse before falling past this distance
+	int GetMinYFrames(int d_y) {
+		if (d_y < 0) {
+			return 0;
+		} else {
+			return 1 + d_y / MAX_Y_SPEED;
+		}
+	}
+	// The max number of frames that need to elapse before falling past this distance
+	int GetMaxYFrames(int d_y) {
+		if (d_y < 0) {
+			return 0;
+		} else if (d_y <= 2 + 5 + 8) {
+			if (d_y <= 0) {
+				return 1;
+			} else if (d_y <= 2) {
+				return 2;
+			} else if (d_y <= 2 + 5) {
+				return 3;
+			} else {
+				return 4;
+			}
+		} else {
+			return 4 + (d_y - (2 + 5 + 8)) / MAX_Y_SPEED;
+		}
+	}
+
+	IntVector ToLocalCoords(bool invX, bool invY, GlobalPosition referencePos, RoomPosition room, IntVector pos) {
+		// invX -> distances are expected to be negative, return positive result
+		int d_rx = GetHOffsetBetweenRooms(referencePos.room, room);
+		// invY -> distances are expected to be negative, return positive result
+		int d_ry = invY ? GetMinNegativeVOffsetBetweenRooms(referencePos.room, room) : GetMinPositiveVOffsetBetweenRooms(referencePos.room, room);
+
+		int d_x = d_rx * 320 + (pos.x - referencePos.pos.x);
+		int d_y = d_ry * 240 + (pos.y - referencePos.pos.y);
+
+		return IntVector(invX ? -d_x : d_x, invY ? -d_y : d_y);
+	}
+
+	GlobalPosition PlayerRoomChangeLogic(GlobalPosition& globalPos) {
+		RoomPosition currentRoom = globalPos.room;
+		IntVector currentPos = globalPos.pos;
+
+		RoomData roomData = GetRoomData(currentRoom);
+
+		IntVector min = IntVector(roomData.GetMinXPos(), roomData.GetMinYPos());
+		IntVector max = IntVector(roomData.GetMaxXPos(), roomData.GetMaxYPos());
+
+		if (roomData.warpx) {
+			// Don't change rooms
+			if (currentPos.x < min.x) {
+				currentPos.x += 320;
+			} else if (currentPos.x > max.x) {
+				currentPos.x -= 320;
+			}
+		}
+
+		if (roomData.warpy) {
+			// Don't change rooms
+			if (currentPos.y < min.y) {
+				currentPos.y += 232;
+			} else if (currentPos.y > max.y) {
+				currentPos.y -= 232;
+			}
+		}
+
+		if (!roomData.warpy) {
+			// Normal! Just change room
+			if (currentPos.y < min.y) {
+				currentPos.y += 240;
+				currentRoom.ry = (currentRoom.ry + 19) % 20;
+				roomData = GetRoomData(currentRoom);
+			} else if (currentPos.y > max.y) {
+				currentPos.y -= 240;
+				currentRoom.ry = (currentRoom.ry + 1) % 20;
+				roomData = GetRoomData(currentRoom);
+			}
+		}
+
+		if (!roomData.warpx) {
+			// Normal! Just change room
+			if (currentPos.x < min.x) {
+				currentPos.x += 320;
+				currentRoom.rx = (currentRoom.rx + 19) % 20;
+				roomData = GetRoomData(currentRoom);
+			} else if (currentPos.x > max.x) {
+				currentPos.x -= 320;
+				currentRoom.rx = (currentRoom.rx + 1) % 20;
+				roomData = GetRoomData(currentRoom);
+			}
+		}
+
+		return GlobalPosition(currentRoom, currentPos);
+	}
+
+	// -------------
+	// Graph pruning
+	// -------------
 
 	int PruneDeadEndEdges(void) {
 		int totalRemoved = 0;
@@ -2490,7 +2919,16 @@ namespace Terrain {
 	RoomPosition GetCurrentRoomPosition() {
 		return RoomPosition::FromNativeRoomCoords(game.roomx, game.roomy);
 	}
-
+	GlobalPosition GetPlayerPosition() {
+		IntVector localPos = IntVector(obj.entities[0].xp, obj.entities[0].yp);
+		RoomPosition currentRoom = GetCurrentRoomPosition();
+		return GlobalPosition(currentRoom, localPos);
+	}
+	IntVector GetDistanceOffsetBetweenRooms(RoomPosition from, RoomPosition to, bool invY) {
+		int d_rx = GetHOffsetBetweenRooms(from, to);
+		int d_ry = GetVOffsetBetweenRooms(from, to, invY);
+		return IntVector(320 * d_rx, 240 * d_ry);
+	}
 	int GetHOffsetBetweenRooms(RoomPosition from, RoomPosition to) {
 		int d_rx = to.rx - from.rx;
 		if ((from.rx < TOWER_RX) != (to.rx < TOWER_RX)) {
@@ -2504,6 +2942,60 @@ namespace Terrain {
 
 		return d_rx;
 	}
+	int GetVOffsetBetweenRooms(RoomPosition from, RoomPosition to, bool invY) {
+		return invY ? GetMinNegativeVOffsetBetweenRooms(from, to) : GetMinPositiveVOffsetBetweenRooms(from, to);
+	}
+	int GetMinPositiveVOffsetBetweenRooms(RoomPosition from, RoomPosition to) {
+		int d_ry = to.ry - from.ry;
+		while (d_ry < 0) {
+			d_ry += 20;
+		}
+		while (d_ry > 19) {
+			d_ry -= 20;
+		}
+
+		return d_ry;
+	}
+	int GetMinNegativeVOffsetBetweenRooms(RoomPosition from, RoomPosition to) {
+		int d_ry = to.ry - from.ry;
+		while (d_ry > 0) {
+			d_ry -= 20;
+		}
+		while (d_ry < -19) {
+			d_ry += 20;
+		}
+
+		return d_ry;
+	}
+
+	uint8_t GetPlayerCollisionAt(GlobalPosition pos) {
+		// Load the right room
+		LoadRoom(pos.room);
+
+		// Player hitbox
+		const SDL_Rect temprect = { pos.pos.x + VIRIDIAN_CX, pos.pos.y + VIRIDIAN_CY, VIRIDIAN_W, VIRIDIAN_H };
+
+		uint8_t collision = 0;
+		// Check walls
+		if (collisionSetting == CollisionSetting::Walls || collisionSetting == CollisionSetting::WallsAndSpikes) {
+			if (obj.checkwall(false, temprect)) {
+				// 1: wall
+				collision = 1;
+			}
+		}
+		// Check spikes
+		if (collisionSetting == CollisionSetting::WallsAndSpikes) {
+			for (size_t j = 0; j < obj.blocks.size(); j++) {
+				if (obj.blocks[j].type == DAMAGE && help.intersects(obj.blocks[j].rect, temprect)) {
+					// 2: damage
+					collision = 2;
+				}
+			}
+		}
+
+		// Return result
+		return collision;
+	}
 
 	uint8_t* GetCurrentRoomPlayerCollisionBitmap(IntVector min, IntVector max) {
 		int x_extent = max.x - min.x + 1;
@@ -2516,7 +3008,7 @@ namespace Terrain {
 				// Player hitbox
 				const SDL_Rect temprect = { x + VIRIDIAN_CX, y + VIRIDIAN_CY, VIRIDIAN_W, VIRIDIAN_H };
 
-				uint8_t collision = false;
+				uint8_t collision = 0;
 				// Check walls
 				if (collisionSetting == CollisionSetting::Walls || collisionSetting == CollisionSetting::WallsAndSpikes) {
 					if (obj.checkwall(false, temprect)) {
