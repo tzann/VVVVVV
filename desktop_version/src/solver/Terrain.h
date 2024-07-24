@@ -246,6 +246,16 @@ namespace Terrain {
 
 		bool walkable;
 	};
+
+	struct GravityLine {
+		bool isHorizontal;
+		IntVector min;
+		IntVector max;
+
+		GravityLine() {}
+		GravityLine(bool isHorizontal, IntVector min, IntVector max) : isHorizontal(isHorizontal), min(min), max(max) { }
+	};
+
 	struct CornerID {
 		RoomPosition room;
 		int cornerIndex;
@@ -264,6 +274,32 @@ namespace Terrain {
 		int wallIndex;
 
 		WallID(RoomPosition r, int i) : room(r), wallIndex(i) { }
+
+		bool operator== (const WallID& other) const {
+			return (room == other.room && wallIndex == other.wallIndex);
+		}
+		bool operator!= (const WallID& other) const {
+			return !(*this == other);
+		}
+		bool operator< (const WallID& other) const {
+			if (room != other.room) {
+				return room < other.room;
+			}
+			else if (wallIndex != other.wallIndex) {
+				return wallIndex < other.wallIndex;
+			}
+			// Equality
+			return false;
+		}
+		bool operator<=(const WallID& other) const {
+			return (*this < other) || (*this == other);
+		}
+		bool operator>=(const WallID& other) const {
+			return !(*this < other);
+		}
+		bool operator> (const WallID& other) const {
+			return !(*this <= other);
+		}
 	};
 	struct NavigationNodeID {
 		RoomPosition room;
@@ -276,6 +312,19 @@ namespace Terrain {
 		}
 		bool operator!= (const NavigationNodeID& other) const {
 			return (room != other.room || nodeIndex != other.nodeIndex);
+		}
+	};
+	struct LineID {
+		RoomPosition room;
+		int lineIndex;
+
+		LineID(RoomPosition r, int i) : room(r), lineIndex(i) { }
+
+		bool operator== (const LineID& other) const {
+			return (room == other.room && lineIndex == other.lineIndex);
+		}
+		bool operator!= (const LineID& other) const {
+			return (room != other.room || lineIndex != other.lineIndex);
 		}
 	};
 
@@ -344,10 +393,11 @@ namespace Terrain {
 		std::vector<Corner> corners;
 		std::vector<RoomWall> walls;
 		std::vector<NavigationNode> nodes;
+		std::vector<GravityLine> lines;
 
 		RoomData() {
 			initialized = warpx = warpy = up = down = left = right = false;
-			corners.clear(); walls.clear(); nodes.clear();
+			corners.clear(); walls.clear(); nodes.clear(); lines.clear();
 		}
 
 		int GetMinXPos() {
@@ -397,6 +447,7 @@ namespace Terrain {
 	void RenderPixel(int x, int y);
 	void RenderWall(WallID w);
 	void RenderEdge(int edge_index);
+	void RenderGravityLine(LineID line_id);
 	void RenderCollisionBitmap(IntVector offset);
 
 	// --------------------------------------
@@ -405,7 +456,9 @@ namespace Terrain {
 	RoomData& GetRoomData(RoomPosition room_pos);
 	Corner& GetCorner(CornerID corner_id);
 	RoomWall& GetWall(WallID wall_id);
+	GravityLine& GetGravityLine(LineID line_id);
 	NavigationNode& GetNavigationNode(NavigationNodeID node_id);
+
 	bool IsSameOrInverseNode(NavigationNodeID n1, NavigationNodeID n2);
 	NavigationEdge RemoveEdge(int edgeIndex);
 	bool IsEdgePossibleWithoutFlipping(NavigationEdge& edge);
@@ -424,12 +477,17 @@ namespace Terrain {
 	bool SurfaceIsVisibleFrom(GlobalPosition sourcePos, WallID w_id);
 
 	std::set<RoomPosition> GetTouchedRooms(GlobalPosition from, GlobalPosition to, bool y_dir);
+	std::set<WallID> GetSurfacesAboveEdge(NavigationEdge& edge);
+	std::set<WallID> GetSurfacesBelowEdge(NavigationEdge& edge);
+
+	GlobalPosition GetNodePos(NavigationNodeID node_id);
 
 	int GetMinXFrames(int d_x);
 	int GetMaxXFrames(int d_x);
 	int GetMinYFrames(int d_y);
 	int GetMaxYFrames(int d_y);
 
+	GlobalPosition DoAllRoomChanges(GlobalPosition& globalPos);
 	GlobalPosition PlayerRoomChangeLogic(GlobalPosition& globalPos);
 	IntVector ToLocalCoords(bool invX, bool invY, GlobalPosition referencePos, RoomPosition room, IntVector pos);
 

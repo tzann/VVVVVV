@@ -19,20 +19,32 @@
 
 
 namespace Terrain {
-	RoomPosition start_room = RoomPosition(2, 16);
-	int start_x = 191;
-	int start_y = 33;
-	bool start_gravity = 0;
+	// Lab IL start
+	// RoomPosition start_room = RoomPosition(2, 16);
+	// int start_x = 191;
+	// int start_y = 33;
+	// bool start_gravity = 0;
+
+	// Letter G
+	RoomPosition start_room = RoomPosition(3, 16);
+	int start_x = 40;
+	int start_y = 80;
+	bool start_gravity = 1;
 
 	// Lab IL end
-	RoomPosition goal_room = RoomPosition(4, 4);
-	int goal_x = 10;
-	int goal_y = 170;
+	// RoomPosition goal_room = RoomPosition(4, 4);
+	// int goal_x = 10;
+	// int goal_y = 170;
 	
 	// Rascasse top left corner
 	// RoomPosition goal_room = RoomPosition(1, 17);
 	// int goal_x = 10;
 	// int goal_y = 46;
+
+	// Barani Barani
+	RoomPosition goal_room = RoomPosition(6, 16);
+	int goal_x = 160;
+	int goal_y = 230;
 
 	RoomData overworldRoomData[20][20];
 	RoomData outsideRoomData[20][20];
@@ -122,7 +134,7 @@ namespace Terrain {
 				}
 			}
 
-			LoadRoom(RoomPosition(7, 16));
+			LoadRoom(RoomPosition(3, 16));
 		}
 	}
 
@@ -140,7 +152,13 @@ namespace Terrain {
 				WallID w_id(currentRoom, w);
 				RoomWall& wall = GetWall(w_id);
 
-				if (wall.walkable && SurfaceIsVisibleFrom(playerPos, w_id)) {
+				if (edges.empty()) {
+					break;
+				}
+
+				std::set<WallID> surfaces = GetSurfacesBelowEdge(edges.at(0));
+
+				if (surfaces.count(w_id) > 0) { // || wall.walkable && SurfaceIsVisibleFrom(playerPos, w_id)) {
 					RenderWall(w_id);
 				}
 			}
@@ -160,6 +178,13 @@ namespace Terrain {
 				if (!IsEdgePossibleWithoutFlipping(edge)) {
 					RenderEdge(e);
 				}
+			}
+
+			int num_lines = currentRoomData.lines.size();
+			SDL_SetRenderDrawColor(gameScreen.m_renderer, 0, 0, 255, 100);
+			for (int l = 0; l < num_lines; l++) {
+				LineID line_id(currentRoom, l);
+				RenderGravityLine(line_id);
 			}
 		}
 	}
@@ -290,6 +315,19 @@ namespace Terrain {
 		}
 	}
 
+	void RenderGravityLine(LineID line_id) {
+		RoomPosition currentRoom = GetCurrentRoomPosition();
+
+		if (currentRoom != line_id.room) {
+			return;
+		}
+
+		GravityLine& gravityLine = GetGravityLine(line_id);
+		IntVector dims(gravityLine.max.x - gravityLine.min.x + 1, gravityLine.max.y - gravityLine.min.y + 1);
+		const SDL_Rect rect = { gravityLine.min.x + VIRIDIAN_CX, gravityLine.min.y + VIRIDIAN_CY, dims.x, dims.y };
+		SDL_RenderFillRect(gameScreen.m_renderer, &rect);
+	}
+
 	void RenderCollisionBitmap(IntVector offset) {
 		RoomPosition currentRoom = GetCurrentRoomPosition();
 		RoomData& currentRoomData = GetRoomData(currentRoom);
@@ -335,6 +373,10 @@ namespace Terrain {
 
 	RoomWall& GetWall(WallID wall_id) {
 		return GetRoomData(wall_id.room).walls.at(wall_id.wallIndex);
+	}
+
+	GravityLine& GetGravityLine(LineID line_id) {
+		return GetRoomData(line_id.room).lines.at(line_id.lineIndex);
 	}
 
 	NavigationNode& GetNavigationNode(NavigationNodeID node_id) {
@@ -640,6 +682,7 @@ namespace Terrain {
 		return x_frames <= y_frames + 1;
 	}
 
+	// Check if edges are geometrically crossed, as well as having same gravity direction
 	bool DoEdgesCross(NavigationEdge& e1, NavigationEdge& e2) {
 		NavigationNode& e1_from = GetNavigationNode(e1.from);
 		NavigationNode& e1_to = GetNavigationNode(e1.to);
@@ -649,26 +692,31 @@ namespace Terrain {
 		RoomPosition e1_room;
 		IntVector e1_origin;
 		IntVector e1_dir = e1.distance;
+		bool e1_invGravity = -1;
 
 		RoomPosition e2_room;
 		IntVector e2_origin;
 		IntVector e2_dir = e2.distance;
+		bool e2_invGravity;
 		switch (e1_from.type) {
 			default:
 				return false;
 			case StartNodeType:
 				e1_room = e1_from.data.start.room;
 				e1_origin = e1_from.data.start.pos;
+				e1_invGravity = e1_from.data.start.inverseGravity;
 				break;
 			case GoalNodeType:
 				e1_room = e1_from.data.goal.room;
 				e1_origin = e1_from.data.goal.pos;
+				e1_invGravity = e1.distance.y < 0;
 				break;
 			case CornerNodeType:
 			{
 				Corner& c = GetCorner(e1_from.data.corner.corner);
 				e1_room = e1_from.data.corner.corner.room;
 				e1_origin = c.pos;
+				e1_invGravity = e1_from.data.corner.inverseGravity;
 				break;
 			}
 		}
@@ -678,18 +726,25 @@ namespace Terrain {
 			case StartNodeType:
 				e2_room = e2_from.data.start.room;
 				e2_origin = e2_from.data.start.pos;
+				e2_invGravity = e2_from.data.start.inverseGravity;
 				break;
 			case GoalNodeType:
 				e2_room = e2_from.data.goal.room;
 				e2_origin = e2_from.data.goal.pos;
+				e2_invGravity = e2.distance.y < 0;
 				break;
 			case CornerNodeType:
 			{
 				Corner& c = GetCorner(e2_from.data.corner.corner);
 				e2_room = e2_from.data.corner.corner.room;
 				e2_origin = c.pos;
+				e2_invGravity = e2_from.data.corner.inverseGravity;
 				break;
 			}
+		}
+
+		if (e1_invGravity != e2_invGravity) {
+			return false;
 		}
 
 		// Edge in same direction
@@ -1054,7 +1109,6 @@ namespace Terrain {
 				int corner_y = (up_left || up) ? y : (y - 1);
 
 				// Let's measure the vertical and horizontal gaps
-				// TODO: should a 1-wide gap be 0 or 1? (fencepost problem)
 				int verticalGap = 0;
 				int horizontalGap = 0;
 
@@ -1206,9 +1260,49 @@ namespace Terrain {
 				corner.verticalGap = gapSize;
 			}
 		}
-
-		// Load the room again just to end predictably
+		// Load the initial room again
 		LoadRoom(room_pos);
+
+		// Now, let's store all the gravity lines
+		int num_entities = obj.entities.size();
+		for (int e = 0; e < num_entities; e++) {
+			entclass& entity = obj.entities.at(e);
+
+			bool isHorizontal;
+			IntVector min;
+			IntVector max;
+			if (entity.type == 9 && entity.rule == 4 && entity.size == 5) {
+				// Horizontal gravity line
+				isHorizontal = true;
+				int width = entity.w;
+				// height = 1;
+				IntVector pos(entity.xp, entity.yp);
+
+				// The hitbox is a bit special - if you collided with the line on the previous frame, it still counts
+				// But this is only relevant because of the cooldown, since you can't tunnel through the line (without zipping)
+				min.x = pos.x - VIRIDIAN_CX - VIRIDIAN_W;
+				max.x = pos.x + width - VIRIDIAN_CX;
+
+				min.y = pos.y - VIRIDIAN_H;
+				max.y = pos.y - 1; // Touching with equality is below the line
+			} else if (entity.type == 10 && entity.rule == 5 && entity.size == 6) {
+				// Vertical gravity line
+				isHorizontal = false;
+				// width = 1;
+				int height = entity.h;
+				IntVector pos(entity.xp, entity.yp);
+
+				min.y = pos.y - VIRIDIAN_CY - VIRIDIAN_H;
+				max.y = pos.y + height - VIRIDIAN_CY;
+
+				min.x = pos.x - 1 - VIRIDIAN_CX - VIRIDIAN_W;
+				max.x = pos.x - 1 - VIRIDIAN_CX - 1; // Touching with equality is past the line
+			} else {
+				continue;
+			}
+
+			result.lines.emplace_back(isHorizontal, min, max);
+		}
 	}
 
 	bool CanConnectRooms(RoomPosition r1, RoomPosition r2) {
@@ -2130,7 +2224,7 @@ namespace Terrain {
 			return true;
 		}
 
-		// TODO: fix this
+		// TODO: fix this - only min and max corner are checked for visibility, not anything in between
 		return false;
 	}
 
@@ -2192,6 +2286,157 @@ namespace Terrain {
 			}
 		}
 
+		return result;
+	}
+
+	// Get the set of all surfaces directly vertically above this edge
+	std::set<WallID> GetSurfacesAboveEdge(NavigationEdge& edge) {
+		GlobalPosition fromNodePos = GetNodePos(edge.from);
+		GlobalPosition toNodePos = GetNodePos(edge.to);
+
+		bool invX = edge.distance.x < 0;
+		if (invX) {
+			GlobalPosition tmp = fromNodePos;
+			fromNodePos = toNodePos;
+			toNodePos = tmp;
+		}
+
+		IntVector distance = IntVector(std::abs(edge.distance.x), edge.distance.y);
+
+		std::set<WallID> surfaces_above;
+		int x = 0;
+		while (x <= distance.x) {
+			// Y should be rounded down to give first integer coordinate above the edge
+			int max_y = edge.distance.y * x / edge.distance.x;
+
+			GlobalPosition actualPos(fromNodePos);
+			actualPos.pos += IntVector(x, max_y);
+			actualPos = DoAllRoomChanges(actualPos);
+
+			WallID next_surface(actualPos.room, -1);
+			while (true) {
+				RoomData& roomData = GetRoomData(actualPos.room);
+				int best_y = 1000;
+				for (int s = 0; s < roomData.walls.size(); s++) {
+					RoomWall& wall = roomData.walls.at(s);
+					if (wall.type != Ceiling) {
+						// Not a ceiling
+						continue;
+					}
+					if (wall.min > actualPos.pos.x || wall.max < actualPos.pos.x) {
+						// Not above the desired x pos
+						continue;
+					}
+					if (wall.plane <= actualPos.pos.y && wall.plane < best_y) {
+						best_y = wall.plane;
+						next_surface.room = actualPos.room;
+						next_surface.wallIndex = s;
+					}
+				}
+
+				if (next_surface.wallIndex > -1) {
+					// Found it!
+					break;
+				} else {
+					// Go to next room above
+					actualPos.room = actualPos.room.NextRoomUp();
+					actualPos.pos.y = roomData.GetMaxYPos() + 1;
+				}
+			}
+
+			surfaces_above.insert(next_surface);
+
+			RoomWall& s = GetWall(next_surface);
+			// Go to next uncovered position
+			x += s.max + 1 - actualPos.pos.x;
+		}
+
+		return surfaces_above;
+	}
+
+	// Get the set of all surfaces directly vertically below this edge
+	std::set<WallID> GetSurfacesBelowEdge(NavigationEdge& edge) {
+		GlobalPosition fromNodePos = GetNodePos(edge.from);
+		GlobalPosition toNodePos = GetNodePos(edge.to);
+
+		bool invX = edge.distance.x < 0;
+		if (invX) {
+			GlobalPosition tmp = fromNodePos;
+			fromNodePos = toNodePos;
+			toNodePos = tmp;
+		}
+
+		IntVector distance = IntVector(std::abs(edge.distance.x), edge.distance.y);
+
+		std::set<WallID> surfaces_below;
+		int x = 0;
+		while (x <= distance.x) {
+			// Y should be rounded up to give first integer coordinate below the edge
+			int min_y = (edge.distance.y * x + edge.distance.x - 1) / edge.distance.x;
+
+			GlobalPosition actualPos(fromNodePos);
+			actualPos.pos += IntVector(x, min_y);
+			actualPos = DoAllRoomChanges(actualPos);
+
+			WallID next_surface(actualPos.room, -1);
+			while (true) {
+				RoomData& roomData = GetRoomData(actualPos.room);
+				int best_y = -1000;
+				for (int s = 0; s < roomData.walls.size(); s++) {
+					RoomWall& wall = roomData.walls.at(s);
+					if (wall.type != Floor) {
+						// Not a floor
+						continue;
+					}
+					if (wall.min > actualPos.pos.x || wall.max < actualPos.pos.x) {
+						// Not below the desired x pos
+						continue;
+					}
+					if (wall.plane >= actualPos.pos.y && wall.plane > best_y) {
+						best_y = wall.plane;
+						next_surface.room = actualPos.room;
+						next_surface.wallIndex = s;
+					}
+				}
+
+				if (next_surface.wallIndex > -1) {
+					// Found it!
+					break;
+				}
+				else {
+					// Go to next room below
+					actualPos.room = actualPos.room.NextRoomDown();
+					actualPos.pos.y = roomData.GetMinYPos() - 1;
+				}
+			}
+
+			surfaces_below.insert(next_surface);
+
+			RoomWall& s = GetWall(next_surface);
+			// Go to next uncovered position
+			x += s.max + 1 - actualPos.pos.x;
+		}
+
+		return surfaces_below;
+	}
+
+	GlobalPosition GetNodePos(NavigationNodeID node_id) {
+		NavigationNode& node = GetNavigationNode(node_id);
+		GlobalPosition result;
+		result.room = node_id.room;
+		switch (node.type) {
+			default:
+				VVV_exit(-1);
+			case StartNodeType:
+				result.pos = node.data.start.pos;
+				break;
+			case GoalNodeType:
+				result.pos = node.data.goal.pos;
+				break;
+			case CornerNodeType:
+				Corner& c = GetCorner(node.data.corner.corner);
+				result.pos = c.pos;
+		}
 		return result;
 	}
 
@@ -2258,6 +2503,74 @@ namespace Terrain {
 		int d_y = d_ry * 240 + (pos.y - referencePos.pos.y);
 
 		return IntVector(invX ? -d_x : d_x, invY ? -d_y : d_y);
+	}
+
+	GlobalPosition DoAllRoomChanges(GlobalPosition& globalPos) {
+		RoomPosition currentRoom = globalPos.room;
+		IntVector currentPos = globalPos.pos;
+
+		bool warped = true;
+		while (warped) {
+			warped = false;
+			RoomData roomData = GetRoomData(currentRoom);
+
+			IntVector min = IntVector(roomData.GetMinXPos(), roomData.GetMinYPos());
+			IntVector max = IntVector(roomData.GetMaxXPos(), roomData.GetMaxYPos());
+
+			if (roomData.warpx) {
+				// Don't change rooms
+				if (currentPos.x < min.x) {
+					currentPos.x += 320;
+					warped = true;
+				} else if (currentPos.x > max.x) {
+					currentPos.x -= 320;
+					warped = true;
+				}
+			}
+
+			if (roomData.warpy) {
+				// Don't change rooms
+				if (currentPos.y < min.y) {
+					currentPos.y += 232;
+					warped = true;
+				} else if (currentPos.y > max.y) {
+					currentPos.y -= 232;
+					warped = true;
+				}
+			}
+
+			if (!roomData.warpy) {
+				// Normal! Just change room
+				if (currentPos.y < min.y) {
+					currentPos.y += 240;
+					currentRoom.ry = (currentRoom.ry + 19) % 20;
+					roomData = GetRoomData(currentRoom);
+					warped = true;
+				} else if (currentPos.y > max.y) {
+					currentPos.y -= 240;
+					currentRoom.ry = (currentRoom.ry + 1) % 20;
+					roomData = GetRoomData(currentRoom);
+					warped = true;
+				}
+			}
+
+			if (!roomData.warpx) {
+				// Normal! Just change room
+				if (currentPos.x < min.x) {
+					currentPos.x += 320;
+					currentRoom.rx = (currentRoom.rx + 19) % 20;
+					roomData = GetRoomData(currentRoom);
+					warped = true;
+				} else if (currentPos.x > max.x) {
+					currentPos.x -= 320;
+					currentRoom.rx = (currentRoom.rx + 1) % 20;
+					roomData = GetRoomData(currentRoom);
+					warped = true;
+				}
+			}
+		}
+
+		return GlobalPosition(currentRoom, currentPos);
 	}
 
 	GlobalPosition PlayerRoomChangeLogic(GlobalPosition& globalPos) {
@@ -2370,7 +2683,6 @@ namespace Terrain {
 		return totalRemoved;
 	}
 
-	// TODO: domination doesn't respect how edges connect
 	int PruneDominatedEdges(void) {
 		// -> Find places where a node dominates a sub-graph both from the perspective of the start node and the goal node
 
@@ -2688,6 +3000,7 @@ namespace Terrain {
 	int PruneBackAndCrossedEdges(void) {
 		// Basically: Each edge is a node in the graph, use their connectivity to create edges and then run a dominator algorithm
 		// Using the dominators, prune edges that can only connect to another edge they are dominated by, or edges that are crossed (geometrically) by an edge they are dominated by
+		// Edges only count as crossed if they have the same gravity -> otherwise the assumption of being able to shortcut isn't guaranteed
 
 		// Edges are identified by their indices in the edges vector
 		std::vector<std::vector<int>> predecessors;
