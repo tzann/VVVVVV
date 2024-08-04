@@ -1,10 +1,10 @@
-#ifndef HEURISTIC_H
-#define HEURISTIC_H
+#ifndef SOLVER_HEURISTIC_H
+#define SOLVER_HEURISTIC_H
 
+#include "solver/Constants.h"
 
 namespace Heuristic {
-	void pure_right_movement(int rx_start, int x_start, float vx_start, int tapleft, int rx_end, int x_end);
-
+	int basic_heuristic(int dx, int dy);
 }
 
-#endif /* HEURISTIC_H */
+#endif /* SOLVER_HEURISTIC_H */

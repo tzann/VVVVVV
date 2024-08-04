@@ -4,6 +4,7 @@
 #include <iterator>
 #include <unordered_set>
 #include <functional>
+#include <queue>
 #include <SDL.h>
 
 #include "Graphics.h"
@@ -16,6 +17,7 @@
 
 #include "solver/Heuristic.h"
 #include "solver/Solver.h"
+#include "solver/Constants.h"
 
 
 namespace Terrain {
@@ -28,8 +30,9 @@ namespace Terrain {
 	// Letter G
 	RoomPosition start_room = RoomPosition(3, 16);
 	int start_x = 40;
-	int start_y = 80;
+	int start_y = 180;
 	bool start_gravity = 1;
+	NavigationNodeID start_node(start_room, 0);
 
 	// Lab IL end
 	// RoomPosition goal_room = RoomPosition(4, 4);
@@ -45,6 +48,7 @@ namespace Terrain {
 	RoomPosition goal_room = RoomPosition(6, 16);
 	int goal_x = 160;
 	int goal_y = 230;
+	NavigationNodeID goal_node(goal_room, 0);
 
 	RoomData overworldRoomData[20][20];
 	RoomData outsideRoomData[20][20];
@@ -60,7 +64,6 @@ namespace Terrain {
 		
 		if (!GetRoomData(currentRoom).initialized) {
 			InitializeConnectedRooms(currentRoom);
-			return;
 			for (int rx = 0; rx < 20; rx++) {
 				for (int ry = 0; ry < 20; ry++) {
 					RoomPosition room(currentRoom.outside, rx, ry);
@@ -69,7 +72,7 @@ namespace Terrain {
 					}
 				}
 			}
-
+			return;
 			RoomData& currentRoomData = GetRoomData(currentRoom);
 			int num_nodes = currentRoomData.nodes.size();
 			// Connect nodes between rooms
@@ -147,20 +150,28 @@ namespace Terrain {
 		if (currentRoomData.initialized) {
 			SDL_SetRenderDrawBlendMode(gameScreen.m_renderer, SDL_BLENDMODE_BLEND);
 			SDL_SetRenderDrawColor(gameScreen.m_renderer, 0, 255, 0, 150);
+
+			for (int c = 0; c < currentRoomData.corners.size(); c++) {
+				CornerID c_id(currentRoom, c);
+				if (GetCorner(c_id).type == TopLeft) {
+					FindCornerConnections(c_id, true);
+					break;
+				}
+			}
+			return;
+
 			int num_walls = currentRoomData.walls.size();
 			for (int w = 0; w < num_walls; w++) {
 				WallID w_id(currentRoom, w);
 				RoomWall& wall = GetWall(w_id);
+				RenderWall(w_id);
+			}
 
-				if (edges.empty()) {
-					break;
-				}
-
-				std::set<WallID> surfaces = GetSurfacesBelowEdge(edges.at(0));
-
-				if (surfaces.count(w_id) > 0) { // || wall.walkable && SurfaceIsVisibleFrom(playerPos, w_id)) {
-					RenderWall(w_id);
-				}
+			SDL_SetRenderDrawColor(gameScreen.m_renderer, 0, 255, 0, 150);
+			int num_corners = currentRoomData.corners.size();
+			for (int c = 0; c < num_corners; c++) {
+				CornerID c_id(currentRoom, c);
+				RenderCorner(c_id);
 			}
 
 			SDL_SetRenderDrawColor(gameScreen.m_renderer, 0, 255, 255, 100);
@@ -184,7 +195,12 @@ namespace Terrain {
 			SDL_SetRenderDrawColor(gameScreen.m_renderer, 0, 0, 255, 100);
 			for (int l = 0; l < num_lines; l++) {
 				LineID line_id(currentRoom, l);
-				RenderGravityLine(line_id);
+				// RenderGravityLine(line_id);
+			}
+
+			if (num_edges > 0) {
+				// BuildSurfaceConnectionGraph(edges.at(0).from, edges.at(0).to, edges.at(0).distance.y < 0);
+				VisualizeHeuristic();
 			}
 		}
 	}
@@ -241,6 +257,50 @@ namespace Terrain {
 			}
 
 			SDL_RenderDrawLine(gameScreen.m_renderer, x1 + VIRIDIAN_CX, y1 + VIRIDIAN_CY, x2 + VIRIDIAN_CX, y2 + VIRIDIAN_CY);
+		}
+	}
+
+	void RenderCorner(CornerID corner_id) {
+		RoomPosition currentRoom = GetCurrentRoomPosition();
+		if (corner_id.room != currentRoom) {
+			return;
+		}
+
+		Corner& corner = GetCorner(corner_id);
+		if (corner.simple) {
+			int signedVerticalGap = (corner.type == CornerType::TopLeft || corner.type == CornerType::TopRight) ? -corner.verticalGap : corner.verticalGap;
+			int signedHorizontalGap = (corner.type == CornerType::TopLeft || corner.type == CornerType::BottomLeft) ? -corner.horizontalGap : corner.horizontalGap;
+
+			GlobalPosition cornerPos(currentRoom, corner.pos);
+			GlobalPosition regionPos(currentRoom, corner.pos + IntVector(signedHorizontalGap, signedVerticalGap));
+
+			SDL_SetRenderDrawColor(gameScreen.m_renderer, 0, 255, 0, 50);
+			RenderRect(cornerPos, regionPos);
+		}
+		else {
+			return;
+		}
+
+		if (corner.horizontalNegativeGap != -1) {
+			int signedVerticalGap = (corner.type == CornerType::TopLeft || corner.type == CornerType::TopRight) ? -corner.verticalGap : corner.verticalGap;
+			int signedHorizontalGap = (corner.type == CornerType::TopLeft || corner.type == CornerType::BottomLeft) ? corner.horizontalNegativeGap : -corner.horizontalNegativeGap;
+
+			GlobalPosition cornerPos(currentRoom, corner.pos);
+			GlobalPosition regionPos(currentRoom, corner.pos + IntVector(signedHorizontalGap, signedVerticalGap));
+
+			SDL_SetRenderDrawColor(gameScreen.m_renderer, 0, 0, 255, 50);
+			RenderRect(cornerPos, regionPos);
+		}
+
+		if (corner.verticalNegativeGap != -1) {
+			int signedVerticalGap = (corner.type == CornerType::TopLeft || corner.type == CornerType::TopRight) ? corner.verticalNegativeGap : -corner.verticalNegativeGap;
+			int signedHorizontalGap = (corner.type == CornerType::TopLeft || corner.type == CornerType::BottomLeft) ? -corner.horizontalGap : corner.horizontalGap;
+
+			GlobalPosition cornerPos(currentRoom, corner.pos);
+			GlobalPosition regionPos(currentRoom, corner.pos + IntVector(signedHorizontalGap, signedVerticalGap));
+
+			SDL_SetRenderDrawColor(gameScreen.m_renderer, 0, 0, 255, 50);
+			RenderRect(cornerPos, regionPos);
 		}
 	}
 
@@ -328,6 +388,27 @@ namespace Terrain {
 		SDL_RenderFillRect(gameScreen.m_renderer, &rect);
 	}
 
+	void RenderRect(GlobalPosition from, GlobalPosition to) {
+		RoomPosition currentRoom = GetCurrentRoomPosition();
+		GlobalPosition origin(currentRoom, IntVector(0, 0));
+
+		IntVector diagonal = GetMinDistanceBetween(from, to);
+		IntVector fromOffset = GetMinDistanceBetween(origin, from);
+		IntVector toOffset = GetMinDistanceBetween(origin, to);
+
+		if (toOffset.length_squared() > fromOffset.length_squared()) {
+			toOffset = fromOffset + diagonal;
+		} else {
+			fromOffset = toOffset - diagonal;
+		}
+
+		IntVector minPos(SDL_min(fromOffset.x, toOffset.x), SDL_min(fromOffset.y, toOffset.y));
+		IntVector maxPos(SDL_max(fromOffset.x, toOffset.x), SDL_max(fromOffset.y, toOffset.y));
+		IntVector dims(maxPos.x - minPos.x + 1, maxPos.y - minPos.y + 1);
+		const SDL_Rect rect = { minPos.x + VIRIDIAN_CX, minPos.y + VIRIDIAN_CY, dims.x, dims.y };
+		SDL_RenderFillRect(gameScreen.m_renderer, &rect);
+	}
+
 	void RenderCollisionBitmap(IntVector offset) {
 		RoomPosition currentRoom = GetCurrentRoomPosition();
 		RoomData& currentRoomData = GetRoomData(currentRoom);
@@ -374,9 +455,82 @@ namespace Terrain {
 	RoomWall& GetWall(WallID wall_id) {
 		return GetRoomData(wall_id.room).walls.at(wall_id.wallIndex);
 	}
+	RoomWall GetWallInLocalFrame(WallID wall_id, LocalFrame& frame) {
+		RoomData& roomData = GetRoomData(wall_id.room);
+		RoomWall& rawWall = roomData.walls.at(wall_id.wallIndex);
+		bool isHorizontal = rawWall.type == Ceiling || rawWall.type == Floor;
+
+		IntVector roomDistance = GetDistanceOffsetBetweenRooms(frame.origin.room, wall_id.room, frame.invY);
+
+		RoomWall result(rawWall);
+
+		if (isHorizontal) {
+			result.plane = rawWall.plane - frame.origin.pos.y + roomDistance.y;
+			result.min = rawWall.min - frame.origin.pos.x + roomDistance.x;
+			result.max = rawWall.max - frame.origin.pos.x + roomDistance.x;
+		} else {
+			result.plane = rawWall.plane - frame.origin.pos.x + roomDistance.x;
+			result.min = rawWall.min - frame.origin.pos.y + roomDistance.y;
+			result.max = rawWall.max - frame.origin.pos.y + roomDistance.y;
+		}
+
+		if (frame.invX) {
+			if (result.type == LeftWall) {
+				result.type = RightWall;
+			} else if (result.type == RightWall) {
+				result.type = LeftWall;
+			} else {
+				int tmp = result.min;
+				result.min = -result.max;
+				result.max = -tmp;
+				bool tmp2 = result.minCornerConcave;
+				result.minCornerConcave = result.maxCornerConcave;
+				result.maxCornerConcave = tmp2;
+			}
+		}
+		if (frame.invY) {
+			if (result.type == Ceiling) {
+				result.type = Floor;
+			} else if (result.type == Floor) {
+				result.type = Ceiling;
+			} else {
+				int tmp = result.min;
+				result.min = -result.max;
+				result.max = -tmp;
+				bool tmp2 = result.minCornerConcave;
+				result.minCornerConcave = result.maxCornerConcave;
+				result.maxCornerConcave = tmp2;
+			}
+		}
+
+		return result;
+	}
 
 	GravityLine& GetGravityLine(LineID line_id) {
 		return GetRoomData(line_id.room).lines.at(line_id.lineIndex);
+	}
+	GravityLine GetGravityLineInLocalFrame(LineID line_id, LocalFrame& frame) {
+		RoomData& roomData = GetRoomData(line_id.room);
+		GravityLine& rawLine = roomData.lines.at(line_id.lineIndex);
+
+		IntVector roomDistance = GetDistanceOffsetBetweenRooms(frame.origin.room, line_id.room, frame.invY);
+
+		GravityLine result(rawLine);
+		result.min = rawLine.min - frame.origin.pos + roomDistance;
+		result.max = rawLine.max - frame.origin.pos + roomDistance;
+
+		if (frame.invX) {
+			int tmp = result.min.x;
+			result.min.x = -result.max.x;
+			result.max.x = -tmp;
+		}
+		if (frame.invY) {
+			int tmp = result.min.y;
+			result.min.y = -result.max.y;
+			result.max.y = -tmp;
+		}
+
+		return result;
 	}
 
 	NavigationNode& GetNavigationNode(NavigationNodeID node_id) {
@@ -519,11 +673,12 @@ namespace Terrain {
 		bool invX = edge.distance.x < 0;
 		bool invY = startInverseGravity;
 		GlobalPosition referencePos(edge.from.room, invY ? fromPosMax : fromPosMin);
+		LocalFrame localFrame(referencePos, invX, invY);
 
-		IntVector fromPosMinLocal = ToLocalCoords(invX, invY, referencePos, edge.from.room, invY ? fromPosMax : fromPosMin);
-		IntVector fromPosMaxLocal = ToLocalCoords(invX, invY, referencePos, edge.from.room, invY ? fromPosMin : fromPosMax);
-		IntVector toPosMinLocal = ToLocalCoords(invX, invY, referencePos, edge.to.room, invY ? toPosMax : toPosMin);
-		IntVector toPosMaxLocal = ToLocalCoords(invX, invY, referencePos, edge.to.room, invY ? toPosMin : toPosMax);
+		IntVector fromPosMinLocal = ToLocalCoords(localFrame, GlobalPosition(edge.from.room, invY ? fromPosMax : fromPosMin));
+		IntVector fromPosMaxLocal = ToLocalCoords(localFrame, GlobalPosition(edge.from.room, invY ? fromPosMin : fromPosMax));
+		IntVector toPosMinLocal = ToLocalCoords(localFrame, GlobalPosition(edge.to.room, invY ? toPosMax : toPosMin));
+		IntVector toPosMaxLocal = ToLocalCoords(localFrame, GlobalPosition(edge.to.room, invY ? toPosMin : toPosMax));
 
 		int x_distance = toPosMinLocal.x;
 		int max_y_distance = toPosMaxLocal.y - fromPosMinLocal.y;
@@ -562,8 +717,8 @@ namespace Terrain {
 		std::vector<RoomPosition> rooms;
 		std::set_union(rooms_1.begin(), rooms_1.end(), rooms_2.begin(), rooms_2.end(), std::inserter(rooms, rooms.begin()));
 
-		IntVector edgeStartLocal = ToLocalCoords(invX, invY, referencePos, fromNodePos.room, fromNodePos.pos);
-		IntVector edgeEndLocal = ToLocalCoords(invX, invY, referencePos, toNodePos.room, toNodePos.pos);
+		IntVector edgeStartLocal = ToLocalCoords(localFrame, GlobalPosition(fromNodePos.room, fromNodePos.pos));
+		IntVector edgeEndLocal = ToLocalCoords(localFrame, GlobalPosition(toNodePos.room, toNodePos.pos));
 
 		// Find all valid surfaces in the rooms
 		std::vector<RoomWall> surfaces;
@@ -581,8 +736,8 @@ namespace Terrain {
 					continue;
 				}
 				
-				IntVector minCornerLocal = ToLocalCoords(invX, invY, referencePos, room, IntVector(wall.min, wall.plane));
-				IntVector maxCornerLocal = ToLocalCoords(invX, invY, referencePos, room, IntVector(wall.max, wall.plane));
+				IntVector minCornerLocal = ToLocalCoords(localFrame, GlobalPosition(room, IntVector(wall.min, wall.plane)));
+				IntVector maxCornerLocal = ToLocalCoords(localFrame, GlobalPosition(room, IntVector(wall.max, wall.plane)));
 
 				RoomWall tmp_wall;
 				tmp_wall.type = wall.type;
@@ -1114,7 +1269,9 @@ namespace Terrain {
 
 				int x_increment = (up_left || left) ? 1 : -1;
 				int y_increment = (up_left || up) ? 1 : -1;
-				for (int gap_x = corner_x; true; gap_x += x_increment) {
+
+				int gap_x;
+				for (gap_x = corner_x; true; gap_x += x_increment) {
 					bool gap_up = collision_bitmap[bitmap_width * (y - min.y - 1) + (gap_x - min.x)];
 					bool gap_self = collision_bitmap[bitmap_width * (y - min.y) + (gap_x - min.x)];
 
@@ -1127,7 +1284,8 @@ namespace Terrain {
 						break;
 					}
 				}
-				for (int gap_y = corner_y; true; gap_y += y_increment) {
+				int gap_y;
+				for (gap_y = corner_y; true; gap_y += y_increment) {
 					bool gap_left = collision_bitmap[bitmap_width * (gap_y - min.y) + (x - min.x - 1)];
 					bool gap_self = collision_bitmap[bitmap_width * (gap_y - min.y) + (x - min.x)];
 
@@ -1141,12 +1299,69 @@ namespace Terrain {
 					}
 				}
 
+				bool simple = true;
+				// Check walls are continuous
+				for (int region_x = SDL_min(gap_x, corner_x); simple && region_x <= SDL_max(gap_x, corner_x); region_x++) {
+					bool region_border = collision_bitmap[bitmap_width * (gap_y - min.y) + (region_x - min.x)];
+					if (!region_border) {
+						simple = false;
+					}
+				}
+				for (int region_y = SDL_min(gap_y, corner_y); simple && region_y <= SDL_max(gap_y, corner_y); region_y++) {
+					bool region_border = collision_bitmap[bitmap_width * (region_y - min.y) + (gap_x - min.x)];
+					if (!region_border) {
+						simple = false;
+					}
+				}
+				gap_x -= x_increment;
+				gap_y -= y_increment;
+				// Check region is empty
+				for (int region_x = SDL_min(gap_x, corner_x); simple && region_x <= SDL_max(gap_x, corner_x); region_x++) {
+					for (int region_y = SDL_min(gap_y, corner_y); simple && region_y <= SDL_max(gap_y, corner_y); region_y++) {
+						bool region_area = collision_bitmap[bitmap_width * (region_y - min.y) + (region_x - min.x)];
+						if (region_area) {
+							simple = false;
+						}
+					}
+				}
+
+				// More gaps to be measured
+				int verticalNegativeGap = 0;
+				int horizontalNegativeGap = 0;
+				for (gap_x = corner_x; true; gap_x -= x_increment) {
+					bool gap_self = collision_bitmap[bitmap_width * (corner_y - min.y) + (gap_x - min.x)];
+
+					if (gap_self) {
+						break;
+					}
+					horizontalNegativeGap++;
+					if (gap_x <= min.x || gap_x >= max.x) {
+						horizontalNegativeGap = -1;
+						break;
+					}
+				}
+				for (gap_y = corner_y; true; gap_y -= y_increment) {
+					bool gap_self = collision_bitmap[bitmap_width * (gap_y - min.y) + (corner_x - min.x)];
+
+					if (gap_self) {
+						break;
+					}
+					verticalNegativeGap++;
+					if (gap_y <= min.y || gap_y >= max.y) {
+						verticalNegativeGap = -1;
+						break;
+					}
+				}
+
 				// Lastly, create the actual corner struct
 				Corner newCorner;
 				newCorner.pos.x = corner_x;
 				newCorner.pos.y = corner_y;
 				newCorner.horizontalGap = horizontalGap;
 				newCorner.verticalGap = verticalGap;
+				newCorner.horizontalNegativeGap = horizontalNegativeGap;
+				newCorner.verticalNegativeGap = verticalNegativeGap;
+				newCorner.simple = simple;
 				if (up_left) {
 					newCorner.type = BottomRight;
 				} else if (left) {
@@ -1258,6 +1473,71 @@ namespace Terrain {
 				}
 
 				corner.verticalGap = gapSize;
+			}
+		}
+		// Measure screen-crossing negative gaps
+		for (int c = 0; c < num_corners; c++) {
+			Corner& corner = result.corners.at(c);
+
+			GlobalPosition cornerPos(room_pos, corner.pos);
+
+			if (corner.horizontalNegativeGap == -1) {
+				int gapSize = 0;
+
+				IntVector shift;
+				switch (corner.type) {
+				case TopLeft:
+					shift = IntVector(1, 0);
+					break;
+				case BottomLeft:
+					shift = IntVector(1, 0);
+					break;
+				case TopRight:
+					shift = IntVector(-1, 0);
+					break;
+				case BottomRight:
+					shift = IntVector(-1, 0);
+					break;
+				}
+
+				GlobalPosition currentPos = cornerPos;
+				while (GetPlayerCollisionAt(currentPos) == 0) {
+					currentPos.pos.x += shift.x;
+					currentPos.pos.y += shift.y;
+					currentPos = PlayerRoomChangeLogic(currentPos);
+					gapSize++;
+				}
+
+				corner.horizontalNegativeGap = gapSize;
+			}
+			if (corner.verticalNegativeGap == -1) {
+				int gapSize = 0;
+
+				IntVector shift;
+				switch (corner.type) {
+				case TopLeft:
+					shift = IntVector(0, 1);
+					break;
+				case TopRight:
+					shift = IntVector(0, 1);
+					break;
+				case BottomLeft:
+					shift = IntVector(0, -1);
+					break;
+				case BottomRight:
+					shift = IntVector(0, -1);
+					break;
+				}
+
+				GlobalPosition currentPos = cornerPos;
+				while (GetPlayerCollisionAt(currentPos) == 0) {
+					currentPos.pos.x += shift.x;
+					currentPos.pos.y += shift.y;
+					currentPos = PlayerRoomChangeLogic(currentPos);
+					gapSize++;
+				}
+
+				corner.verticalNegativeGap = gapSize;
 			}
 		}
 		// Load the initial room again
@@ -1378,10 +1658,12 @@ namespace Terrain {
 
 		if (r == start_room) {
 			StartNavigationNode startNode(start_room, IntVector(start_x, start_y), start_gravity);
+			start_node = NavigationNodeID(r, roomData.nodes.size());
 			roomData.nodes.emplace_back(startNode);
 		}
 		if (r == goal_room) {
 			GoalNavigationNode goalNode(goal_room, IntVector(goal_x, goal_y));
+			goal_node = NavigationNodeID(r, roomData.nodes.size());
 			roomData.nodes.emplace_back(goalNode);
 		}
 
@@ -2035,6 +2317,8 @@ namespace Terrain {
 			invX = targetMaxPos.room.rx < sourcePos.room.rx;
 		}
 
+		LocalFrame localFrame(sourcePos, invX, invY);
+
 		// Get a list of all rooms between the corner and surfaces
 		std::set<RoomPosition> rooms_1 = GetTouchedRooms(sourcePos, targetMinPos, invY);
 		std::set<RoomPosition> rooms_2 = GetTouchedRooms(sourcePos, targetMaxPos, invY);
@@ -2043,8 +2327,8 @@ namespace Terrain {
 		std::set_union(rooms_1.begin(), rooms_1.end(), rooms_2.begin(), rooms_2.end(), std::inserter(rooms, rooms.begin()));
 
 		// Construct local coordinate frame (corner at 0, 0, wall at positive coordinates)
-		IntVector localTargetMin = ToLocalCoords(invX, invY, sourcePos, targetMinPos.room, targetMinPos.pos);
-		IntVector localTargetMax = ToLocalCoords(invX, invY, sourcePos, targetMaxPos.room, targetMaxPos.pos);
+		IntVector localTargetMin = ToLocalCoords(localFrame, GlobalPosition(targetMinPos.room, targetMinPos.pos));
+		IntVector localTargetMax = ToLocalCoords(localFrame, GlobalPosition(targetMaxPos.room, targetMaxPos.pos));
 		if (invX) {
 			int tmp = localTargetMin.x;
 			localTargetMin.x = localTargetMax.x;
@@ -2099,8 +2383,8 @@ namespace Terrain {
 						break;
 				}
 
-				IntVector localWallMin = ToLocalCoords(invX, invY, sourcePos, wallMin.room, wallMin.pos);
-				IntVector localWallMax = ToLocalCoords(invX, invY, sourcePos, wallMax.room, wallMax.pos);
+				IntVector localWallMin = ToLocalCoords(localFrame, GlobalPosition(wallMin.room, wallMin.pos));
+				IntVector localWallMax = ToLocalCoords(localFrame, GlobalPosition(wallMax.room, wallMax.pos));
 				if (isHorizontalSurface) {
 					if (localWallMin.y < 0) {
 						localWallMin.y += 240 * 20;
@@ -2420,6 +2704,587 @@ namespace Terrain {
 		return surfaces_below;
 	}
 
+
+	std::set<CornerID> FindCornersInRegion(GlobalPosition from, GlobalPosition to) {
+		std::set<CornerID> result;
+
+		IntVector roomOffset = GetMinOffsetBetweenRooms(from.room, to.room);
+		IntVector range = GetMinDistanceBetween(from, to);
+
+		for (int rx = 0; rx <= roomOffset.x; rx++) {
+			for (int ry = 0; ry <= roomOffset.y; ry++) {
+				RoomPosition room((rx + from.room.rx) % 20, (ry + from.room.ry) % 20);
+				RoomData& roomData = GetRoomData(room);
+
+				IntVector roomDistance(rx * 320, ry * 240);
+
+				for (int c = 0; c < roomData.corners.size(); c++) {
+					Corner& corner = roomData.corners.at(c);
+
+					IntVector relativePos = corner.pos + roomDistance - from.pos;
+
+					if (IsInRange(range, relativePos)) {
+						result.emplace(room, c);
+					}
+				}
+			}
+		}
+
+		return result;
+	}
+
+	std::set<WallID> FindWallsInRegion(GlobalPosition from, GlobalPosition to) {
+		std::set<WallID> result;
+
+		IntVector roomOffset = GetMinOffsetBetweenRooms(from.room, to.room);
+		IntVector range = GetMinDistanceBetween(from, to);
+
+		for (int rx = 0; rx <= roomOffset.x; rx++) {
+			for (int ry = 0; ry <= roomOffset.y; ry++) {
+				RoomPosition room((rx + from.room.rx) % 20, (ry + from.room.ry) % 20);
+				RoomData& roomData = GetRoomData(room);
+
+				IntVector roomDistance(rx * 320, ry * 240);
+
+				for (int w = 0; w < roomData.walls.size(); w++) {
+					RoomWall& wall = roomData.walls.at(w);
+
+					IntVector minCorner = (wall.type == Floor || wall.type == Ceiling) ? IntVector(wall.min, wall.plane) : IntVector(wall.plane, wall.min);
+					IntVector maxCorner = (wall.type == Floor || wall.type == Ceiling) ? IntVector(wall.max, wall.plane) : IntVector(wall.plane, wall.max);
+
+					minCorner += roomDistance - from.pos;
+					maxCorner += roomDistance - from.pos;
+
+					if (IsInRange(range, minCorner) || IsInRange(range, maxCorner)) {
+						result.emplace(room, w);
+					}
+				}
+			}
+		}
+
+		return result;
+	}
+
+	// Iteratively explore connecting regions
+	void FindCornerConnections(CornerID c_id, bool inverseGravity) {
+		RoomPosition cornerRoom = c_id.room;
+		RoomData& cornerRoomData = GetRoomData(cornerRoom);
+		Corner& corner = GetCorner(c_id);
+
+		Region hardCornerBounds;
+		Region softCornerBounds;
+		switch (corner.type) {
+			default:
+				// TODO:
+				VVV_exit(-1);
+				return;
+			case TopLeft:
+				if (inverseGravity) {
+					hardCornerBounds.limitXAbove(corner.pos.x - corner.horizontalGap);
+					hardCornerBounds.limitXBelow(corner.pos.x + corner.horizontalNegativeGap);
+					hardCornerBounds.limitYAbove(corner.pos.y - corner.verticalGap);
+					hardCornerBounds.limitYBelow(corner.pos.y);
+
+					softCornerBounds = Region::intersect(hardCornerBounds, Region::fromXMin(corner.pos.x));
+				} else {
+					hardCornerBounds.limitXAbove(corner.pos.x);
+					hardCornerBounds.limitXBelow(corner.pos.x - corner.horizontalGap);
+					hardCornerBounds.limitYAbove(corner.pos.y - corner.verticalGap);
+					hardCornerBounds.limitYBelow(corner.pos.y + corner.verticalNegativeGap);
+
+					softCornerBounds = Region::intersect(hardCornerBounds, Region::fromYMin(corner.pos.y));
+				}
+				break;
+		}
+
+		LocalFrame localFrame(GlobalPosition(cornerRoom, IntVector::zero()), false, false);
+		GlobalPosition min = ToGlobalCoords(localFrame, IntVector(hardCornerBounds.x.min, hardCornerBounds.y.min));
+		GlobalPosition max = ToGlobalCoords(localFrame, IntVector(hardCornerBounds.x.max, hardCornerBounds.y.max));
+		GlobalPosition softMin = ToGlobalCoords(localFrame, IntVector(softCornerBounds.x.min, softCornerBounds.y.min));
+		GlobalPosition softMax = ToGlobalCoords(localFrame, IntVector(softCornerBounds.x.max, softCornerBounds.y.max));
+
+		if (softCornerBounds.is_bottom() || hardCornerBounds.is_bottom()) {
+			return;
+		}
+
+		// Get all surfaces within hard region bounds
+		std::set<WallID> surfaces;
+		{
+			std::set<WallID> walls = FindWallsInRegion(min, max);
+			// Filter out vertical walls
+			for (std::set<WallID>::iterator it = walls.begin(); it != walls.end(); ++it) {
+				WallID wall_id = *it;
+				RoomWall& wall = GetWall(wall_id);
+				if (wall.type == WallType::Ceiling || wall.type == WallType::Floor) {
+					surfaces.insert(wall_id);
+				}
+			}
+		}
+		// Get all corners within hard region bounds
+		std::set<CornerID> corners;
+		{
+			std::set<CornerID> temp_corners = FindCornersInRegion(min, max);
+			// Filter out invalid corners
+			for (std::set<CornerID>::iterator it = temp_corners.begin(); it != temp_corners.end(); ++it) {
+				CornerID corner_id = *it;
+				Corner& corner = GetCorner(corner_id);
+				if (true) {
+					corners.insert(corner_id);
+				}
+			}
+		}
+
+		// Temp: render the surfaces and region
+		SDL_SetRenderDrawColor(gameScreen.m_renderer, 0, 0, 255, 100);
+		RenderRect(min, max);
+
+		SDL_SetRenderDrawColor(gameScreen.m_renderer, 0, 255, 0, 255);
+		for (std::set<WallID>::iterator it = surfaces.begin(); it != surfaces.end(); ++it) {
+			WallID wall_id = *it;
+			RenderWall(wall_id);
+		}
+
+		SDL_SetRenderDrawColor(gameScreen.m_renderer, 255, 0, 0, 255);
+		for (std::set<CornerID>::iterator it = corners.begin(); it != corners.end(); ++it) {
+			CornerID corner_id = *it;
+			IntVector& pos = GetCorner(corner_id).pos;
+			RenderPixel(pos.x, pos.y);
+		}
+
+
+	}
+
+	// Given fixed endpoints, find connecting surfaces
+	void FindConnectingSurfaces(CornerID from_id, CornerID to_id) {
+
+	}
+
+	bool IsInRange(IntVector range, IntVector v) {
+		if (range.x < 0) {
+			range.x = -range.x;
+			v.x = -v.x;
+		}
+		if (range.y < 0) {
+			range.y = -range.y;
+			v.y = -v.y;
+		}
+		return v.x >= 0 && v.y >= 0 && v.x <= range.x && v.y <= range.y;
+	}
+
+	void BuildSurfaceConnectionGraph(NavigationNodeID from, NavigationNodeID to, bool invY) {
+		GlobalPosition fromPos = GetNodePos(from);
+		GlobalPosition toPos = GetNodePos(to);
+		NavigationNode& fromNode = GetNavigationNode(from);
+		NavigationNode& toNode = GetNavigationNode(to);
+
+		IntVector distance = GetDistanceBetween(fromPos, toPos, invY);
+		bool invX = distance.x < 0;
+		// TODO: doens't work for invX == true;
+
+		// Gather all surfaces and lines directly above the edge
+		// TODO: this isn't strictly correct, in a case like:
+		// ___________________
+		//         ____
+		// the lower surface in the middle will be missed
+		std::set<WallID> surfaces_above;
+		std::set<LineID> lines_above;
+		int x = 0;
+		while (x <= distance.x) {
+			// Y should be rounded down to give first integer coordinate above the edge
+			int max_y = distance.y * x / distance.x;
+
+			GlobalPosition actualPos(fromPos);
+			actualPos.pos += IntVector(x, max_y);
+			actualPos = DoAllRoomChanges(actualPos);
+
+			int found_item = 0;
+			WallID next_surface(actualPos.room, -1);
+			LineID next_line(actualPos.room, -1);
+			while (true) {
+				RoomData& roomData = GetRoomData(actualPos.room);
+				int best_y = -1000;
+				for (int l = 0; l < roomData.lines.size(); l++) {
+					GravityLine& line = roomData.lines.at(l);
+					if (line.min.x > actualPos.pos.x || line.max.x < actualPos.pos.x) {
+						// Not above the desired x pos
+						continue;
+					}
+					if (line.max.y > actualPos.pos.y || line.max.y <= best_y) {
+						// Not above the edge or not better than previous
+						continue;
+					}
+					int d_y = GetDistanceBetween(fromPos, GlobalPosition(actualPos.room, line.max), invY).y;
+					int e_y = distance.y;
+					if (d_y * distance.x >= line.min.x * e_y && d_y * distance.x <= line.max.x * e_y) {
+						VVV_exit(-1);
+						// The edge crosses the line, which is not a very nice case to handle
+						// TODO: how best to handle this?
+						continue;
+					}
+
+					best_y = line.max.y;
+					next_line.room = actualPos.room;
+					next_line.lineIndex = l;
+					found_item = 2;
+				}
+				for (int w = 0; w < roomData.walls.size(); w++) {
+					RoomWall& wall = roomData.walls.at(w);
+					if (wall.type != Ceiling) {
+						// Not a ceiling
+						continue;
+					}
+					if (wall.min > actualPos.pos.x || wall.max < actualPos.pos.x) {
+						// Not above the desired x pos
+						continue;
+					}
+					if (wall.plane > actualPos.pos.y || wall.plane <= best_y) {
+						// Not above the edge or not better than previous
+						continue;
+					}
+					best_y = wall.plane;
+					next_surface.room = actualPos.room;
+					next_surface.wallIndex = w;
+					found_item = 1;
+				}
+
+				if (found_item > 0) {
+					// Found it!
+					break;
+				} else {
+					// Go to next room above
+					actualPos.room = actualPos.room.NextRoomUp();
+					actualPos.pos.y = roomData.GetMaxYPos() + 1;
+				}
+			}
+
+			int increment = 1;
+			if (found_item == 1) {
+				RoomWall& s = GetWall(next_surface);
+				if (s.walkable) {
+					// Only store if we can flip on it
+					surfaces_above.insert(next_surface);
+				}
+				increment += s.max - actualPos.pos.x;
+			} else if (found_item == 2) {
+				GravityLine& s = GetGravityLine(next_line);
+				lines_above.insert(next_line);
+				increment += s.max.x - actualPos.pos.x;
+			}
+
+			// Go to next uncovered position
+			x += increment;
+		}
+
+		// Gather all surfaces and lines directly below the edge
+		std::set<WallID> surfaces_below;
+		std::set<LineID> lines_below;
+		x = 0;
+		while (x <= distance.x) {
+			// Y should be rounded up to give first integer coordinate below the edge
+			int min_y = (distance.y * x + distance.x - 1) / distance.x;
+
+			GlobalPosition actualPos(fromPos);
+			actualPos.pos += IntVector(x, min_y);
+			actualPos = DoAllRoomChanges(actualPos);
+
+			int found_item = 0;
+			WallID next_surface(actualPos.room, -1);
+			LineID next_line(actualPos.room, -1);
+			while (true) {
+				RoomData& roomData = GetRoomData(actualPos.room);
+				int best_y = 1000;
+				for (int l = 0; l < roomData.lines.size(); l++) {
+					GravityLine& line = roomData.lines.at(l);
+					if (line.min.x > actualPos.pos.x || line.max.x < actualPos.pos.x) {
+						// Not above the desired x pos
+						continue;
+					}
+					if (line.min.y < actualPos.pos.y || line.min.y >= best_y) {
+						// Not above the edge or not better than previous
+						continue;
+					}
+					int d_y = GetDistanceBetween(fromPos, GlobalPosition(actualPos.room, line.min), invY).y;
+					int e_y = distance.y;
+					if (d_y * distance.x >= line.min.x * e_y && d_y * distance.x <= line.max.x * e_y) {
+						VVV_exit(-1);
+						// The edge crosses the line, which is not a very nice case to handle
+						// TODO: how best to handle this?
+						continue;
+					}
+
+					best_y = line.min.y;
+					next_line.room = actualPos.room;
+					next_line.lineIndex = l;
+					found_item = 2;
+				}
+				for (int w = 0; w < roomData.walls.size(); w++) {
+					RoomWall& wall = roomData.walls.at(w);
+					if (wall.type != Floor) {
+						// Not a floor
+						continue;
+					}
+					if (wall.min > actualPos.pos.x || wall.max < actualPos.pos.x) {
+						// Not above the desired x pos
+						continue;
+					}
+					if (wall.plane < actualPos.pos.y || wall.plane >= best_y) {
+						// Not above the edge or not better than previous
+						continue;
+					}
+					best_y = wall.plane;
+					next_surface.room = actualPos.room;
+					next_surface.wallIndex = w;
+					found_item = 1;
+				}
+
+				if (found_item > 0) {
+					// Found it!
+					break;
+				} else {
+					// Go to next room above
+					actualPos.room = actualPos.room.NextRoomDown();
+					actualPos.pos.y = roomData.GetMinYPos() - 1;
+				}
+			}
+
+			int increment = 1;
+			if (found_item == 1) {
+				RoomWall& s = GetWall(next_surface);
+				if (s.walkable) {
+					// Only store if we can flip on it
+					surfaces_below.insert(next_surface);
+				}
+				increment += s.max - actualPos.pos.x;
+			} else if (found_item == 2) {
+				GravityLine& s = GetGravityLine(next_line);
+				lines_below.insert(next_line);
+				increment += s.max.x - actualPos.pos.x;
+			}
+
+			// Go to next uncovered position
+			x += increment;
+		}
+
+		// Temporary: Visualize the gathered lines and surfaces
+		// TODO: remove this
+		RoomPosition currentRoom = GetCurrentRoomPosition();
+		RoomData& currentRoomData = GetRoomData(currentRoom);
+		for (int l = 0; l < currentRoomData.lines.size(); l++) {
+			LineID l_id(currentRoom, l);
+			if (lines_above.count(l_id) + lines_below.count(l_id) > 0) {
+				RenderGravityLine(l_id);
+			}
+		}
+		for (int w = 0; w < currentRoomData.walls.size(); w++) {
+			WallID w_id(currentRoom, w);
+			if (surfaces_above.count(w_id) + surfaces_below.count(w_id) > 0) {
+				RenderWall(w_id);
+			}
+		}
+
+		// TODO: Process the surfaces usefully
+		int totalAbove = lines_above.size() + surfaces_above.size();
+		int totalBelow = lines_below.size() + surfaces_below.size();
+
+		// Note: touching a line effectively reduces speed to 1.75f in direction of travel (and inverts gravity)
+		// Note: we can basically assume the lowest top surface is above the highest bottom surface (will almost always be the case)
+
+		/*
+		struct SurfaceConnection {
+			bool invStart;
+			bool invEnd;
+			int fromIndex;
+			int toIndex;
+			Interval fromRange;
+			Interval toRange;
+		};*/
+
+		return;
+		LineID fromLine_id = *lines_above.begin();
+		LineID toLine_id = *lines_below.begin();
+
+		GravityLine& fromLine = GetGravityLine(fromLine_id);
+		GravityLine& toLine = GetGravityLine(toLine_id);
+
+		GlobalPosition ref(fromLine_id.room, fromLine.min);
+		LocalFrame local(ref, false, false);
+
+		IntVector fromLineMin = IntVector(0, 0);
+		IntVector fromLineMax = ToLocalCoords(local, GlobalPosition(fromLine_id.room, fromLine.max));
+		
+		GravityLine& toLineRelative = GetGravityLineInLocalFrame(toLine_id, local);
+		IntVector toLineMin = toLineRelative.min;
+		IntVector toLineMax = toLineRelative.max;
+
+		int y_dist = SDL_min(SDL_abs(toLineMin.y - fromLineMax.y), SDL_abs(toLineMax.y - fromLineMin.y));
+		int overlapMin = SDL_max(fromLineMin.x, toLineMin.x);
+		int overlapMax = SDL_min(fromLineMax.x, toLineMax.x);
+
+		// Interval fromRange(overlapMin, overlapMax);
+		// Interval toRange(overlapMin, overlapMax);
+		if (overlapMin <= overlapMax) {
+			// Definitely a connection
+			IntVector overlapStart(overlapMin, fromLineMax.y);
+			IntVector overlapEnd(overlapMax, toLineMin.y);
+
+			GlobalPosition rectStart = ToGlobalCoords(local, overlapStart);
+			GlobalPosition rectEnd = ToGlobalCoords(local, overlapEnd);
+
+			RenderRect(rectStart, rectEnd);
+		}
+
+		// TODO
+	}
+
+	void VisualizeHeuristic(void) {
+		struct HNode {
+			NavigationNodeID node;
+			int heuristic;
+
+			HNode(NavigationNodeID node, int heuristic) : node(node), heuristic(heuristic) {}
+
+			bool operator== (const HNode& other) const {
+				return node == other.node;
+			}
+			bool operator!= (const HNode& other) const {
+				return !(*this == other);
+			}
+			bool operator< (const HNode& other) const {
+				return heuristic < other.heuristic;
+			}
+			bool operator<=(const HNode& other) const {
+				return heuristic <= other.heuristic;
+			}
+			bool operator>=(const HNode& other) const {
+				return !(*this < other);
+			}
+			bool operator> (const HNode& other) const {
+				return !(*this <= other);
+			}
+		};
+		std::vector<HNode> h_nodes;
+		std::set<NavigationNodeID> visited;
+		std::priority_queue<HNode, std::vector<HNode>, std::greater<HNode>> queue;
+
+		queue.emplace(goal_node, 0);
+
+		while (!queue.empty()) {
+			HNode node = queue.top();
+			queue.pop();
+
+			if (visited.count(node.node) > 0) {
+				continue;
+			}
+			visited.insert(node.node);
+			h_nodes.push_back(node);
+
+			for (int e = 0; e < edges.size(); e++) {
+				NavigationEdge& edge = edges.at(e);
+				if (edge.to == node.node) {
+					int h = node.heuristic + Heuristic::basic_heuristic(SDL_abs(edge.distance.x), SDL_abs(edge.distance.y));
+
+					NavigationNodeID other = edge.from;
+					queue.emplace(other, h);
+				}
+			}
+		}
+		int x_step = 6;
+		int y_step = 6;
+
+		RoomPosition currentRoom = GetCurrentRoomPosition();
+		for (int x = 0; x < 320; x += x_step) {
+			for (int y = 0; y < 240; y += y_step) {
+				IntVector pos(x - VIRIDIAN_CX, y - VIRIDIAN_CY);
+				if (GetCurrentRoomPlayerCollisionAt(pos) > 0) {
+					continue;
+				}
+				GlobalPosition gp(currentRoom, pos);
+				
+				int min_heuristic = INT_MAX;
+				int min_node_index = -1;
+				for (int n = 0; n < h_nodes.size(); n++) {
+					HNode& node = h_nodes.at(n);
+					IntVector distance = GetMinDistanceBetween(gp, GetNodePos(node.node));
+					int h = node.heuristic + Heuristic::basic_heuristic(SDL_abs(distance.x), SDL_abs(distance.y));
+					if (h >= min_heuristic) {
+						continue;
+					}
+					float t = GlobalRaycast(currentRoom, Ray(pos.x, pos.y, distance.x, distance.y));
+					if (t < 1.0f) {
+						continue;
+					}
+
+					min_heuristic = h;
+					min_node_index = n;
+				}
+
+				if (min_heuristic < INT_MAX) {
+					HNode& min_node = h_nodes.at(min_node_index);
+					int color_val = min_heuristic * 20;
+
+					color_val %= (255 * 2);
+					int r = SDL_min(255, color_val);
+					int g = SDL_max(0, 255 - SDL_max(0, color_val - 255));
+					SDL_SetRenderDrawColor(gameScreen.m_renderer, r, g, 0, 150);
+					// RenderPixel(pos.x, pos.y);
+					RenderRect(gp, GlobalPosition(currentRoom, pos + IntVector(x_step - 1, y_step - 1)));
+				}
+			}
+		}
+
+		return;
+	}
+
+	void FindConnectingCorners(CornerID corner_id, bool inverseGravity) {
+		RoomData& roomData = GetRoomData(corner_id.room);
+		Corner& corner = GetCorner(corner_id);
+
+		int signedVerticalGapAfter, signedHorizontalGapAfter;
+		switch (corner.type) {
+		default:
+			return;
+		case TopLeft:
+			if (inverseGravity) {
+				signedVerticalGapAfter = -corner.verticalGap;
+				signedHorizontalGapAfter = corner.horizontalNegativeGap;
+			} else {
+				signedVerticalGapAfter = corner.verticalNegativeGap;
+				signedHorizontalGapAfter = -corner.horizontalGap;
+			}
+			break;
+		case TopRight:
+			if (inverseGravity) {
+				signedVerticalGapAfter = -corner.verticalGap;
+				signedHorizontalGapAfter = -corner.horizontalNegativeGap;
+			} else {
+				signedVerticalGapAfter = corner.verticalNegativeGap;
+				signedHorizontalGapAfter = corner.horizontalGap;
+			}
+			break;
+		case BottomLeft:
+			if (inverseGravity) {
+				signedVerticalGapAfter = -corner.verticalNegativeGap;
+				signedHorizontalGapAfter = -corner.horizontalGap;
+			} else {
+				signedVerticalGapAfter = corner.verticalGap;
+				signedHorizontalGapAfter = corner.horizontalNegativeGap;
+			}
+			break;
+		case BottomRight:
+			if (inverseGravity) {
+				signedVerticalGapAfter = -corner.verticalNegativeGap;
+				signedHorizontalGapAfter = corner.horizontalGap;
+			} else {
+				signedVerticalGapAfter = corner.verticalGap;
+				signedHorizontalGapAfter = -corner.horizontalNegativeGap;
+			}
+			break;
+		}
+
+		IntVector afterRegionSize(signedHorizontalGapAfter, signedVerticalGapAfter);
+
+	}
+
 	GlobalPosition GetNodePos(NavigationNodeID node_id) {
 		NavigationNode& node = GetNavigationNode(node_id);
 		GlobalPosition result;
@@ -2493,16 +3358,23 @@ namespace Terrain {
 		}
 	}
 
-	IntVector ToLocalCoords(bool invX, bool invY, GlobalPosition referencePos, RoomPosition room, IntVector pos) {
+	IntVector ToLocalCoords(LocalFrame& localFrame, GlobalPosition& globalPos) {
 		// invX -> distances are expected to be negative, return positive result
-		int d_rx = GetHOffsetBetweenRooms(referencePos.room, room);
+		int d_rx = GetHOffsetBetweenRooms(localFrame.origin.room, globalPos.room);
 		// invY -> distances are expected to be negative, return positive result
-		int d_ry = invY ? GetMinNegativeVOffsetBetweenRooms(referencePos.room, room) : GetMinPositiveVOffsetBetweenRooms(referencePos.room, room);
+		int d_ry = localFrame.invY ? GetMinNegativeVOffsetBetweenRooms(localFrame.origin.room, globalPos.room) : GetMinPositiveVOffsetBetweenRooms(localFrame.origin.room, globalPos.room);
 
-		int d_x = d_rx * 320 + (pos.x - referencePos.pos.x);
-		int d_y = d_ry * 240 + (pos.y - referencePos.pos.y);
+		int d_x = d_rx * 320 + (globalPos.pos.x - localFrame.origin.pos.x);
+		int d_y = d_ry * 240 + (globalPos.pos.y - localFrame.origin.pos.y);
 
-		return IntVector(invX ? -d_x : d_x, invY ? -d_y : d_y);
+		return IntVector(localFrame.invX ? -d_x : d_x, localFrame.invY ? -d_y : d_y);
+	}
+
+	GlobalPosition ToGlobalCoords(LocalFrame& localFrame, IntVector localPos) {
+		GlobalPosition result = localFrame.origin;
+		result.pos.x += localFrame.invX ? -localPos.x : localPos.x;
+		result.pos.y += localFrame.invY ? -localPos.y : localPos.y;
+		return DoAllRoomChanges(result);
 	}
 
 	GlobalPosition DoAllRoomChanges(GlobalPosition& globalPos) {
@@ -3242,6 +4114,22 @@ namespace Terrain {
 		int d_ry = GetVOffsetBetweenRooms(from, to, invY);
 		return IntVector(320 * d_rx, 240 * d_ry);
 	}
+	IntVector GetMinDistanceOffsetBetweenRooms(RoomPosition from, RoomPosition to) {
+		int d_rx = GetHOffsetBetweenRooms(from, to);
+		int d_ry = GetMinVOffsetBetweenRooms(from, to);
+		return IntVector(320 * d_rx, 240 * d_ry);
+	}
+	IntVector GetMinOffsetBetweenRooms(RoomPosition from, RoomPosition to) {
+		int d_rx = GetHOffsetBetweenRooms(from, to);
+		int d_ry = GetMinVOffsetBetweenRooms(from, to);
+		return IntVector(d_rx, d_ry);
+	}
+	IntVector GetDistanceBetween(GlobalPosition& from, GlobalPosition& to, bool invY) {
+		return GetDistanceOffsetBetweenRooms(from.room, to.room, invY) + to.pos - from.pos;
+	}
+	IntVector GetMinDistanceBetween(GlobalPosition& from, GlobalPosition& to) {
+		return GetMinDistanceOffsetBetweenRooms(from.room, to.room) + to.pos - from.pos;
+	}
 	int GetHOffsetBetweenRooms(RoomPosition from, RoomPosition to) {
 		int d_rx = to.rx - from.rx;
 		if ((from.rx < TOWER_RX) != (to.rx < TOWER_RX)) {
@@ -3257,6 +4145,16 @@ namespace Terrain {
 	}
 	int GetVOffsetBetweenRooms(RoomPosition from, RoomPosition to, bool invY) {
 		return invY ? GetMinNegativeVOffsetBetweenRooms(from, to) : GetMinPositiveVOffsetBetweenRooms(from, to);
+	}
+	int GetMinVOffsetBetweenRooms(RoomPosition from, RoomPosition to) {
+		int neg_offset = GetMinNegativeVOffsetBetweenRooms(from, to);
+		int pos_offset = GetMinPositiveVOffsetBetweenRooms(from, to);
+
+		if (SDL_abs(neg_offset) < pos_offset) {
+			return neg_offset;
+		} else {
+			return pos_offset;
+		}
 	}
 	int GetMinPositiveVOffsetBetweenRooms(RoomPosition from, RoomPosition to) {
 		int d_ry = to.ry - from.ry;
@@ -3287,6 +4185,31 @@ namespace Terrain {
 
 		// Player hitbox
 		const SDL_Rect temprect = { pos.pos.x + VIRIDIAN_CX, pos.pos.y + VIRIDIAN_CY, VIRIDIAN_W, VIRIDIAN_H };
+
+		uint8_t collision = 0;
+		// Check walls
+		if (collisionSetting == CollisionSetting::Walls || collisionSetting == CollisionSetting::WallsAndSpikes) {
+			if (obj.checkwall(false, temprect)) {
+				// 1: wall
+				collision = 1;
+			}
+		}
+		// Check spikes
+		if (collisionSetting == CollisionSetting::WallsAndSpikes) {
+			for (size_t j = 0; j < obj.blocks.size(); j++) {
+				if (obj.blocks[j].type == DAMAGE && help.intersects(obj.blocks[j].rect, temprect)) {
+					// 2: damage
+					collision = 2;
+				}
+			}
+		}
+
+		// Return result
+		return collision;
+	}
+	uint8_t GetCurrentRoomPlayerCollisionAt(IntVector pos) {
+		// Player hitbox
+		const SDL_Rect temprect = { pos.x + VIRIDIAN_CX, pos.y + VIRIDIAN_CY, VIRIDIAN_W, VIRIDIAN_H };
 
 		uint8_t collision = 0;
 		// Check walls
@@ -3662,5 +4585,23 @@ namespace Terrain {
 
 		// Failsafe: no intersection
 		return INFINITY;
+	}
+
+	bool RoomPosition::IsTower() {
+		if (outside) {
+			if (rx == 8) {
+				// Panic Room
+				return ry == 4 || ry == 5;
+			}
+			else if (rx == 10) {
+				// Final Challenge
+				return ry == 5 || ry == 6;
+			}
+		}
+		else {
+			// Tower
+			return rx == TOWER_RX;
+		}
+		return false;
 	}
 }

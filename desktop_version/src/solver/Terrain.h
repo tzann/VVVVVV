@@ -1,26 +1,15 @@
-#ifndef TERRAIN_H
-#define TERRAIN_H
+#ifndef SOLVER_TERRAIN_H
+#define SOLVER_TERRAIN_H
 
 #include <cstddef>
 #include <vector>
 #include <set>
 
 #include "Exit.h"
+#include "solver/Constants.h"
+#include "solver/Geometry.h"
 
-#define VIRIDIAN_CX (6)
-#define VIRIDIAN_CY (2)
-#define VIRIDIAN_W (12)
-#define VIRIDIAN_H (21)
-
-#define X_ACCEL_EFF (1.9f)
-#define Y_ACCEL_EFF (2.75f)
-#define MAX_X_SPEED (6)
-#define MAX_Y_SPEED (10)
-
-#define TOWER_RX (9)
-
-#define RENDER_OFFSET_X (11)
-#define RENDER_OFFSET_Y (12)
+using namespace Geometry;
 
 namespace Terrain {
 	static int colors[12][3] = {
@@ -38,59 +27,6 @@ namespace Terrain {
 		WallsAndSpikes,
 	};
 
-	struct IntVector {
-		int x, y;
-
-		IntVector() {
-			x = 0;
-			y = 0;
-		}
-
-		IntVector(int x, int y) : x(x), y(y) { }
-
-		bool operator== (const IntVector& other) const {
-			return (x == other.x && y == other.y);
-		}
-		bool operator!= (const IntVector& other) const {
-			return !(*this == other);
-		}
-		bool operator< (const IntVector& other) const {
-			if (y != other.y) {
-				return y < other.y;
-			}
-			else if (x != other.x) {
-				return x < other.x;
-			}
-			// Equality
-			return false;
-		}
-		bool operator<=(const IntVector& other) const {
-			return (*this < other) || (*this == other);
-		}
-		bool operator>=(const IntVector& other) const {
-			return !(*this < other);
-		}
-		bool operator> (const IntVector& other) const {
-			return !(*this <= other);
-		}
-
-		IntVector& operator+=(const IntVector& rhs) {
-			x += rhs.x;
-			y += rhs.y;
-			return *this;
-		}
-		IntVector operator+(const IntVector& other) {
-			return IntVector(x + other.x, y + other.y);
-		}
-		IntVector& operator-=(const IntVector& rhs) {
-			x -= rhs.x;
-			y -= rhs.y;
-			return *this;
-		}
-		IntVector operator-(const IntVector& other) {
-			return IntVector(x - other.x, y - other.y);
-		}
-	};
 	struct RoomPosition {
 		bool outside;
 		int rx, ry;
@@ -144,22 +80,7 @@ namespace Terrain {
 			return result;
 		}
 
-		bool IsTower() {
-			if (outside) {
-				if (rx == 8) {
-					// Panic Room
-					return ry == 4 || ry == 5;
-				}
-				else if (rx == 10) {
-					// Final Challenge
-					return ry == 5 || ry == 6;
-				}
-			} else {
-				// Tower
-				return rx == TOWER_RX;
-			}
-			return false;
-		}
+		bool IsTower();
 		
 		static RoomPosition FromNativeRoomCoords(int rx, int ry) {
 			RoomPosition result;
@@ -204,6 +125,18 @@ namespace Terrain {
 		GlobalPosition(RoomPosition room, IntVector pos) : room(room), pos(pos) { }
 	};
 
+	struct LocalFrame {
+		GlobalPosition origin;
+		bool invX, invY;
+
+		LocalFrame() {
+			origin.room = RoomPosition(0, 0);
+			origin.pos = IntVector(0, 0);
+			invX = invY = false;
+		}
+		LocalFrame(GlobalPosition origin, bool invX, bool invY) : origin(origin), invX(invX), invY(invY) { }
+	};
+
 	struct Ray {
 		IntVector origin;
 		IntVector direction;
@@ -227,6 +160,9 @@ namespace Terrain {
 		IntVector pos;
 		CornerType type;
 		int verticalGap, horizontalGap;
+		int verticalNegativeGap, horizontalNegativeGap;
+		int verticalWallLength, horizontalWallLength;
+		bool simple;
 	};
 
 	enum WallType {
@@ -267,6 +203,26 @@ namespace Terrain {
 		}
 		bool operator!= (const CornerID& other) const {
 			return (room != other.room || cornerIndex != other.cornerIndex);
+		}
+
+		bool operator< (const CornerID& other) const {
+			if (room != other.room) {
+				return room < other.room;
+			}
+			else if (cornerIndex != other.cornerIndex) {
+				return cornerIndex < other.cornerIndex;
+			}
+			// Equality
+			return false;
+		}
+		bool operator<=(const CornerID& other) const {
+			return (*this < other) || (*this == other);
+		}
+		bool operator>=(const CornerID& other) const {
+			return !(*this < other);
+		}
+		bool operator> (const CornerID& other) const {
+			return !(*this <= other);
 		}
 	};
 	struct WallID {
@@ -313,6 +269,25 @@ namespace Terrain {
 		bool operator!= (const NavigationNodeID& other) const {
 			return (room != other.room || nodeIndex != other.nodeIndex);
 		}
+		bool operator< (const NavigationNodeID& other) const {
+			if (room != other.room) {
+				return room < other.room;
+			}
+			else if (nodeIndex != other.nodeIndex) {
+				return nodeIndex < other.nodeIndex;
+			}
+			// Equality
+			return false;
+		}
+		bool operator<=(const NavigationNodeID& other) const {
+			return (*this < other) || (*this == other);
+		}
+		bool operator>=(const NavigationNodeID& other) const {
+			return !(*this < other);
+		}
+		bool operator> (const NavigationNodeID& other) const {
+			return !(*this <= other);
+		}
 	};
 	struct LineID {
 		RoomPosition room;
@@ -325,6 +300,25 @@ namespace Terrain {
 		}
 		bool operator!= (const LineID& other) const {
 			return (room != other.room || lineIndex != other.lineIndex);
+		}
+		bool operator< (const LineID& other) const {
+			if (room != other.room) {
+				return room < other.room;
+			}
+			else if (lineIndex != other.lineIndex) {
+				return lineIndex < other.lineIndex;
+			}
+			// Equality
+			return false;
+		}
+		bool operator<=(const LineID& other) const {
+			return (*this < other) || (*this == other);
+		}
+		bool operator>=(const LineID& other) const {
+			return !(*this < other);
+		}
+		bool operator> (const LineID& other) const {
+			return !(*this <= other);
 		}
 	};
 
@@ -446,8 +440,10 @@ namespace Terrain {
 	// -------------------
 	void RenderPixel(int x, int y);
 	void RenderWall(WallID w);
+	void RenderCorner(CornerID corner_id);
 	void RenderEdge(int edge_index);
 	void RenderGravityLine(LineID line_id);
+	void RenderRect(GlobalPosition min, GlobalPosition max);
 	void RenderCollisionBitmap(IntVector offset);
 
 	// --------------------------------------
@@ -480,6 +476,17 @@ namespace Terrain {
 	std::set<WallID> GetSurfacesAboveEdge(NavigationEdge& edge);
 	std::set<WallID> GetSurfacesBelowEdge(NavigationEdge& edge);
 
+	std::set<CornerID> FindCornersInRegion(GlobalPosition from, GlobalPosition to);
+	std::set<WallID> FindWallsInRegion(GlobalPosition from, GlobalPosition to);
+
+	void FindCornerConnections(CornerID c_id, bool inverseGravity);
+	void FindConnectingSurfaces(CornerID from_id, CornerID to_id);
+
+	bool IsInRange(IntVector range, IntVector v);
+
+	void BuildSurfaceConnectionGraph(NavigationNodeID from, NavigationNodeID to, bool invY);
+	void VisualizeHeuristic(void);
+
 	GlobalPosition GetNodePos(NavigationNodeID node_id);
 
 	int GetMinXFrames(int d_x);
@@ -489,7 +496,8 @@ namespace Terrain {
 
 	GlobalPosition DoAllRoomChanges(GlobalPosition& globalPos);
 	GlobalPosition PlayerRoomChangeLogic(GlobalPosition& globalPos);
-	IntVector ToLocalCoords(bool invX, bool invY, GlobalPosition referencePos, RoomPosition room, IntVector pos);
+	IntVector ToLocalCoords(LocalFrame& localFrame, GlobalPosition& globalPos);
+	GlobalPosition ToGlobalCoords(LocalFrame& localFrame, IntVector localPos);
 
 	int PruneDeadEndEdges(void);
 	int PruneDominatedEdges(void);
@@ -501,11 +509,17 @@ namespace Terrain {
 	RoomPosition GetCurrentRoomPosition();
 	GlobalPosition GetPlayerPosition();
 	IntVector GetDistanceOffsetBetweenRooms(RoomPosition from, RoomPosition to, bool invY);
+	IntVector GetMinDistanceOffsetBetweenRooms(RoomPosition from, RoomPosition to);
+	IntVector GetMinOffsetBetweenRooms(RoomPosition from, RoomPosition to);
+	IntVector GetDistanceBetween(GlobalPosition& from, GlobalPosition& to, bool invY);
+	IntVector GetMinDistanceBetween(GlobalPosition& from, GlobalPosition& to);
 	int GetHOffsetBetweenRooms(RoomPosition from, RoomPosition to);
 	int GetVOffsetBetweenRooms(RoomPosition from, RoomPosition to, bool invY);
+	int GetMinVOffsetBetweenRooms(RoomPosition from, RoomPosition to);
 	int GetMinPositiveVOffsetBetweenRooms(RoomPosition from, RoomPosition to);
 	int GetMinNegativeVOffsetBetweenRooms(RoomPosition from, RoomPosition to);
 	uint8_t GetPlayerCollisionAt(GlobalPosition pos);
+	uint8_t GetCurrentRoomPlayerCollisionAt(IntVector pos);
 	uint8_t* GetCurrentRoomPlayerCollisionBitmap(IntVector min, IntVector max);
 
 	// ------------------------
@@ -516,4 +530,4 @@ namespace Terrain {
 	float WallRayIntersection(RoomWall& wall, Ray& ray);
 };
 
-#endif /* TERRAIN_H */
+#endif /* SOLVER_TERRAIN_H */

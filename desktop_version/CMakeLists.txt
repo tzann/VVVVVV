@@ -120,6 +120,7 @@ set(VVV_SRC
     src/solver/Solver.cpp
     src/solver/Terrain.cpp
     src/solver/Heuristic.cpp
+    src/solver/Geometry.cpp
 )
 if(NOT CUSTOM_LEVEL_SUPPORT STREQUAL "DISABLED")
     list(APPEND VVV_SRC src/CustomLevels.cpp)
