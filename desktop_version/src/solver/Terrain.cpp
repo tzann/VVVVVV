@@ -141,6 +141,8 @@ namespace Terrain {
 		}
 	}
 
+	int counter = 0;
+
 	void AfterTileRenderHook(void) {
 		RoomPosition currentRoom = GetCurrentRoomPosition();
 		RoomData& currentRoomData = GetRoomData(currentRoom);
@@ -151,13 +153,22 @@ namespace Terrain {
 			SDL_SetRenderDrawBlendMode(gameScreen.m_renderer, SDL_BLENDMODE_BLEND);
 			SDL_SetRenderDrawColor(gameScreen.m_renderer, 0, 255, 0, 150);
 
-			for (int c = 0; c < currentRoomData.corners.size(); c++) {
-				CornerID c_id(currentRoom, c);
-				if (GetCorner(c_id).type == TopLeft) {
-					FindCornerConnections(c_id, true);
-					break;
-				}
+			std::vector<FullConnection> conns;
+			if (currentRoomData.corners.empty()) {
+				return;
 			}
+			do {
+				int corn = ((counter / 60) % currentRoomData.corners.size());
+				CornerID c_id(currentRoom, corn);
+				conns = FindCornerConnections(c_id, false);
+				if (conns.empty()) {
+					counter += 60;
+				}
+			} while (conns.empty());
+
+			int conn = ((counter / 60) % conns.size());
+			RenderFullConnection(conns.at(conn));
+			counter++;
 			return;
 
 			int num_walls = currentRoomData.walls.size();
@@ -222,6 +233,10 @@ namespace Terrain {
 
 	void RenderPixel(int x, int y) {
 		const SDL_Rect rect = { x + VIRIDIAN_CX, y + VIRIDIAN_CY, 1, 1 };
+		SDL_RenderFillRect(gameScreen.m_renderer, &rect);
+	}
+	void RenderPixel(const IntVector& pos) {
+		const SDL_Rect rect = { pos.x + VIRIDIAN_CX, pos.y + VIRIDIAN_CY, 1, 1 };
 		SDL_RenderFillRect(gameScreen.m_renderer, &rect);
 	}
 
@@ -302,6 +317,24 @@ namespace Terrain {
 			SDL_SetRenderDrawColor(gameScreen.m_renderer, 0, 0, 255, 50);
 			RenderRect(cornerPos, regionPos);
 		}
+	}
+
+	void RenderLine(const IntVector& from, const IntVector& to) {
+		SDL_RenderDrawLine(gameScreen.m_renderer, from.x + VIRIDIAN_CX, from.y + VIRIDIAN_CY, to.x + VIRIDIAN_CX, to.y + VIRIDIAN_CY);
+	}
+	void RenderRegion(const Region& region) {
+		if (region.is_bottom()) {
+			return;
+		}
+
+		Region screenBounds(IntInterval(0, 319) - VIRIDIAN_CX, IntInterval(0, 239) - VIRIDIAN_CY);
+		screenBounds.intersect(region);
+		if (screenBounds.is_bottom() || !screenBounds.is_bounded()) {
+			return;
+		}
+
+		const SDL_Rect rect = { screenBounds.x.min + VIRIDIAN_CX, screenBounds.y.min + VIRIDIAN_CY, screenBounds.x.max - screenBounds.x.min + 1, screenBounds.y.max - screenBounds.y.min + 1 };
+		SDL_RenderFillRect(gameScreen.m_renderer, &rect);
 	}
 
 	void RenderEdge(int edge_index) {
@@ -430,6 +463,45 @@ namespace Terrain {
 		SDL_free((void*)collision_bitmap);
 	}
 
+	void RenderFullConnection(const FullConnection& conn) {
+		const Corner& fromCorner = GetCorner(conn.fromCorner.corner);
+		const Corner& toCorner = GetCorner(conn.toCorner.corner);
+
+		// From corner + region (blue)
+		SDL_SetRenderDrawColor(gameScreen.m_renderer, 0, 0, 255, 150);
+		RenderRegion(conn.fromCorner.pos);
+		SDL_SetRenderDrawColor(gameScreen.m_renderer, 0, 0, 255, 255);
+		RenderPixel(fromCorner.pos);
+		RenderPixel(fromCorner.pos - fromCorner.GetPrimaryDir(conn.fromCorner.goingUp));
+		RenderPixel(fromCorner.pos + fromCorner.GetSecondaryDir(conn.fromCorner.goingUp));
+
+		IntVector lastPos = (conn.fromCorner.pos.getMin() + conn.fromCorner.pos.getMax()) / 2;
+		IntVector thisPos;
+
+		// Intermediate surfaces (yellow)
+		for (std::vector<SurfaceConnection>::const_iterator it = conn.intermediate_surfaces.begin(); it != conn.intermediate_surfaces.end(); it++) {
+			SDL_SetRenderDrawColor(gameScreen.m_renderer, 255, 255, 0, 150);
+			RenderRegion((*it).pos);
+			thisPos = ((*it).pos.getMin() + (*it).pos.getMax()) / 2;
+			SDL_SetRenderDrawColor(gameScreen.m_renderer, 0, 255, 0, 150);
+			RenderLine(lastPos, thisPos);
+			lastPos = thisPos;
+		}
+
+		// To corner + region (red)
+		SDL_SetRenderDrawColor(gameScreen.m_renderer, 255, 0, 0, 150);
+		RenderRegion(conn.toCorner.pos);
+		SDL_SetRenderDrawColor(gameScreen.m_renderer, 255, 0, 0, 255);
+		RenderPixel(toCorner.pos);
+		RenderPixel(toCorner.pos - toCorner.GetPrimaryDir(conn.toCorner.goingUp));
+		RenderPixel(toCorner.pos + toCorner.GetSecondaryDir(conn.toCorner.goingUp));
+
+		thisPos = (conn.toCorner.pos.getMin() + conn.toCorner.pos.getMax()) / 2;
+		SDL_SetRenderDrawColor(gameScreen.m_renderer, 0, 255, 0, 150);
+		RenderLine(lastPos, thisPos);
+		lastPos = thisPos;
+	}
+
 	// --------------------------------------
 	// Functions
 	// --------------------------------------
@@ -451,11 +523,55 @@ namespace Terrain {
 	Corner& GetCorner(CornerID corner_id) {
 		return GetRoomData(corner_id.room).corners.at(corner_id.cornerIndex);
 	}
+	Corner GetCornerInLocalFrame(CornerID corner_id, const LocalFrame& frame) {
+		RoomData& roomData = GetRoomData(corner_id.room);
+		Corner& rawCorner = roomData.corners.at(corner_id.cornerIndex);
+		
+		IntVector roomDistance = GetDistanceOffsetBetweenRooms(frame.origin.room, corner_id.room, frame.invY);
+		Corner result(rawCorner);
+
+		result.pos = GetDistanceBetween(frame.origin, GlobalPosition(corner_id.room, rawCorner.pos), frame.invY);
+		
+		if (frame.invX) {
+			switch (result.type) {
+				case TopLeft:
+					result.type = TopRight;
+					break;
+				case TopRight:
+					result.type = TopLeft;
+					break;
+				case BottomLeft:
+					result.type = BottomRight;
+					break;
+				case BottomRight:
+					result.type = BottomLeft;
+					break;
+			}
+		}
+		if (frame.invY) {
+			switch (result.type) {
+				case TopLeft:
+					result.type = BottomLeft;
+					break;
+				case TopRight:
+					result.type = TopRight;
+					break;
+				case BottomLeft:
+					result.type = TopLeft;
+					break;
+				case BottomRight:
+					result.type = TopRight;
+					break;
+			}
+		}
+
+		return result;
+	}
 
 	RoomWall& GetWall(WallID wall_id) {
 		return GetRoomData(wall_id.room).walls.at(wall_id.wallIndex);
 	}
-	RoomWall GetWallInLocalFrame(WallID wall_id, LocalFrame& frame) {
+	RoomWall GetWallInLocalFrame(WallID wall_id, const LocalFrame& frame) {
 		RoomData& roomData = GetRoomData(wall_id.room);
 		RoomWall& rawWall = roomData.walls.at(wall_id.wallIndex);
 		bool isHorizontal = rawWall.type == Ceiling || rawWall.type == Floor;
@@ -509,7 +625,7 @@ namespace Terrain {
 	GravityLine& GetGravityLine(LineID line_id) {
 		return GetRoomData(line_id.room).lines.at(line_id.lineIndex);
 	}
-	GravityLine GetGravityLineInLocalFrame(LineID line_id, LocalFrame& frame) {
+	GravityLine GetGravityLineInLocalFrame(LineID line_id, const LocalFrame& frame) {
 		RoomData& roomData = GetRoomData(line_id.room);
 		GravityLine& rawLine = roomData.lines.at(line_id.lineIndex);
 
@@ -2732,6 +2848,18 @@ namespace Terrain {
 
 		return result;
 	}
+	std::set<CornerID> FindCornersInRelativeRegion(const LocalFrame& frame, const Region& region) {
+		GlobalPosition min(frame.origin);
+		GlobalPosition max(frame.origin);
+
+		min.pos += region.getMin();
+		max.pos += region.getMax();
+
+		min = DoAllRoomChanges(min);
+		max = DoAllRoomChanges(max);
+
+		return FindCornersInRegion(min, max);
+	}
 
 	std::set<WallID> FindWallsInRegion(GlobalPosition from, GlobalPosition to) {
 		std::set<WallID> result;
@@ -2765,93 +2893,606 @@ namespace Terrain {
 		return result;
 	}
 
-	// Iteratively explore connecting regions
-	void FindCornerConnections(CornerID c_id, bool inverseGravity) {
-		RoomPosition cornerRoom = c_id.room;
-		RoomData& cornerRoomData = GetRoomData(cornerRoom);
-		Corner& corner = GetCorner(c_id);
+	std::set<WallID> FindWallsInRelativeRegion(const LocalFrame& frame, const Region& region) {
+		GlobalPosition min(frame.origin);
+		GlobalPosition max(frame.origin);
 
-		Region hardCornerBounds;
-		Region softCornerBounds;
-		switch (corner.type) {
+		min.pos += region.getMin();
+		max.pos += region.getMax();
+
+		min = DoAllRoomChanges(min);
+		max = DoAllRoomChanges(max);
+
+		return FindWallsInRegion(min, max);
+	}
+
+	std::set<LineID> FindLinesInRegion(const GlobalPosition& from, const GlobalPosition& to) {
+		std::set<LineID> result;
+
+		IntVector roomOffset = GetMinOffsetBetweenRooms(from.room, to.room);
+		IntVector range = GetMinDistanceBetween(from, to);
+
+		for (int rx = 0; rx <= roomOffset.x; rx++) {
+			for (int ry = 0; ry <= roomOffset.y; ry++) {
+				RoomPosition room((rx + from.room.rx) % 20, (ry + from.room.ry) % 20);
+				RoomData& roomData = GetRoomData(room);
+
+				IntVector roomDistance(rx * 320, ry * 240);
+
+				for (int l = 0; l < roomData.lines.size(); l++) {
+					GravityLine& line = roomData.lines.at(l);
+
+					IntVector minCorner = line.min;
+					IntVector maxCorner = line.max;
+
+					minCorner += roomDistance - from.pos;
+					maxCorner += roomDistance - from.pos;
+
+					if (IsInRange(range, minCorner) || IsInRange(range, maxCorner)) {
+						result.emplace(room, l);
+					}
+				}
+			}
+		}
+
+		return result;
+	}
+	std::set<LineID> FindLinesInRelativeRegion(const LocalFrame& frame, const Region& region) {
+		GlobalPosition min(frame.origin);
+		GlobalPosition max(frame.origin);
+
+		min.pos += region.getMin();
+		max.pos += region.getMax();
+
+		min = DoAllRoomChanges(min);
+		max = DoAllRoomChanges(max);
+
+		return FindLinesInRegion(min, max);
+	}
+
+	IntVector Corner::GetPrimaryDir(bool inverseGravity) const {
+		switch (type) {
 			default:
-				// TODO:
 				VVV_exit(-1);
-				return;
+				return IntVector::zero();
 			case TopLeft:
 				if (inverseGravity) {
-					hardCornerBounds.limitXAbove(corner.pos.x - corner.horizontalGap);
-					hardCornerBounds.limitXBelow(corner.pos.x + corner.horizontalNegativeGap);
-					hardCornerBounds.limitYAbove(corner.pos.y - corner.verticalGap);
-					hardCornerBounds.limitYBelow(corner.pos.y);
-
-					softCornerBounds = Region::intersect(hardCornerBounds, Region::fromXMin(corner.pos.x));
+					return IntVector(0, -1);
 				} else {
-					hardCornerBounds.limitXAbove(corner.pos.x);
-					hardCornerBounds.limitXBelow(corner.pos.x - corner.horizontalGap);
-					hardCornerBounds.limitYAbove(corner.pos.y - corner.verticalGap);
-					hardCornerBounds.limitYBelow(corner.pos.y + corner.verticalNegativeGap);
-
-					softCornerBounds = Region::intersect(hardCornerBounds, Region::fromYMin(corner.pos.y));
+					return IntVector(-1, 0);
 				}
-				break;
-		}
-
-		LocalFrame localFrame(GlobalPosition(cornerRoom, IntVector::zero()), false, false);
-		GlobalPosition min = ToGlobalCoords(localFrame, IntVector(hardCornerBounds.x.min, hardCornerBounds.y.min));
-		GlobalPosition max = ToGlobalCoords(localFrame, IntVector(hardCornerBounds.x.max, hardCornerBounds.y.max));
-		GlobalPosition softMin = ToGlobalCoords(localFrame, IntVector(softCornerBounds.x.min, softCornerBounds.y.min));
-		GlobalPosition softMax = ToGlobalCoords(localFrame, IntVector(softCornerBounds.x.max, softCornerBounds.y.max));
-
-		if (softCornerBounds.is_bottom() || hardCornerBounds.is_bottom()) {
-			return;
-		}
-
-		// Get all surfaces within hard region bounds
-		std::set<WallID> surfaces;
-		{
-			std::set<WallID> walls = FindWallsInRegion(min, max);
-			// Filter out vertical walls
-			for (std::set<WallID>::iterator it = walls.begin(); it != walls.end(); ++it) {
-				WallID wall_id = *it;
-				RoomWall& wall = GetWall(wall_id);
-				if (wall.type == WallType::Ceiling || wall.type == WallType::Floor) {
-					surfaces.insert(wall_id);
+			case TopRight:
+				if (inverseGravity) {
+					return IntVector(0, -1);
+				} else {
+					return IntVector(1, 0);
 				}
-			}
+			case BottomRight:
+				if (inverseGravity) {
+					return IntVector(1, 0);
+				} else {
+					return IntVector(0, 1);
+				}
+			case BottomLeft:
+				if (inverseGravity) {
+					return IntVector(-1, 0);
+				} else {
+					return IntVector(0, 1);
+				}
 		}
-		// Get all corners within hard region bounds
+	}
+	IntVector Corner::GetSecondaryDir(bool inverseGravity) const {
+		switch (type) {
+			default:
+				VVV_exit(-1);
+				return IntVector::zero();
+			case TopLeft:
+				if (inverseGravity) {
+					return IntVector(1, 0);
+				} else {
+					return IntVector(0, 1);
+				}
+			case TopRight:
+				if (inverseGravity) {
+					return IntVector(-1, 0);
+				} else {
+					return IntVector(0, 1);
+				}
+			case BottomRight:
+				if (inverseGravity) {
+					return IntVector(0, -1);
+				} else {
+					return IntVector(-1, 0);
+				}
+			case BottomLeft:
+				if (inverseGravity) {
+					return IntVector(0, -1);
+				} else {
+					return IntVector(1, 0);
+				}
+		}
+	}
+
+	// The region to or from which connections can be made
+	Region Corner::GetConnectingRegion(bool inverseGravity) const {
+		IntVector primaryDir = GetPrimaryDir(inverseGravity);
+		IntVector primaryGap(horizontalGap, verticalGap);
+		primaryGap *= primaryDir;
+
+		// 1 pixel past the corner to 6/10 pixels past the corner
+		IntVector secondaryDirMin = GetSecondaryDir(inverseGravity);
+		IntVector secondaryDirMax = secondaryDirMin * IntVector(MAX_X_SPEED, MAX_Y_SPEED);
+
+		return Region(pos + secondaryDirMin, primaryGap + pos + secondaryDirMax);
+	}
+	Region Corner::GetRegionBefore(bool inverseGravity) const {
+		IntVector primaryDir = GetPrimaryDir(inverseGravity);
+		IntVector secondaryDir = GetSecondaryDir(inverseGravity);
+		IntVector overallDir = primaryDir + secondaryDir;
+
+		IntVector boundingPos = pos - primaryDir;
+
+		IntInterval x_interval = IntInterval::negative() * overallDir.x + boundingPos.x;
+		IntInterval y_interval = IntInterval::negative() * overallDir.y + boundingPos.y;
+
+		return Region(x_interval, y_interval);
+	}
+	Region Corner::GetIntermediateRegion(void) const {
+		IntVector perpDir = GetPrimaryDir(true) + GetPrimaryDir(false);
+
+		IntInterval x_interval = IntInterval::positive() * perpDir.x + pos.x;
+		IntInterval y_interval = IntInterval::positive() * perpDir.y + pos.y;
+
+		return Region(x_interval, y_interval);
+	}
+	Region Corner::GetRegionAfter(bool inverseGravity) const {
+		IntVector primaryDir = GetPrimaryDir(inverseGravity);
+		IntVector secondaryDir = GetSecondaryDir(inverseGravity);
+		IntVector overallDir = primaryDir + secondaryDir;
+
+		IntVector boundingPos = pos + secondaryDir;
+
+		IntInterval x_interval = IntInterval::positive() * overallDir.x + boundingPos.x;
+		IntInterval y_interval = IntInterval::positive() * overallDir.y + boundingPos.y;
+
+		return Region(x_interval, y_interval);
+	}
+
+	Region Corner::GetValidRegion(bool goingUp) const {
+		IntVector gap(horizontalGap, verticalGap);
+		IntVector negativeGap(horizontalNegativeGap - 1, verticalNegativeGap - 1);
+
+		IntVector primaryDir = GetPrimaryDir(goingUp);
+		IntVector secondaryDir = GetSecondaryDir(goingUp);
+
+		IntVector beforeCorner = pos - secondaryDir * gap;
+		IntVector afterCorner = pos + primaryDir * gap + secondaryDir * negativeGap;
+
+		return Region(beforeCorner, afterCorner);
+	}
+
+	Region RoomWall::GetConnectingRegion(void) const {
+		switch (type) {
+			default:
+				return Region::bottom();
+			case Ceiling:
+			case Floor:
+				return Region(IntInterval(min + 1, max - 1), IntInterval(plane));
+			case LeftWall:
+			case RightWall:
+				return Region(IntInterval(plane), IntInterval(min + 1, max - 1));
+		}
+	}
+
+	Region RoomWall::GetBoundedRegion(void) const {
+		switch (type) {
+			default:
+				return Region::bottom();
+			case Ceiling:
+				return Region::fromYLowerBound(plane);
+			case Floor:
+				return Region::fromYUpperBound(plane);
+			case LeftWall:
+				return Region::fromXLowerBound(plane);
+			case RightWall:
+				return Region::fromXUpperBound(plane);
+		}
+	}
+
+	Region GravityLine::GetConnectingRegion(void) const {
+		return Region(min, max);
+	}
+
+	// Iteratively explore connecting regions
+	std::vector<FullConnection> FindCornerConnections(CornerID c_id, bool goingUp) {
+		RoomPosition cornerRoom = c_id.room;
+		const LocalFrame& frame = LocalFrame(GlobalPosition(cornerRoom, IntVector::zero()), false, false);
+
+		Corner corner = GetCornerInLocalFrame(c_id, frame);
+
+		IntVector gap(corner.horizontalGap, corner.verticalGap);
+		IntVector negativeGap(corner.horizontalNegativeGap, corner.verticalNegativeGap);
+
+		IntVector primaryDir = corner.GetPrimaryDir(goingUp);
+		IntVector secondaryDir = corner.GetSecondaryDir(goingUp);
+
+		IntVector beforeCorner = corner.pos - secondaryDir * gap;
+		IntVector afterCorner = corner.pos + primaryDir * gap + secondaryDir * negativeGap;
+		
+		Region validRegion(beforeCorner, afterCorner);
+
 		std::set<CornerID> corners;
 		{
-			std::set<CornerID> temp_corners = FindCornersInRegion(min, max);
-			// Filter out invalid corners
-			for (std::set<CornerID>::iterator it = temp_corners.begin(); it != temp_corners.end(); ++it) {
-				CornerID corner_id = *it;
-				Corner& corner = GetCorner(corner_id);
-				if (true) {
-					corners.insert(corner_id);
+			std::set<CornerID> tmp_corners = FindCornersInRelativeRegion(frame, validRegion);
+			for (std::set<CornerID>::iterator it = tmp_corners.begin(); it != tmp_corners.end(); it++) {
+				Corner& corner = GetCornerInLocalFrame(*it, frame);
+				if (!validRegion.contains(corner.pos)) {
+					continue;
 				}
+				corners.insert(*it);
+			}
+		}
+		std::set<WallID> surfaces;
+		{
+			std::set<WallID> walls = FindWallsInRelativeRegion(frame, validRegion);
+			for (std::set<WallID>::iterator it = walls.begin(); it != walls.end(); it++) {
+				RoomWall& wall = GetWallInLocalFrame(*it, frame);
+				if (wall.type != Ceiling && wall.type != Floor) {
+					continue;
+				}
+				if (!wall.walkable) {
+					continue;
+				}
+				if (!wall.GetConnectingRegion().intersects(validRegion)) {
+					continue;
+				}
+				surfaces.insert(*it);
+			}
+		}
+		std::set<LineID> lines;
+		{
+			std::set<LineID> tmp_lines = FindLinesInRelativeRegion(frame, validRegion);
+			for (std::set<LineID>::iterator it = tmp_lines.begin(); it != tmp_lines.end(); it++) {
+				GravityLine& line = GetGravityLineInLocalFrame(*it, frame);
+				if (!line.GetConnectingRegion().intersects(validRegion)) {
+					continue;
+				}
+				lines.insert(*it);
 			}
 		}
 
-		// Temp: render the surfaces and region
-		SDL_SetRenderDrawColor(gameScreen.m_renderer, 0, 0, 255, 100);
-		RenderRect(min, max);
+		std::vector<FullConnection> results;
 
-		SDL_SetRenderDrawColor(gameScreen.m_renderer, 0, 255, 0, 255);
-		for (std::set<WallID>::iterator it = surfaces.begin(); it != surfaces.end(); ++it) {
-			WallID wall_id = *it;
-			RenderWall(wall_id);
+		for (int inverseGravity = 0; inverseGravity < 2; inverseGravity++) {
+			int secondary_y = corner.GetSecondaryDir(goingUp).y;
+			if (inverseGravity && secondary_y > 0) {
+				continue;
+			} else if (!inverseGravity && secondary_y < 0) {
+				continue;
+			}
+
+			FullConnection history;
+			history.fromCorner.corner = c_id;
+			history.fromCorner.goingUp = goingUp;
+			history.fromCorner.inverseGravity = inverseGravity > 0;
+			history.fromCorner.pos = corner.GetConnectingRegion(goingUp);
+			history.fromCorner.vx = FloatInterval(-MAX_X_SPEED, MAX_X_SPEED);
+			history.fromCorner.vy = (inverseGravity > 0) ? FloatInterval(-MAX_Y_SPEED, 0) : FloatInterval(0, MAX_Y_SPEED);
+			history.intermediate_surfaces.clear();
+
+			std::vector<FullConnection> this_result = RecursiveSurfaceConnections(frame, history, surfaces, corners);
+			for (std::vector<FullConnection>::iterator it = this_result.begin(); it != this_result.end(); it++) {
+				results.push_back(*it);
+			}
 		}
 
-		SDL_SetRenderDrawColor(gameScreen.m_renderer, 255, 0, 0, 255);
-		for (std::set<CornerID>::iterator it = corners.begin(); it != corners.end(); ++it) {
-			CornerID corner_id = *it;
-			IntVector& pos = GetCorner(corner_id).pos;
-			RenderPixel(pos.x, pos.y);
+		return results;
+	}
+
+	std::vector<FullConnection> RecursiveSurfaceConnections(const LocalFrame& frame, const FullConnection& history, const std::set<WallID>& surfaces, const std::set<CornerID>& corners) {
+		const CornerConnection& src = history.fromCorner;
+		const Corner& srcCorner = GetCornerInLocalFrame(src.corner, frame);
+
+		bool is_first_conn = history.intermediate_surfaces.empty();
+
+		const Region& initialPos = src.pos;
+
+		int x_max_lower_bound, x_min_upper_bound;
+		int y_max_lower_bound, y_min_upper_bound;
+		
+		x_max_lower_bound = initialPos.x.min;
+		x_min_upper_bound = initialPos.x.max;
+		y_max_lower_bound = initialPos.y.min;
+		y_min_upper_bound = initialPos.y.max;
+
+		Region validRegion = srcCorner.GetValidRegion(src.goingUp);
+		if (is_first_conn) {
+			// Soft corner bounds due to directionality constraint
+			validRegion.intersect(srcCorner.GetRegionAfter(src.goingUp));
+		} else {
+			// Further restrict connections based on which surfaces we've already visited
+			for (std::vector<SurfaceConnection>::const_iterator it2 = history.intermediate_surfaces.begin(); it2 != history.intermediate_surfaces.end(); ++it2) {
+				const SurfaceConnection& surfaceConn = *it2;
+				const RoomWall& surface = GetWallInLocalFrame(surfaceConn.surface, frame);
+
+				// Only connect to things above or on the same level as this surface
+				validRegion.intersect(surface.GetBoundedRegion());
+
+				const Region& intermediatePos = surfaceConn.pos;
+				x_max_lower_bound = SDL_max(intermediatePos.x.min, x_max_lower_bound);
+				x_min_upper_bound = SDL_min(intermediatePos.x.max, x_min_upper_bound);
+				y_max_lower_bound = SDL_max(intermediatePos.y.min, y_max_lower_bound);
+				y_min_upper_bound = SDL_min(intermediatePos.y.max, y_min_upper_bound);
+			}
 		}
 
+		bool can_flip = !is_first_conn;
+		Region currentPos = is_first_conn ? src.pos : history.intermediate_surfaces.back().pos;
+		FloatInterval v_x = is_first_conn ? src.vx : history.intermediate_surfaces.back().vx;
+		FloatInterval v_y = is_first_conn ? src.vy : history.intermediate_surfaces.back().vy;
+		bool inverseGravity = is_first_conn ? src.inverseGravity : history.intermediate_surfaces.back().inverseGravity;
 
+		if (can_flip) {
+			// First, find what we can connect to without flipping
+			// TODO: handle this case
+			// TODO: also handle edge flips / ghost pixels
+
+			// Now, execute the flip
+			inverseGravity = !inverseGravity;
+			v_y = inverseGravity ? FloatInterval(-6.75f) : FloatInterval(6.75f);
+		}
+
+		std::vector<FullConnection> results;
+
+		// Iterate through all corners in valid region
+		for (std::set<CornerID>::const_iterator it = corners.begin(); it != corners.end(); it++) {
+			const Corner& c = GetCornerInLocalFrame(*it, frame);
+
+			if (!validRegion.contains(c.pos)) {
+				continue;
+			}
+
+			// TODO: eliminate this for loop, shouldn't be necessary
+			for (int goingUp = 0; goingUp < 2; goingUp++) {
+				// We aren't currently before the corner
+				// TODO: this isn't quite correct, i think. need to use min_lower bound stuff
+				if (!c.GetRegionBefore(goingUp > 0).intersects(currentPos)) {
+					continue;
+				}
+				// Don't connect to self in these cases
+				if (history.fromCorner.corner == *it && (is_first_conn || history.fromCorner.goingUp == (goingUp > 0))) {
+					continue;
+				}
+				int requiredGravity = c.GetSecondaryDir(goingUp).y;
+				if (requiredGravity != 0) {
+					if (inverseGravity && requiredGravity == 1) {
+						continue;
+					} else if (!inverseGravity && requiredGravity == -1) {
+						continue;
+					}
+				}
+
+				Region posBefore(currentPos);
+				posBefore.intersect(c.GetRegionBefore(goingUp > 0));
+				Region posAfter = c.GetConnectingRegion(goingUp > 0);
+
+				ReduceByFliplessConnectivity(posBefore, posAfter, v_x, v_y, inverseGravity, false);
+
+				// No connection possible
+				if (posBefore.is_bottom() || posAfter.is_bottom()) {
+					continue;
+				}
+
+				CornerConnection finalConn;
+				finalConn.corner = *it;
+				finalConn.goingUp = goingUp > 0;
+				finalConn.inverseGravity = inverseGravity;
+				finalConn.pos = posAfter;
+				// TODO: better vx / vy estimates
+				finalConn.vx = FloatInterval(-MAX_X_SPEED, MAX_X_SPEED);
+				finalConn.vy = FloatInterval(-MAX_Y_SPEED, MAX_Y_SPEED);
+
+				FullConnection fullResult(history);
+				// TODO: propagate this restriction backwards
+				if (is_first_conn) {
+					fullResult.fromCorner.pos = posBefore;
+				} else {
+					fullResult.intermediate_surfaces.back().pos = posBefore;
+				}
+				fullResult.toCorner = finalConn;
+
+				results.push_back(fullResult);
+			}
+		}
+
+		// Iterate through all surfaces in valid region
+		// For each one that we can connect to, make a recursive call
+		for (std::set<WallID>::const_iterator it = surfaces.begin(); it != surfaces.end(); it++) {
+			const RoomWall& s = GetWallInLocalFrame(*it, frame);
+
+			if (inverseGravity && s.type != Ceiling) {
+				continue;
+			} else if (!inverseGravity && s.type != Floor) {
+				continue;
+			}
+
+			Region connRegion = s.GetConnectingRegion();
+			connRegion.intersect(validRegion);
+			// No connection is possible (or no further connections are possible
+			if (connRegion.is_bottom() || !s.GetBoundedRegion().intersects(validRegion)) {
+				continue;
+			}
+
+			Region posBefore(currentPos);
+			Region posAfter = connRegion;
+
+			ReduceByFliplessConnectivity(posBefore, posAfter, v_x, v_y, inverseGravity, true);
+
+			// No connectivity
+			if (posBefore.is_bottom() || posAfter.is_bottom()) {
+				continue;
+			}
+
+			// Restrict position after to strictly new positions
+			for (std::vector<SurfaceConnection>::const_iterator it2 = history.intermediate_surfaces.begin(); it2 != history.intermediate_surfaces.end(); it2++) {
+				const SurfaceConnection& prevConn = *it2;
+				if (prevConn.surface == *it) {
+					posAfter.difference(prevConn.pos);
+				}
+			}
+
+			// No new reachable positions
+			if (posAfter.is_bottom()) {
+				continue;
+			}
+
+			SurfaceConnection surfConn;
+			surfConn.surface = *it;
+			surfConn.pos = posAfter;
+			surfConn.vx = FloatInterval(-MAX_X_SPEED, MAX_X_SPEED);
+			surfConn.vy = inverseGravity ? FloatInterval(-MAX_Y_SPEED, 0) : FloatInterval(0, MAX_Y_SPEED);
+			surfConn.inverseGravity = inverseGravity;
+
+			FullConnection partialResult(history);
+			// TODO: propagate this all the way up
+			if (is_first_conn) {
+				partialResult.fromCorner.pos = posBefore;
+			} else {
+				partialResult.intermediate_surfaces.back().pos = posBefore;
+			}
+			partialResult.intermediate_surfaces.push_back(surfConn);
+
+			std::vector<FullConnection> recursive_results = RecursiveSurfaceConnections(frame, partialResult, surfaces, corners);
+			for (std::vector<FullConnection>::iterator it2 = recursive_results.begin(); it2 != recursive_results.end(); it2++) {
+				results.push_back(*it2);
+			}
+		}
+
+		return results;
+	}
+
+	// This simulates the game frame by frame, so isn't terribly efficient
+	bool ReduceByFliplessConnectivity(Region& from, Region& to, FloatInterval v_x, FloatInterval v_y, bool inverseGravity, bool toSurface) {
+		if (from.is_bottom() || to.is_bottom() || v_x.is_bottom() || v_y.is_bottom()) {
+			from.make_bottom();
+			to.make_bottom();
+			return false;
+		}
+		if (!from.is_bounded() || !to.is_bounded()) {
+			// TODO: this is very imprecise
+			VVV_exit(-1);
+			return true;
+		}
+		
+		const IntInterval delta_x = to.x - from.x;
+		const IntInterval delta_y = to.y - from.y;
+
+		if (delta_y.is_bottom() || delta_x.is_bottom()) {
+			from.make_bottom();
+			to.make_bottom();
+			return false;
+		}
+
+		const FloatInterval a_x(-3.0f, 3.0f);
+		const float a_y = inverseGravity ? -3.0f : 3.0f;
+
+		IntInterval d_x = 0;
+		IntInterval d_y = 0;
+
+		int frames_elapsed = 0;
+		while (!d_y.intersects(delta_y) || !d_x.intersects(delta_x)) {
+			// Check we didn't fall past the end
+			if (d_y > delta_y && a_y >= 0 && v_y >= 0) {
+				from.make_bottom();
+				to.make_bottom();
+				return false;
+			} else if (d_y < delta_y && a_y <= 0 && v_y <= 0) {
+				from.make_bottom();
+				to.make_bottom();
+				return false;
+			}
+
+			IntInterval prev_dx(d_x);
+			IntInterval prev_dy(d_y);
+			DoIntervalPhysicsStep(a_x, a_y, v_x, v_y, d_x, d_y);
+
+			if (toSurface) {
+				if (a_y > 0) {
+					int surfaceY = delta_y.max;
+					if (delta_x.contains(d_x) && prev_dy < surfaceY) {
+						// Don't allow moving past the surface
+						d_y.clamp(IntInterval::fromUpperBound(surfaceY));
+					} else if (d_x.intersects(delta_x)) {
+						// Account for landing on the surface
+						if (IntInterval::join(prev_dy, d_y).intersects(surfaceY)) {
+							d_y.join(surfaceY);
+						}
+					}
+				} else {
+					int surfaceY = delta_y.min;
+					if (delta_x.contains(d_x) && prev_dy > surfaceY) {
+						// Don't allow moving past the surface
+						d_y.clamp(IntInterval::fromLowerBound(surfaceY));
+					} else if (d_x.intersects(delta_x)) {
+						// Account for landing on the surface
+						if (IntInterval::join(prev_dy, d_y).intersects(surfaceY)) {
+							d_y.join(surfaceY);
+						}
+					}
+				}
+			}
+			
+			frames_elapsed++;
+		}
+
+		// Now we are overlapping, find reachable parts
+		Region reachableToRegion = Region::bottom();
+		Region startableFromRegion = Region::bottom();
+
+		while (d_y.intersects(delta_y) && d_x.intersects(delta_x)) {
+			Region reachableThisFrame = Region::intersect(to, Region(from.x + d_x, from.y + d_y));
+			Region startableThisFrame = Region::intersect(from, Region(to.x - d_x, to.y - d_y));
+
+			reachableToRegion.join(reachableThisFrame);
+			startableFromRegion.join(startableThisFrame);
+
+			DoIntervalPhysicsStep(a_x, a_y, v_x, v_y, d_x, d_y);
+			frames_elapsed++;
+		}
+
+		// Adjust the given regions accordingly
+		to.intersect(reachableToRegion);
+		from.intersect(startableFromRegion);
+	}
+
+	void DoIntervalPhysicsStep(const FloatInterval& a_x, const FloatInterval& a_y, FloatInterval& v_x, FloatInterval& v_y, IntInterval& xp, IntInterval& yp) {
+		const float x_rate = 1.1f;
+		const float y_rate = 0.25f;
+
+		v_x += a_x;
+		v_y += a_y;
+
+		// Apply friction
+		v_x = FloatInterval::join(v_x.positivePart() - x_rate, v_x.negativePart() + x_rate);
+		v_y = FloatInterval::join(v_y.positivePart() - y_rate, v_y.negativePart() + y_rate);
+
+		// Clamp to valid range
+		v_x.clamp(FloatInterval(-MAX_X_SPEED, MAX_X_SPEED));
+		v_y.clamp(FloatInterval(-MAX_Y_SPEED, MAX_Y_SPEED));
+
+		// Conditionally set to zero (if less than friction)
+		if (!(v_x.abs() >= x_rate) && !v_x.is_bottom()) {
+			v_x.join(0.0f);
+		}
+		if (!(v_y.abs() >= y_rate) && !v_y.is_bottom()) {
+			v_y.join(0.0f);
+		}
+
+		IntInterval x_step = v_x.toIntInterval();
+		IntInterval y_step = v_y.toIntInterval();
+
+		xp += x_step;
+		yp += y_step;
 	}
 
 	// Given fixed endpoints, find connecting surfaces
@@ -3331,6 +3972,119 @@ namespace Terrain {
 			return 4 + (d_x - (1 + 3 + 5)) / MAX_X_SPEED;
 		}
 	}
+
+	IntInterval GetYFrames(IntInterval& d_y, bool inverseGravity) {
+		if (d_y.is_bottom()) {
+			return IntInterval::bottom();
+		}
+		IntInterval distance(d_y);
+		if (inverseGravity) {
+			distance.negate();
+		}
+
+		if (distance.is_negative()) {
+			if (distance.contains(0)) {
+				return IntInterval(0);
+			} else {
+				return IntInterval::bottom();
+			}
+		}
+		
+		float y_accel = 2.75f;
+		FloatInterval y_speed(0.0f, MAX_Y_SPEED);
+		int min_frames = 0;
+
+		while (distance > 0 && !y_speed.is_exact()) {
+			min_frames++;
+
+			y_speed += y_accel;
+			if (!y_speed.is_bottom()) {
+				y_speed.min = SDL_min(MAX_Y_SPEED, y_speed.min);
+				y_speed.max = SDL_min(MAX_Y_SPEED, y_speed.max);
+			}
+			IntInterval d_y = y_speed.toIntInterval();
+			distance -= d_y;
+		}
+		if (distance > 0) {
+			IntInterval d_y = y_speed.toIntInterval();
+			if (!d_y.is_exact()) {
+				VVV_exit(-1);
+			}
+			int d_y_exact = d_y.min;
+
+			int f = (distance.min + d_y_exact - 1) / d_y_exact;
+			min_frames += f;
+			distance -= f * d_y_exact;
+		}
+
+		if (!distance.has_upper_bound()) {
+			return IntInterval::fromLowerBound(min_frames);
+		}
+
+		int max_frames = min_frames;
+		while (!(distance < 0) && !y_speed.is_exact()) {
+			max_frames++;
+
+			y_speed += y_accel;
+			if (!y_speed.is_bottom()) {
+				y_speed.min = SDL_min(MAX_Y_SPEED, y_speed.min);
+				y_speed.max = SDL_min(MAX_Y_SPEED, y_speed.max);
+			}
+			IntInterval d_y = y_speed.toIntInterval();
+			distance -= d_y;
+		}
+		if (!(distance < 0)) {
+			IntInterval d_y = y_speed.toIntInterval();
+			if (!d_y.is_exact()) {
+				VVV_exit(-1);
+			}
+			int d_y_exact = d_y.min;
+
+			int f = (distance.max + d_y_exact - 1) / d_y_exact;
+			max_frames += f;
+			distance -= f * d_y_exact;
+		} else {
+			max_frames -= 1;
+		}
+
+		return IntInterval(min_frames, max_frames);
+	}
+
+	IntInterval GetYDist(int y_frames, bool inverseGravity) {
+		float y_accel = 2.75f;
+		FloatInterval y_speed(0.0f, MAX_Y_SPEED);
+		IntInterval d_y(0);
+
+		while (y_frames > 0 && !y_speed.is_exact()) {
+			y_speed += y_accel;
+			if (!y_speed.is_bottom()) {
+				y_speed.min = SDL_min(MAX_Y_SPEED, y_speed.min);
+				y_speed.max = SDL_min(MAX_Y_SPEED, y_speed.max);
+			}
+
+			d_y += y_speed.toIntInterval();
+			y_frames--;
+		}
+		if (y_frames > 0) {
+			d_y += y_frames * MAX_Y_SPEED;
+		}
+		return inverseGravity ? -d_y : d_y;
+	}
+	IntInterval GetYDist(IntInterval& y_frames, bool inverseGravity) {
+		if (y_frames.is_bottom() || y_frames.min < 0) {
+			return IntInterval::bottom();
+		}
+
+		IntInterval minFramesResult = GetYDist(y_frames.min, inverseGravity);
+		if (!y_frames.has_upper_bound()) {
+			minFramesResult.max = INT_MAX;
+			return minFramesResult;
+		} else {
+			IntInterval maxFramesResult = GetYDist(y_frames.max, inverseGravity);
+			return IntInterval::join(minFramesResult, maxFramesResult);
+		}
+	}
+
 	// The min number of frames that need to elapse before falling past this distance
 	int GetMinYFrames(int d_y) {
 		if (d_y < 0) {
@@ -4124,10 +4878,10 @@ namespace Terrain {
 		int d_ry = GetMinVOffsetBetweenRooms(from, to);
 		return IntVector(d_rx, d_ry);
 	}
-	IntVector GetDistanceBetween(GlobalPosition& from, GlobalPosition& to, bool invY) {
+	IntVector GetDistanceBetween(const GlobalPosition& from, const GlobalPosition& to, bool invY) {
 		return GetDistanceOffsetBetweenRooms(from.room, to.room, invY) + to.pos - from.pos;
 	}
-	IntVector GetMinDistanceBetween(GlobalPosition& from, GlobalPosition& to) {
+	IntVector GetMinDistanceBetween(const GlobalPosition& from, const GlobalPosition& to) {
 		return GetMinDistanceOffsetBetweenRooms(from.room, to.room) + to.pos - from.pos;
 	}
 	int GetHOffsetBetweenRooms(RoomPosition from, RoomPosition to) {

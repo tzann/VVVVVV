@@ -32,14 +32,18 @@ namespace Terrain {
 		int rx, ry;
 
 		RoomPosition() {
-			rx = 0;
-			ry = 0;
+			rx = -1;
+			ry = -1;
 			outside = false;
 		}
 		RoomPosition(int rx, int ry) : rx(rx), ry(ry) {
 			outside = false;
 		}
 		RoomPosition(bool outside, int rx, int ry) : outside(outside), rx(rx), ry(ry) { }
+
+		bool is_valid(void) const {
+			return rx >= 0 && rx <= 20 && ry >= 0 && ry <= 20;
+		}
 
 		bool operator== (const RoomPosition& other) const {
 			return (outside == other.outside && rx == other.rx && ry == other.ry);
@@ -102,6 +106,9 @@ namespace Terrain {
 			}
 			return result;
 		}
+		static RoomPosition invalid(void) {
+			return RoomPosition(-1, -1);
+		}
 
 		RoomPosition NextRoomUp() {
 			return RoomPosition(outside, rx, (ry + 19) % 20);
@@ -163,6 +170,14 @@ namespace Terrain {
 		int verticalNegativeGap, horizontalNegativeGap;
 		int verticalWallLength, horizontalWallLength;
 		bool simple;
+
+		IntVector GetPrimaryDir(bool inverseGravity) const;
+		IntVector GetSecondaryDir(bool inverseGravity) const;
+		Region GetConnectingRegion(bool inverseGravity) const;
+		Region GetRegionBefore(bool inverseGravity) const;
+		Region GetIntermediateRegion(void) const;
+		Region GetRegionAfter(bool inverseGravity) const;
+		Region Corner::GetValidRegion(bool goingUp) const;
 	};
 
 	enum WallType {
@@ -181,6 +196,9 @@ namespace Terrain {
 		bool maxCornerConcave;  // true if rays cannot pass through the max corner
 
 		bool walkable;
+
+		Region GetConnectingRegion(void) const;
+		Region GetBoundedRegion(void) const;
 	};
 
 	struct GravityLine {
@@ -190,13 +208,20 @@ namespace Terrain {
 
 		GravityLine() {}
 		GravityLine(bool isHorizontal, IntVector min, IntVector max) : isHorizontal(isHorizontal), min(min), max(max) { }
+
+		Region GetConnectingRegion(void) const;
 	};
 
 	struct CornerID {
 		RoomPosition room;
 		int cornerIndex;
 
+		CornerID() : room(), cornerIndex(-1) {}
 		CornerID(RoomPosition r, int i) : room(r), cornerIndex(i) { }
+
+		bool is_valid(void) const {
+			return room.is_valid() && cornerIndex >= 0;
+		}
 
 		bool operator== (const CornerID& other) const {
 			return (room == other.room && cornerIndex == other.cornerIndex);
@@ -224,12 +249,21 @@ namespace Terrain {
 		bool operator> (const CornerID& other) const {
 			return !(*this <= other);
 		}
+
+		static CornerID invalid(void) {
+			return CornerID(RoomPosition::invalid(), -1);
+		}
 	};
 	struct WallID {
 		RoomPosition room;
 		int wallIndex;
 
+		WallID() : room(), wallIndex(-1) { }
 		WallID(RoomPosition r, int i) : room(r), wallIndex(i) { }
+
+		bool is_valid(void) const {
+			return room.is_valid() && wallIndex >= 0;
+		}
 
 		bool operator== (const WallID& other) const {
 			return (room == other.room && wallIndex == other.wallIndex);
@@ -427,6 +461,30 @@ namespace Terrain {
 			}
 		}
 	};
+
+
+	struct CornerConnection {
+		CornerID corner;
+		bool goingUp;
+		// The player state as it is the frame after passing the corner (second gap)
+		Region pos;
+		FloatInterval vx;
+		FloatInterval vy;
+		bool inverseGravity;
+	};
+	struct SurfaceConnection {
+		WallID surface;
+		// The player state as it is the frame when touching the surface
+		Region pos;
+		FloatInterval vx;
+		FloatInterval vy;
+		bool inverseGravity;
+	};
+	struct FullConnection {
+		CornerConnection fromCorner;
+		CornerConnection toCorner;
+		std::vector<SurfaceConnection> intermediate_surfaces;
+	};
 	
 	// ------------------
 	// Hook functions
@@ -439,20 +497,27 @@ namespace Terrain {
 	// Rendering functions
 	// -------------------
 	void RenderPixel(int x, int y);
+	void RenderPixel(const IntVector& pos);
 	void RenderWall(WallID w);
 	void RenderCorner(CornerID corner_id);
+	void RenderLine(const IntVector& from, const IntVector& to);
+	void RenderRegion(const Region& region);
 	void RenderEdge(int edge_index);
 	void RenderGravityLine(LineID line_id);
 	void RenderRect(GlobalPosition min, GlobalPosition max);
 	void RenderCollisionBitmap(IntVector offset);
+	void RenderFullConnection(const FullConnection& conn);
 
 	// --------------------------------------
 	// Functions
 	// --------------------------------------
 	RoomData& GetRoomData(RoomPosition room_pos);
 	Corner& GetCorner(CornerID corner_id);
+	Corner GetCornerInLocalFrame(CornerID corner_id, const LocalFrame& frame);
 	RoomWall& GetWall(WallID wall_id);
+	RoomWall GetWallInLocalFrame(WallID wall_id, const LocalFrame& frame);
 	GravityLine& GetGravityLine(LineID line_id);
+	GravityLine GetGravityLineInLocalFrame(LineID line_id, const LocalFrame& frame);
 	NavigationNode& GetNavigationNode(NavigationNodeID node_id);
 
 	bool IsSameOrInverseNode(NavigationNodeID n1, NavigationNodeID n2);
@@ -477,10 +542,21 @@ namespace Terrain {
 	std::set<WallID> GetSurfacesBelowEdge(NavigationEdge& edge);
 
 	std::set<CornerID> FindCornersInRegion(GlobalPosition from, GlobalPosition to);
+	std::set<CornerID> FindCornersInRelativeRegion(const LocalFrame& frame, const Region& region);
 	std::set<WallID> FindWallsInRegion(GlobalPosition from, GlobalPosition to);
+	std::set<WallID> FindWallsInRelativeRegion(const LocalFrame& frame, const Region& region);
+	std::set<LineID> FindLinesInRegion(const GlobalPosition& from, const GlobalPosition& to);
+	std::set<LineID> FindLinesInRelativeRegion(const LocalFrame& frame, const Region& region);
 
-	void FindCornerConnections(CornerID c_id, bool inverseGravity);
+
+	std::vector<FullConnection> FindCornerConnections(CornerID c_id, bool goingUp);
+	std::vector<FullConnection> RecursiveSurfaceConnections(const LocalFrame& frame, const FullConnection& history, const std::set<WallID>& surfaces, const std::set<CornerID>& corners);
+
+
 	void FindConnectingSurfaces(CornerID from_id, CornerID to_id);
+
+	void DoIntervalPhysicsStep(const FloatInterval& a_x, const FloatInterval& a_y, FloatInterval& v_x, FloatInterval& v_y, IntInterval& xp, IntInterval& yp);
+	bool ReduceByFliplessConnectivity(Region & from, Region & to, FloatInterval v_x, FloatInterval v_y, bool inverseGravity, bool toSurface);
 
 	bool IsInRange(IntVector range, IntVector v);
 
@@ -491,6 +567,9 @@ namespace Terrain {
 
 	int GetMinXFrames(int d_x);
 	int GetMaxXFrames(int d_x);
+	IntInterval GetYFrames(IntInterval& d_y, bool inverseGravity);
+	IntInterval GetYDist(int y_frames, bool inverseGravity);
+	IntInterval GetYDist(IntInterval & y_frames, bool inverseGravity);
 	int GetMinYFrames(int d_y);
 	int GetMaxYFrames(int d_y);
 
@@ -511,8 +590,8 @@ namespace Terrain {
 	IntVector GetDistanceOffsetBetweenRooms(RoomPosition from, RoomPosition to, bool invY);
 	IntVector GetMinDistanceOffsetBetweenRooms(RoomPosition from, RoomPosition to);
 	IntVector GetMinOffsetBetweenRooms(RoomPosition from, RoomPosition to);
-	IntVector GetDistanceBetween(GlobalPosition& from, GlobalPosition& to, bool invY);
-	IntVector GetMinDistanceBetween(GlobalPosition& from, GlobalPosition& to);
+	IntVector GetDistanceBetween(const GlobalPosition& from, const GlobalPosition& to, bool invY);
+	IntVector GetMinDistanceBetween(const GlobalPosition& from, const GlobalPosition& to);
 	int GetHOffsetBetweenRooms(RoomPosition from, RoomPosition to);
 	int GetVOffsetBetweenRooms(RoomPosition from, RoomPosition to, bool invY);
 	int GetMinVOffsetBetweenRooms(RoomPosition from, RoomPosition to);
