@@ -5,6 +5,8 @@
 
 #include <SDL.h>
 
+#include "solver/Numerics.h"
+
 namespace Geometry {
 	static int saturatingNegate(int x) {
 		switch (x) {
@@ -251,6 +253,13 @@ namespace Geometry {
 		bool contains(int val) const;
 		bool contains(const IntInterval& other) const;
 
+		int getUpperBound(void) const {
+			return max;
+		}
+		int getLowerBound(void) const {
+			return min;
+		}
+
 		IntInterval& negate(void) {
 			if (!this->is_bottom()) {
 				int oldMax = max;
@@ -468,9 +477,36 @@ namespace Geometry {
 			min = SDL_max(min, limit);
 			return regularize();
 		}
+		IntInterval& removeUpperBound(void) {
+			if (!is_bottom()) {
+				max = INT_MAX;
+			}
+			return regularize();
+		}
+		IntInterval& removeLowerBound(void) {
+			if (!is_bottom()) {
+				min = -INT_MAX;
+			}
+			return regularize();
+		}
 		IntInterval& join(const IntInterval& other);
 		IntInterval& intersect(const IntInterval& other);
 		IntInterval& difference(const IntInterval& other);
+
+		IntInterval getIntervalAbove(void) const {
+			if (has_upper_bound()) {
+				return IntInterval::fromLowerBound(max + 1);
+			} else {
+				return IntInterval::bottom();
+			}
+		}
+		IntInterval getIntervalBelow(void) const {
+			if (has_lower_bound()) {
+				return IntInterval::fromUpperBound(min - 1);
+			} else {
+				return IntInterval::bottom();
+			}
+		}
 
 		static IntInterval bottom(void) {
 			return IntInterval(INT_MAX, INT_MIN);
@@ -572,6 +608,22 @@ namespace Geometry {
 			y.addLowerBound(limit);
 			return regularize();
 		}
+		Region& removeXUpperBound(void) {
+			x.removeUpperBound();
+			return regularize();
+		}
+		Region& removeXLowerBound(void) {
+			x.removeUpperBound();
+			return regularize();
+		}
+		Region& removeYUpperBound(void) {
+			y.removeUpperBound();
+			return regularize();
+		}
+		Region& removeYLowerBound(void) {
+			y.removeLowerBound();
+			return regularize();
+		}
 		Region& join(const Region& other);
 		Region& intersect(const Region& other);
 		Region& difference(const Region& other);
@@ -618,6 +670,11 @@ namespace Geometry {
 			min = -INFINITY;
 			max = INFINITY;
 			return *this;
+		}
+		FloatInterval& make_exact(float val) {
+			min = val;
+			max = val;
+			return regularize();
 		}
 		FloatInterval& regularize(void) {
 			if (this->is_bottom()) {
@@ -789,6 +846,24 @@ namespace Geometry {
 			}
 		}
 
+		float getUpperBound(void) const {
+			if (is_bottom()) {
+				return -INFINITY;
+			} else if (!has_upper_bound()) {
+				return INFINITY;
+			} else {
+				return max;
+			}
+		}
+		float getLowerBound(void) const {
+			if (is_bottom()) {
+				return INFINITY;
+			} else if (!has_lower_bound()) {
+				return -INFINITY;
+			} else {
+				return min;
+			}
+		}
 
 		FloatInterval abs(void) const {
 			if (this->is_bottom()) {
@@ -810,6 +885,30 @@ namespace Geometry {
 			FloatInterval result = FloatInterval::negative();
 			result.intersect(*this);
 			return result;
+		}
+		void splitAt(FloatInterval& above, FloatInterval& below, float bound, bool boundIsIncludedAbove) const {
+			above.make_top();
+			above.addUpperBound(getUpperBound());
+			above.addLowerBound(boundIsIncludedAbove ? bound : Numerics::next_float_above(bound));
+
+			below.make_top();
+			below.addUpperBound(boundIsIncludedAbove ? Numerics::next_float_below(bound) : bound);
+			below.addLowerBound(getLowerBound());
+		}
+
+		FloatInterval getIntervalBelow(void) const {
+			if (is_bottom() || !has_lower_bound()) {
+				return FloatInterval::bottom();
+			} else {
+				return FloatInterval::fromUpperBound(Numerics::next_float_below(getLowerBound()));
+			}
+		}
+		FloatInterval getIntervalAbove(void) const {
+			if (is_bottom() || !has_upper_bound()) {
+				return FloatInterval::bottom();
+			} else {
+				return FloatInterval::fromLowerBound(Numerics::next_float_above(getUpperBound()));
+			}
 		}
 
 
@@ -860,6 +959,7 @@ namespace Geometry {
 
 		static FloatInterval join(const FloatInterval& a, const FloatInterval& b);
 		static FloatInterval intersect(const FloatInterval& a, const FloatInterval& b);
+		static FloatInterval fromIntInterval(const IntInterval& a);
 	};
 }
 

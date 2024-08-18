@@ -1,4 +1,4 @@
-#include "Solver.h"
+#include "solver/Solver.h"
 
 #include <SDL.h>
 
@@ -33,8 +33,6 @@
 #include <unordered_map>
 #include <algorithm>
 #include <iostream>
-
-#include "solver/Terrain.h"
 
 namespace Solver {
 

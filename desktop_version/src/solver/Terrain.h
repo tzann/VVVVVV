@@ -4,10 +4,28 @@
 #include <cstddef>
 #include <vector>
 #include <set>
+#include <algorithm>
+#include <iterator>
+#include <unordered_set>
+#include <functional>
+#include <queue>
 
+#include <SDL.h>
+
+#include "Graphics.h"
+#include "Map.h"
+#include "Entity.h"
+#include "UtilityClass.h"
+#include "Game.h"
 #include "Exit.h"
+#include "Screen.h"
+
 #include "solver/Constants.h"
+#include "solver/Exceptions.h"
 #include "solver/Geometry.h"
+#include "solver/Heuristic.h"
+#include "solver/Numerics.h"
+#include "solver/Solver.h"
 
 using namespace Geometry;
 
@@ -173,6 +191,7 @@ namespace Terrain {
 
 		IntVector GetPrimaryDir(bool inverseGravity) const;
 		IntVector GetSecondaryDir(bool inverseGravity) const;
+		void Corner::GetSpeedRange(FloatInterval& vx, FloatInterval& vy, bool goingUp) const;
 		Region GetConnectingRegion(bool inverseGravity) const;
 		Region GetRegionBefore(bool inverseGravity) const;
 		Region GetIntermediateRegion(void) const;
@@ -199,6 +218,7 @@ namespace Terrain {
 
 		Region GetConnectingRegion(void) const;
 		Region GetBoundedRegion(void) const;
+		Region GetBlockedRegion(void) const;
 	};
 
 	struct GravityLine {
@@ -215,27 +235,32 @@ namespace Terrain {
 	struct CornerID {
 		RoomPosition room;
 		int cornerIndex;
+		bool goingUp;
 
-		CornerID() : room(), cornerIndex(-1) {}
-		CornerID(RoomPosition r, int i) : room(r), cornerIndex(i) { }
+		CornerID() : room(RoomPosition::invalid()), cornerIndex(-1), goingUp(false) {}
+		CornerID(RoomPosition r, int i, bool goingUp) : room(r), cornerIndex(i), goingUp(goingUp) { }
 
 		bool is_valid(void) const {
 			return room.is_valid() && cornerIndex >= 0;
 		}
-
-		bool operator== (const CornerID& other) const {
+		bool is_same_corner(const CornerID& other) const {
 			return (room == other.room && cornerIndex == other.cornerIndex);
 		}
+
+		bool operator== (const CornerID& other) const {
+			return (room == other.room && cornerIndex == other.cornerIndex && goingUp == other.goingUp);
+		}
 		bool operator!= (const CornerID& other) const {
-			return (room != other.room || cornerIndex != other.cornerIndex);
+			return !(*this == other);
 		}
 
 		bool operator< (const CornerID& other) const {
 			if (room != other.room) {
 				return room < other.room;
-			}
-			else if (cornerIndex != other.cornerIndex) {
+			} else if (cornerIndex != other.cornerIndex) {
 				return cornerIndex < other.cornerIndex;
+			} else if (goingUp != other.goingUp) {
+				return !goingUp;
 			}
 			// Equality
 			return false;
@@ -251,7 +276,7 @@ namespace Terrain {
 		}
 
 		static CornerID invalid(void) {
-			return CornerID(RoomPosition::invalid(), -1);
+			return CornerID(RoomPosition::invalid(), -1, false);
 		}
 	};
 	struct WallID {
@@ -289,6 +314,10 @@ namespace Terrain {
 		}
 		bool operator> (const WallID& other) const {
 			return !(*this <= other);
+		}
+
+		static WallID invalid(void) {
+			return WallID(RoomPosition::invalid(), -1);
 		}
 	};
 	struct NavigationNodeID {
@@ -329,6 +358,10 @@ namespace Terrain {
 
 		LineID(RoomPosition r, int i) : room(r), lineIndex(i) { }
 
+		bool is_valid(void) const {
+			return room.is_valid() && lineIndex >= 0;
+		}
+
 		bool operator== (const LineID& other) const {
 			return (room == other.room && lineIndex == other.lineIndex);
 		}
@@ -355,6 +388,145 @@ namespace Terrain {
 			return !(*this <= other);
 		}
 	};
+
+
+	enum GenericIDType {
+		InvalidIDType,
+		CornerIDType,
+		WallIDType,
+		LineIDType,
+	};
+	union GenericIDData {
+		struct EmptyStruct {} invalid;
+		CornerID corner;
+		WallID wall;
+		LineID line;
+
+		GenericIDData() { }
+		GenericIDData(CornerID corner) : corner(corner) { }
+		GenericIDData(WallID wall) : wall(wall) { }
+		GenericIDData(LineID line) : line(line) { }
+	};
+	struct GenericID {
+	private:
+		GenericIDType type;
+		GenericIDData data;
+
+	public:
+		GenericID() : type(InvalidIDType), data() { }
+		GenericID(CornerID corner) : type(CornerIDType), data(corner) { }
+		GenericID(WallID wall) : type(WallIDType), data(wall) { }
+		GenericID(LineID line) : type(LineIDType), data(line) { }
+
+		bool is_valid(void) {
+			switch (type) {
+				default:
+					return false;
+				case CornerIDType:
+					return data.corner.is_valid();
+				case WallIDType:
+					return data.wall.is_valid();
+				case LineIDType:
+					return data.line.is_valid();
+			}
+		}
+
+		GenericIDType getType(void) const {
+			return GenericIDType(type);
+		}
+		RoomPosition getRoom(void) const {
+			switch (type) {
+				default:
+					return RoomPosition::invalid();
+				case CornerIDType:
+					return RoomPosition(data.corner.room);
+				case WallIDType:
+					return RoomPosition(data.wall.room);
+				case LineIDType:
+					return RoomPosition(data.line.room);
+			}
+		}
+
+		bool isCorner(void) const {
+			return type == CornerIDType;
+		}
+		bool isWall(void) const {
+			return type == WallIDType;
+		}
+		bool isLine(void) const {
+			return type == LineIDType;
+		}
+
+		CornerID& unwrapCorner(void) {
+			Exceptions::assert(type == CornerIDType);
+			return data.corner;
+		}
+		WallID& unwrapWall(void) {
+			Exceptions::assert(type == WallIDType);
+			return data.wall;
+		}
+		LineID& unwrapLine(void) {
+			Exceptions::assert(type == LineIDType);
+			return data.line;
+		}
+		const CornerID& unwrapCorner(void) const {
+			Exceptions::assert(type == CornerIDType);
+			return data.corner;
+		}
+		const WallID& unwrapWall(void) const {
+			Exceptions::assert(type == WallIDType);
+			return data.wall;
+		}
+		const LineID& unwrapLine(void) const {
+			Exceptions::assert(type == LineIDType);
+			return data.line;
+		}
+
+
+		bool operator== (const GenericID& other) const {
+			if (type != other.type) {
+				return false;
+			}
+			switch (type) {
+				default:
+					return true;
+				case CornerIDType:
+					return data.corner == other.data.corner;
+				case WallIDType:
+					return data.wall == other.data.wall;
+				case LineIDType:
+					return data.line == other.data.line;
+			}
+		}
+		bool operator!= (const GenericID& other) const {
+			return !(*this == other);
+		}
+		bool operator< (const GenericID& other) const {
+			if (type != other.type) {
+				return ((int) type) < ((int) other.type);
+			}
+			switch (type) {
+				default:
+					return false;
+				case CornerIDType:
+					return data.corner < other.data.corner;
+				case WallIDType:
+					return data.wall < other.data.wall;
+				case LineIDType:
+					return data.line < other.data.line;
+			}
+		}
+		bool operator<=(const GenericID& other) const {
+			return (*this < other) || (*this == other);
+		}
+		bool operator>=(const GenericID& other) const {
+			return !(*this < other);
+		}
+		bool operator> (const GenericID& other) const {
+			return !(*this <= other);
+		}
+	};
+
 
 	enum NavigationNodeType {
 		InvalidNodeType,
@@ -462,11 +634,17 @@ namespace Terrain {
 		}
 	};
 
+	struct SymbolicPlayerState {
+		Numerics::BoolRange leftInput, rightInput;
+		Numerics::BoolRange inverseGravity;
+		Numerics::IntRange x, y;
+		Numerics::FloatRange v_x, v_y;
+	};
 
 	struct CornerConnection {
 		CornerID corner;
 		bool goingUp;
-		// The player state as it is the frame after passing the corner (second gap)
+		// The player state as it is the frame after fully passing the corner (second gap)
 		Region pos;
 		FloatInterval vx;
 		FloatInterval vy;
@@ -484,6 +662,92 @@ namespace Terrain {
 		CornerConnection fromCorner;
 		CornerConnection toCorner;
 		std::vector<SurfaceConnection> intermediate_surfaces;
+	};
+
+	struct PlayerStateRange {
+		bool inverseGravity;
+		Region pos;
+		FloatInterval vx;
+		FloatInterval vy;
+
+		PlayerStateRange& make_bottom(void) {
+			pos.make_bottom();
+			vx.make_bottom();
+			vy.make_bottom();
+		}
+
+		bool is_bottom(void) const {
+			return pos.is_bottom() || vx.is_bottom() || vy.is_bottom();
+		}
+	};
+	struct CornerWaypoint {
+		CornerID corner_id;
+		PlayerStateRange playerState;
+
+		CornerWaypoint() : corner_id(CornerID::invalid()) { }
+	};
+	struct SurfaceWaypoint {
+		WallID wall_id;
+		PlayerStateRange playerState;
+	};
+	struct LineWaypoint {
+		LineID line_id;
+		PlayerStateRange playerState;
+	};
+	struct GenericWaypoint {
+		GenericID id;
+		PlayerStateRange playerState;
+
+		GenericWaypoint() : id(), playerState() { }
+		GenericWaypoint(const CornerWaypoint& corner_wp) : id(corner_wp.corner_id), playerState(corner_wp.playerState) { }
+
+		CornerWaypoint unwrapCornerWaypoint(void) {
+			Exceptions::assert(id.isCorner());
+			CornerWaypoint result;
+			result.corner_id = id.unwrapCorner();
+			result.playerState = playerState;
+			return result;
+		}
+	};
+	struct WaypointPath {
+		CornerWaypoint source;
+		CornerWaypoint target;
+		std::vector<GenericWaypoint> waypoints;
+
+		WaypointPath(CornerWaypoint source) : source(source), target() {
+			waypoints.clear();
+		}
+
+		bool is_partial(void) const {
+			return !target.corner_id.is_valid();
+		}
+		GenericID getLastElementID(void) const {
+			if (target.corner_id.is_valid()) {
+				return GenericID(target.corner_id);
+			} else if (waypoints.empty()) {
+				return GenericID(source.corner_id);
+			} else {
+				return GenericID(waypoints.back().id);
+			}
+		}
+		PlayerStateRange& getLastPlayerState(void) {
+			if (target.corner_id.is_valid()) {
+				return target.playerState;
+			} else if (waypoints.empty()) {
+				return source.playerState;
+			} else {
+				return waypoints.back().playerState;
+			}
+		}
+		const PlayerStateRange& getLastPlayerStateConst(void) const {
+			if (target.corner_id.is_valid()) {
+				return target.playerState;
+			} else if (waypoints.empty()) {
+				return source.playerState;
+			} else {
+				return waypoints.back().playerState;
+			}
+		}
 	};
 	
 	// ------------------
@@ -507,6 +771,7 @@ namespace Terrain {
 	void RenderRect(GlobalPosition min, GlobalPosition max);
 	void RenderCollisionBitmap(IntVector offset);
 	void RenderFullConnection(const FullConnection& conn);
+	void RenderWaypointPath(const WaypointPath& path);
 
 	// --------------------------------------
 	// Functions
@@ -552,11 +817,21 @@ namespace Terrain {
 	std::vector<FullConnection> FindCornerConnections(CornerID c_id, bool goingUp);
 	std::vector<FullConnection> RecursiveSurfaceConnections(const LocalFrame& frame, const FullConnection& history, const std::set<WallID>& surfaces, const std::set<CornerID>& corners);
 
+	std::vector<WaypointPath> NewFindCornerConnections(CornerID c_id);
+	std::vector<WaypointPath> NewRecursiveSurfaceConnections(const LocalFrame& frame, const WaypointPath& history, const std::set<GenericID>& elements);
 
 	void FindConnectingSurfaces(CornerID from_id, CornerID to_id);
 
 	void DoIntervalPhysicsStep(const FloatInterval& a_x, const FloatInterval& a_y, FloatInterval& v_x, FloatInterval& v_y, IntInterval& xp, IntInterval& yp);
+
+	bool ReduceRangesByConnectivity(PlayerStateRange& from, PlayerStateRange& to, const LocalFrame& frame, const WallID& wall_id);
+
+	void DoFlip(PlayerStateRange& state);
+	void DoGravityLineFlip(PlayerStateRange& state);
+
 	bool ReduceByFliplessConnectivity(Region & from, Region & to, FloatInterval v_x, FloatInterval v_y, bool inverseGravity, bool toSurface);
+
+	void FrameAdvancePlayerStateRange(PlayerStateRange& state, const Region& blockedRegion);
 
 	bool IsInRange(IntVector range, IntVector v);
 

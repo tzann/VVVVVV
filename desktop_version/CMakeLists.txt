@@ -117,10 +117,11 @@ set(VVV_SRC
     src/Vlogging.c
     src/Xoshiro.c
     ../third_party/physfs/extras/physfsrwops.c
+    src/solver/Geometry.cpp
+    src/solver/Heuristic.cpp
+    src/solver/Numerics.cpp
     src/solver/Solver.cpp
     src/solver/Terrain.cpp
-    src/solver/Heuristic.cpp
-    src/solver/Geometry.cpp
 )
 if(NOT CUSTOM_LEVEL_SUPPORT STREQUAL "DISABLED")
     list(APPEND VVV_SRC src/CustomLevels.cpp)

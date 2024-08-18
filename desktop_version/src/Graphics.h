@@ -10,6 +10,8 @@
 #include "Textbox.h"
 #include "TowerBG.h"
 
+#include "solver/Terrain.h"
+
 enum FadeBars
 {
     FADE_NONE,

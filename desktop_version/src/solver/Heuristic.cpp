@@ -1,9 +1,4 @@
-#include "Heuristic.h"
-
-#include "solver/Constants.h"
-
-#include <SDL.h>
-#include "Exit.h"
+#include "solver/Heuristic.h"
 
 namespace Heuristic {
 	int basic_heuristic(int dx, int dy) {
@@ -11,6 +6,4 @@ namespace Heuristic {
 		int y_frames = (SDL_abs(dy) + MAX_Y_SPEED - 1) / MAX_Y_SPEED;
 		return SDL_max(x_frames, y_frames);
 	}
-
-
 }

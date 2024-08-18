@@ -1878,6 +1878,8 @@ void Graphics::drawtrophytext(void)
 
 void Graphics::drawentities(void)
 {
+    Terrain::AfterTileRenderHook();
+
     const int yoff = map.towermode ? lerp(map.oldypos, map.ypos) : 0;
 
     if (!map.custommode)
@@ -3328,6 +3330,8 @@ void Graphics::render(void)
 
 void Graphics::renderwithscreeneffects(void)
 {
+    Terrain::AfterRenderHook();
+
     if (game.flashlight > 0 && !game.noflashingmode)
     {
         flashlight();

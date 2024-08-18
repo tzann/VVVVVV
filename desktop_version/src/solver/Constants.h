@@ -1,6 +1,8 @@
 #ifndef SOLVER_CONSTANTS_H
 #define SOLVER_CONSTANTS_H
 
+#include "solver/Geometry.h"
+
 #define VIRIDIAN_CX (6)
 #define VIRIDIAN_CY (2)
 #define VIRIDIAN_W (12)
@@ -10,6 +12,22 @@
 #define Y_ACCEL_EFF (2.75f)
 #define MAX_X_SPEED (6)
 #define MAX_Y_SPEED (10)
+
+#define FULL_X_SPEED_RANGE (FloatInterval(-MAX_X_SPEED, MAX_X_SPEED))
+#define POS_X_SPEED_RANGE (FloatInterval(0.0f, MAX_X_SPEED))
+#define NEG_X_SPEED_RANGE (FloatInterval(-MAX_X_SPEED, 0.0f))
+
+#define FULL_Y_SPEED_RANGE (FloatInterval(-MAX_Y_SPEED, MAX_Y_SPEED))
+#define POS_Y_SPEED_RANGE (FloatInterval(0.0f, MAX_Y_SPEED))
+#define NEG_Y_SPEED_RANGE (FloatInterval(-MAX_Y_SPEED, 0.0f))
+#define Y_SPEED_RANGE_FOR_GRAVITY(inverseGravity) (inverseGravity ? NEG_Y_SPEED_RANGE : POS_Y_SPEED_RANGE)
+
+#define PLATFORM_Y_SPEED_RANGE_FOR_GRAVITY(inverseGravity) (inverseGravity ? 0.0f : FloatInterval(0.0f, 0.75f))
+
+#define MAX_SPEED_VECTOR (IntVector(MAX_X_SPEED, MAX_Y_SPEED));
+
+#define X_RATE (1.1f)
+#define Y_RATE (0.25f)
 
 #define TOWER_RX (9)
 

@@ -1,4 +1,4 @@
-#include "Geometry.h"
+#include "solver/Geometry.h"
 
 namespace Geometry {
 	IntInterval IntInterval::join(const IntInterval& a, const IntInterval& b) {
@@ -152,5 +152,18 @@ namespace Geometry {
 			max = SDL_min(max, other.max);
 		}
 		return regularize();
+	}
+	FloatInterval FloatInterval::fromIntInterval(const IntInterval& i) {
+		if (i.is_bottom()) {
+			return FloatInterval::bottom();
+		} else if (i.is_top()) {
+			return FloatInterval::top();
+		} else if (!i.has_lower_bound()) {
+			return FloatInterval::fromUpperBound((float) i.getUpperBound());
+		} else if (!i.has_upper_bound()) {
+			return FloatInterval::fromLowerBound((float) i.getLowerBound());
+		} else {
+			return FloatInterval((float) i.getLowerBound(), (float) i.getUpperBound());
+		}
 	}
 }

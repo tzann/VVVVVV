@@ -1,6 +1,8 @@
 #ifndef SOLVER_HEURISTIC_H
 #define SOLVER_HEURISTIC_H
 
+#include <SDL.h>
+
 #include "solver/Constants.h"
 
 namespace Heuristic {
