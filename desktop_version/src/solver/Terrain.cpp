@@ -52,6 +52,7 @@ namespace Terrain {
 					}
 				}
 			}
+
 			return;
 			RoomData& currentRoomData = GetRoomData(currentRoom);
 			int num_nodes = currentRoomData.nodes.size();
@@ -139,7 +140,7 @@ namespace Terrain {
 				return;
 			}
 			int corn = ((counter / 60) % currentRoomData.corners.size());
-			CornerID c_id(currentRoom, 1, false);
+			CornerID c_id(RoomPosition(2, 16), 1, false);
 
 			std::vector<WaypointPath> paths = NewFindCornerConnections(c_id);
 			if (!paths.empty()) {
@@ -269,8 +270,7 @@ namespace Terrain {
 
 			SDL_SetRenderDrawColor(gameScreen.m_renderer, 0, 255, 0, 50);
 			RenderRect(cornerPos, regionPos);
-		}
-		else {
+		} else {
 			return;
 		}
 
@@ -499,34 +499,49 @@ namespace Terrain {
 		const Corner& fromCorner = GetCorner(path.source.corner_id);
 		const Corner& toCorner = GetCorner(path.target.corner_id);
 
+		IntVector roomOffset = GetMinDistanceOffsetBetweenRooms(GetCurrentRoomPosition(), path.source.corner_id.room);
+
 		// From region (blue)
 		SDL_SetRenderDrawColor(gameScreen.m_renderer, 0, 0, 255, 150);
-		RenderRegion(path.source.playerState.pos);
+		Region fromRegion(path.source.playerState.pos);
+		fromRegion.x += roomOffset.x;
+		fromRegion.y += roomOffset.y;
+		RenderRegion(fromRegion);
 
 		// To corner + region (red)
 		SDL_SetRenderDrawColor(gameScreen.m_renderer, 255, 0, 0, 150);
-		RenderRegion(path.target.playerState.pos);
+		Region toRegion(path.target.playerState.pos);
+		toRegion.x += roomOffset.x;
+		toRegion.y += roomOffset.y;
+		RenderRegion(toRegion);
 
 		// Intermediate surfaces (yellow)
 		// Also connection lines (green)
-		IntVector lastPos = (path.source.playerState.pos.getMin() + path.source.playerState.pos.getMax()) / 2;
+		IntVector lastPos = (fromRegion.getMin() + fromRegion.getMax()) / 2;
 		IntVector thisPos;
 
 		for (std::vector<GenericWaypoint>::const_iterator it = path.waypoints.cbegin(); it != path.waypoints.cend(); it++) {
 			const GenericWaypoint& wp = *it;
 			SDL_SetRenderDrawColor(gameScreen.m_renderer, 255, 255, 0, 150);
-			RenderRegion(wp.playerState.pos);
-			thisPos = (wp.playerState.pos.getMin() + wp.playerState.pos.getMax()) / 2;
-			if (wp.playerState.inverseGravity) {
-				thisPos.y += 1;
-			} else {
-				thisPos.y -= 1;
+			Region waypointRegion(wp.playerState.pos);
+			waypointRegion.x += roomOffset.x;
+			waypointRegion.y += roomOffset.y;
+			waypointRegion.x.addLowerBound(waypointRegion.x.getLowerBound() + 1);
+			waypointRegion.x.addUpperBound(waypointRegion.x.getUpperBound() - 1);
+			RenderRegion(waypointRegion);
+			thisPos = (waypointRegion.getMin() + waypointRegion.getMax()) / 2;
+			if (wp.id.isWall()) {
+				if (GetWall(wp.id.unwrapWall()).type == Floor) {
+					thisPos.y -= 1;
+				} else if (GetWall(wp.id.unwrapWall()).type == Ceiling) {
+					thisPos.y += 1;
+				}
 			}
 			SDL_SetRenderDrawColor(gameScreen.m_renderer, 0, 255, 0, 150);
 			RenderLine(lastPos, thisPos);
 			lastPos = thisPos;
 		}
-		thisPos = (path.target.playerState.pos.getMin() + path.target.playerState.pos.getMax()) / 2;
+		thisPos = (toRegion.getMin() + toRegion.getMax()) / 2;
 		SDL_SetRenderDrawColor(gameScreen.m_renderer, 0, 255, 0, 150);
 		RenderLine(lastPos, thisPos);
 		lastPos = thisPos;
@@ -2876,6 +2891,8 @@ namespace Terrain {
 		IntVector roomOffset = GetMinOffsetBetweenRooms(from.room, to.room);
 		IntVector range = GetMinDistanceBetween(from, to);
 
+		const Region validRange = Region(IntVector::zero(), range);
+
 		for (int rx = 0; rx <= roomOffset.x; rx++) {
 			for (int ry = 0; ry <= roomOffset.y; ry++) {
 				RoomPosition room((rx + from.room.rx) % 20, (ry + from.room.ry) % 20);
@@ -2888,7 +2905,7 @@ namespace Terrain {
 
 					IntVector relativePos = corner.pos + roomDistance - from.pos;
 
-					if (IsInRange(range, relativePos)) {
+					if (validRange.contains(relativePos)) {
 						result.emplace(room, c, false);
 						result.emplace(room, c, true);
 					}
@@ -2916,6 +2933,7 @@ namespace Terrain {
 
 		IntVector roomOffset = GetMinOffsetBetweenRooms(from.room, to.room);
 		IntVector range = GetMinDistanceBetween(from, to);
+		const Region validRange = Region(IntVector::zero(), range);
 
 		for (int rx = 0; rx <= roomOffset.x; rx++) {
 			for (int ry = 0; ry <= roomOffset.y; ry++) {
@@ -2933,7 +2951,9 @@ namespace Terrain {
 					minCorner += roomDistance - from.pos;
 					maxCorner += roomDistance - from.pos;
 
-					if (IsInRange(range, minCorner) || IsInRange(range, maxCorner)) {
+					const Region wallRegion = Region(minCorner, maxCorner);
+
+					if (validRange.intersects(wallRegion)) {
 						result.emplace(room, w);
 					}
 				}
@@ -2962,6 +2982,8 @@ namespace Terrain {
 		IntVector roomOffset = GetMinOffsetBetweenRooms(from.room, to.room);
 		IntVector range = GetMinDistanceBetween(from, to);
 
+		const Region validRange = Region(IntVector::zero(), range);
+
 		for (int rx = 0; rx <= roomOffset.x; rx++) {
 			for (int ry = 0; ry <= roomOffset.y; ry++) {
 				RoomPosition room((rx + from.room.rx) % 20, (ry + from.room.ry) % 20);
@@ -2978,7 +3000,9 @@ namespace Terrain {
 					minCorner += roomDistance - from.pos;
 					maxCorner += roomDistance - from.pos;
 
-					if (IsInRange(range, minCorner) || IsInRange(range, maxCorner)) {
+					const Region lineRegion = Region(minCorner, maxCorner);
+
+					if (validRange.intersects(lineRegion)) {
 						result.emplace(room, l);
 					}
 				}
@@ -3192,18 +3216,18 @@ namespace Terrain {
 		return Region(min, max);
 	}
 
-	Region GetConnectingRegion(GenericID el_id) {
+	Region GetConnectingRegionInLocalFrame(GenericID el_id, const LocalFrame& frame) {
 		if (!el_id.is_valid()) {
 			return Region::bottom();
 		}
 
 		if (el_id.isCorner()) {
 			CornerID& c_id = el_id.unwrapCorner();
-			return GetCorner(c_id).GetConnectingRegion(c_id.goingUp);
+			return GetCornerInLocalFrame(c_id, frame).GetConnectingRegion(c_id.goingUp);
 		} else if (el_id.isWall()) {
-			return GetWall(el_id.unwrapWall()).GetConnectingRegion();
+			return GetWallInLocalFrame(el_id.unwrapWall(), frame).GetConnectingRegion();
 		} else if (el_id.isLine()) {
-			return GetGravityLine(el_id.unwrapLine()).GetConnectingRegion();
+			return GetGravityLineInLocalFrame(el_id.unwrapLine(), frame).GetConnectingRegion();
 		}
 
 		// Should be unreachable
@@ -3690,221 +3714,208 @@ namespace Terrain {
 			Exceptions::unimplemented();
 		}
 
-		// Temp fix
-		validConnectionRegion.x.min--;
-		validConnectionRegion.x.max++;
-		validConnectionRegion.y.min--;
-		validConnectionRegion.y.max++;
-
 		// Determine outgoing states from previous waypoint
-		Region walkableRegion = Region::bottom();
 		if (prev_el_id.isCorner()) {
 			prev_states.push_back(history.getLastPlayerStateConst());
 		} else if (prev_el_id.isWall()) {
-			PlayerStateRange prevStateFlipped(history.getLastPlayerStateConst());
+			PlayerStateRange prevStateFlipped;
+			prevStateFlipped.inverseGravity = history.getLastPlayerStateConst().inverseGravity;
+			prevStateFlipped.pos = Region(history.getLastPlayerStateConst().pos);
+			prevStateFlipped.vx = FloatInterval(history.getLastPlayerStateConst().vx);
+			prevStateFlipped.vy = FloatInterval(history.getLastPlayerStateConst().vy);
+			
 			const RoomWall& prevSurface = GetWallInLocalFrame(history.waypoints.back().id.unwrapWall(), frame);
 			if (prevSurface.walkable) {
-				walkableRegion = prevSurface.GetConnectingRegion();
-				DoFlip(prevStateFlipped);
 				prev_states.push_back(history.getLastPlayerStateConst());
+				DoFlip(prevStateFlipped);
 				prev_states.push_back(prevStateFlipped);
 				// TODO: add corner/edge/ghostpixel flips
 			}
 		} else if (prev_el_id.isLine()) {
-			PlayerStateRange prevStateFlipped(history.getLastPlayerStateConst());
+			PlayerStateRange prevStateFlipped;
+			prevStateFlipped.inverseGravity = history.getLastPlayerStateConst().inverseGravity;
+			prevStateFlipped.pos = Region(history.getLastPlayerStateConst().pos);
+			prevStateFlipped.vx = FloatInterval(history.getLastPlayerStateConst().vx);
+			prevStateFlipped.vy = FloatInterval(history.getLastPlayerStateConst().vy);
 			DoGravityLineFlip(prevStateFlipped);
 			prev_states.push_back(prevStateFlipped);
 		} else {
 			Exceptions::unimplemented();
 		}
 
-		for (std::set<GenericID>::iterator it = elements.begin(); it != elements.end(); it++) {
-			GenericID el_id = *it;
+		// Get the regions of each element that can be connected to
+		std::vector<ElementRegion> element_regions = GetUncoveredRanges(frame, history, elements);
+
+		// Create all possible further connections
+		for (std::vector<ElementRegion>::const_iterator it = element_regions.cbegin(); it != element_regions.cend(); it++) {
+			const ElementRegion& element_region = *it;
+			const GenericID& el_id = element_region.element_id;
+			const Region& el_region = element_region.region;
 
 			Exceptions::assert(el_id.is_valid());
 			// Don't connect to self
-			if (el_id == GenericID(history.source.corner_id)) {
-				continue;
-			}
-			const Region& tmpConnRegion = GetConnectingRegion(el_id);
-			Region& fullConnRegion = Region(tmpConnRegion).intersect(validConnectionRegion);
-			if (fullConnRegion.is_bottom()) {
+			if (el_id == GenericID(history.source.corner_id) || el_region.is_bottom()) {
 				continue;
 			}
 
-			std::set<IntInterval> uncoveredParts;
+			for (std::vector<PlayerStateRange>::const_iterator it3 = prev_states.cbegin(); it3 != prev_states.cend(); it3++) {
+				PlayerStateRange prevState(*it3);
+				Region elConnRegion(el_region);
 
-			// TODO: handle walking connections better (may / must analysis)
-			if (el_id.isCorner()) {
-				uncoveredParts.insert(fullConnRegion.x);
-			} else {
-				std::set<IntInterval> coveredParts;
-				GenericWaypoint& prevPastWp = GenericWaypoint(history.source);
-				for (std::vector<GenericWaypoint>::const_iterator it2 = history.waypoints.cbegin(); it2 != history.waypoints.cend(); it2++) {
-					const GenericWaypoint& pastWp = *it2;
-					if (el_id == pastWp.id) {
-						if (el_id.isWall() && pastWp.id == prevPastWp.id) {
-							// Walking connection, special case
-							IntInterval coveredXRange(prevPastWp.playerState.pos.x);
-							if (pastWp.playerState.pos.x > prevPastWp.playerState.pos.x) {
-								coveredXRange += MAX_X_SPEED;
-							} else if (pastWp.playerState.pos.x < prevPastWp.playerState.pos.x) {
-								coveredXRange -= MAX_X_SPEED;
-							} else {
-								Exceptions::unreachable();
-							}
-							coveredXRange.difference(prevPastWp.playerState.pos.x);
-							coveredParts.insert(coveredXRange);
-						} else {
-							coveredParts.insert(pastWp.playerState.pos.x);
-						}
+				if (el_id.isWall()) {
+					RoomWall& w = GetWallInLocalFrame(el_id.unwrapWall(), frame);
+					if (prevState.inverseGravity && w.type != Ceiling) {
+						continue;
+					} else if (!prevState.inverseGravity && w.type != Floor) {
+						continue;
 					}
-					prevPastWp = pastWp;
-				}
 
-				int lastX = fullConnRegion.x.min;
-				for (std::set<IntInterval>::const_iterator it2 = coveredParts.cbegin(); it2 != coveredParts.cend(); it2++) {
-					const IntInterval& coveredPart = *it2;
+					// Restrict previous state to valid region
+					prevState.pos.intersect(w.GetBoundedRegion());
+					// Restrict next state to valid region
+					elConnRegion.intersect(validConnectionRegion);
 
-					IntInterval range = coveredPart.getIntervalBelow().addLowerBound(lastX);
-					if (!range.is_bottom()) {
-						uncoveredParts.insert(range);
-					}
-					lastX = coveredPart.getIntervalAbove().min;
-				}
-				IntInterval range(lastX, fullConnRegion.x.max);
-				if (!range.is_bottom()) {
-					uncoveredParts.insert(range);
-				}
-			}
-
-			for (std::set<IntInterval>::const_iterator it2 = uncoveredParts.cbegin(); it2 != uncoveredParts.cend(); it2++) {
-				const IntInterval& xRange = *it2;
-
-				for (std::vector<PlayerStateRange>::const_iterator it3 = prev_states.cbegin(); it3 != prev_states.cend(); it3++) {
-					PlayerStateRange prevState(*it3);
-					Region elConnRegion(IntInterval(xRange), IntInterval(fullConnRegion.y));
-
-					if (el_id.isWall()) {
-						RoomWall& w = GetWallInLocalFrame(el_id.unwrapWall(), frame);
-						if (prevState.inverseGravity && w.type != Ceiling) {
-							continue;
-						} else if (!prevState.inverseGravity && w.type != Floor) {
-							continue;
-						}
-
-						// Restrict previous state to valid region
-						prevState.pos.intersect(w.GetBoundedRegion());
-
-						GenericWaypoint nextWp;
-						if (el_id == prev_el_id) {
-							// Can't have two walking connections in a row!
-							if (history.waypoints.size() > 1) {
-								if (history.waypoints.at(history.waypoints.size() - 2).id == prev_el_id) {
-									continue;
-								}
-							}
-
-							// Walking connection -> must be adjacent
-							Exceptions::require(!elConnRegion.x.intersects(prevState.pos.x));
-
-							nextWp.id = el_id;
-							nextWp.playerState.inverseGravity = prevState.inverseGravity;
-							nextWp.playerState.pos = elConnRegion;
-							nextWp.playerState.vy = PLATFORM_Y_SPEED_RANGE_FOR_GRAVITY(prevState.inverseGravity);
-							if (prevState.pos.x.max + 1 == elConnRegion.x.min) {
-								// Going right
-								nextWp.playerState.vx = POS_X_SPEED_RANGE;
-							} else if (prevState.pos.x.min - 1 == elConnRegion.x.max) {
-								// Going left
-								nextWp.playerState.vx = NEG_X_SPEED_RANGE;
-							} else {
+					GenericWaypoint nextWp;
+					if (el_id == prev_el_id) {
+						// Can't have two walking connections in a row!
+						if (history.waypoints.size() > 1) {
+							if (history.waypoints.at(history.waypoints.size() - 2).id == prev_el_id) {
 								continue;
 							}
-
-							// Regions don't need to be restricted
-							// TODO: is there any way we could restrict?
-						} else {
-							nextWp.id = el_id;
-							nextWp.playerState.inverseGravity = prevState.inverseGravity;
-							nextWp.playerState.pos = elConnRegion;
-							nextWp.playerState.vx = FULL_X_SPEED_RANGE;
-							nextWp.playerState.vy = Y_SPEED_RANGE_FOR_GRAVITY(prevState.inverseGravity);
-
-							// Restrict regions by how they connect
-							ReduceByFliplessConnectivity(prevState.pos, nextWp.playerState.pos, prevState.vx, prevState.vy, prevState.inverseGravity, true);
-							// ReduceRangesByConnectivity(prevState, nextWp.playerState, frame, el_id.unwrapWall());
 						}
 
-						// Add this path to list
-						WaypointPath newPath(history);
-						newPath.waypoints.push_back(nextWp);
-						new_paths.push_back(newPath);
-					} else if (el_id.isLine()) {
-						if (el_id == prev_el_id) {
-							// Don't let lines connect to themselves (for now)
-							// TODO: do we need this?
+						// Walking connection -> must be adjacent region
+						if (elConnRegion.x.intersects(prevState.pos.x)) {
+							// There's an overlap due to may/must analysis, so defer previous position to that
+							prevState.pos.x.difference(elConnRegion.x);
+							// Sanity check
+							if (prevState.pos.x.is_bottom()) {
+								continue; // TODO: remove this
+							}
+							Exceptions::assert(!prevState.pos.x.is_bottom());
+						} else {
+							// Make sure the regions are adjacent
+							if ((elConnRegion.x - prevState.pos.x).abs().getLowerBound() > 1) {
+								continue;
+							}
+						}
+						// elConnRegion.x.join(prevState.pos.x);
+
+						nextWp.id = el_id;
+						nextWp.playerState.inverseGravity = prevState.inverseGravity;
+						nextWp.playerState.pos = elConnRegion;
+						nextWp.playerState.vy = PLATFORM_Y_SPEED_RANGE_FOR_GRAVITY(prevState.inverseGravity);
+						if (prevState.pos.x.max + 1 == elConnRegion.x.min) {
+							// Going right
+							nextWp.playerState.vx = POS_X_SPEED_RANGE;
+						} else if (prevState.pos.x.min - 1 == elConnRegion.x.max) {
+							// Going left
+							nextWp.playerState.vx = NEG_X_SPEED_RANGE;
+						} else {
 							continue;
 						}
-						GravityLine& line = GetGravityLineInLocalFrame(el_id.unwrapLine(), frame);
 
-						// Must connect to line from outside it (even from outside previous covered segments)
-						prevState.pos.difference(line.GetConnectingRegion());
+						// TODO: is there any way we could restrict the regions?
+					} else {
+						// Can't have two non-walking connections in a row!
+						// TODO: is this the right place to enforce this???
+						if (prev_el_id.isWall() && history.waypoints.size() > 1) {
+							GenericID prev_prev_el_id = history.waypoints.at(history.waypoints.size() - 2).id;
+							if (prev_prev_el_id.isWall() && prev_prev_el_id != prev_el_id) {
+								continue;
+							}
+						}
 
-						GenericWaypoint nextWp;
 						nextWp.id = el_id;
 						nextWp.playerState.inverseGravity = prevState.inverseGravity;
 						nextWp.playerState.pos = elConnRegion;
 						nextWp.playerState.vx = FULL_X_SPEED_RANGE;
-						nextWp.playerState.vy = FULL_Y_SPEED_RANGE; // TODO: restrict y velocity more
+						nextWp.playerState.vy = Y_SPEED_RANGE_FOR_GRAVITY(prevState.inverseGravity);
 
 						// Restrict regions by how they connect
-						ReduceByFliplessConnectivity(prevState.pos, nextWp.playerState.pos, prevState.vx, prevState.vy, prevState.inverseGravity, false);
-						// ReduceRangesByConnectivity(prevState, nextWp.playerState, frame, WallID::invalid());
-
-						// Add this path to list
-						WaypointPath newPath(history);
-						newPath.waypoints.push_back(nextWp);
-						new_paths.push_back(newPath);
-					} else if (el_id.isCorner()) {
-						CornerID& c_el_id = el_id.unwrapCorner();
-						Corner& c = GetCornerInLocalFrame(c_el_id, frame);
-						IntVector secondaryDir = c.GetSecondaryDir(c_el_id.goingUp);
-
-						int corner_y_dir = secondaryDir.y;
-						if (corner_y_dir != 0) {
-							bool requiredGravity = corner_y_dir == -1;
-							if (prevState.inverseGravity != requiredGravity) {
-								continue;
-							}
-						}
-
-						FloatInterval xSpeed, ySpeed;
-						c.GetSpeedRange(xSpeed, ySpeed, c_el_id.goingUp);
-
-						CornerWaypoint nextWp;
-						nextWp.corner_id = c_el_id;
-						nextWp.playerState.inverseGravity = prevState.inverseGravity;
-						nextWp.playerState.pos = elConnRegion;
-						nextWp.playerState.vx = xSpeed;
-						nextWp.playerState.vy = ySpeed;
-
-						// Must connect to corner from region before it
-						// TODO: is this correct? i think not quite, since we could connect from the intermediate region as well
-						prevState.pos.intersect(c.GetRegionBefore(c_el_id.goingUp));
-
-						// Restrict regions by how they connect
-						ReduceByFliplessConnectivity(prevState.pos, nextWp.playerState.pos, prevState.vx, prevState.vy, prevState.inverseGravity, false);
-						// ReduceRangesByConnectivity(prevState, nextWp.playerState, frame, WallID::invalid());
-
-						// Add this path to list
-						WaypointPath newPath(history);
-						newPath.target = nextWp;
-						new_paths.push_back(newPath);
-					} else {
-						// Not yet implemented waypoint types
-						Exceptions::unimplemented();
+						ReduceByFliplessConnectivity(prevState.pos, nextWp.playerState.pos, prevState.vx, prevState.vy, prevState.inverseGravity, true);
+						// ReduceRangesByConnectivity(prevState, nextWp.playerState, frame, el_id.unwrapWall());
 					}
+
+					// Add this path to list
+					WaypointPath newPath(history);
+					newPath.getLastPlayerState() = prevState;
+					newPath.waypoints.push_back(nextWp);
+					new_paths.push_back(newPath);
+				} else if (el_id.isLine()) {
+					if (el_id == prev_el_id) {
+						// Don't let lines connect to themselves (for now)
+						// TODO: do we need this? I hope not
+						continue;
+					}
+					GravityLine& line = GetGravityLineInLocalFrame(el_id.unwrapLine(), frame);
+
+					// Must connect to line from outside it (even from outside previous covered segments)
+					prevState.pos.difference(line.GetConnectingRegion());
+					// Restrict next state to valid region
+					elConnRegion.intersect(validConnectionRegion);
+
+					GenericWaypoint nextWp;
+					nextWp.id = el_id;
+					nextWp.playerState.inverseGravity = prevState.inverseGravity;
+					nextWp.playerState.pos = elConnRegion;
+					nextWp.playerState.vx = FULL_X_SPEED_RANGE;
+					nextWp.playerState.vy = FULL_Y_SPEED_RANGE; // TODO: restrict y velocity more
+
+					// Restrict regions by how they connect
+					ReduceByFliplessConnectivity(prevState.pos, nextWp.playerState.pos, prevState.vx, prevState.vy, prevState.inverseGravity, false);
+					// ReduceRangesByConnectivity(prevState, nextWp.playerState, frame, WallID::invalid());
+
+					// Add this path to list
+					WaypointPath newPath(history);
+					newPath.getLastPlayerState() = prevState;
+					newPath.waypoints.push_back(nextWp);
+					new_paths.push_back(newPath);
+				} else if (el_id.isCorner()) {
+					const CornerID& c_el_id = el_id.unwrapCorner();
+					Corner& c = GetCornerInLocalFrame(c_el_id, frame);
+					IntVector secondaryDir = c.GetSecondaryDir(c_el_id.goingUp);
+
+					// TODO: remove this, it stops walls connecting to their own corners
+					if (c.pos.y == prevState.pos.y.getLowerBound() && prevState.pos.y.is_exact()) {
+						continue;
+					}
+
+					int corner_y_dir = secondaryDir.y;
+					if (corner_y_dir != 0) {
+						bool requiredGravity = corner_y_dir == -1;
+						if (prevState.inverseGravity != requiredGravity) {
+							continue;
+						}
+					}
+
+					FloatInterval xSpeed, ySpeed;
+					c.GetSpeedRange(xSpeed, ySpeed, c_el_id.goingUp);
+
+					CornerWaypoint nextWp;
+					nextWp.corner_id = c_el_id;
+					nextWp.playerState.inverseGravity = prevState.inverseGravity;
+					nextWp.playerState.pos = elConnRegion;
+					nextWp.playerState.vx = xSpeed;
+					nextWp.playerState.vy = ySpeed;
+
+					// Must connect to corner from region before it
+					// TODO: is this correct? i think not quite, since we could connect from the intermediate region as well
+					Region tmp = Region(c.GetRegionBefore(c_el_id.goingUp)).join(c.GetIntermediateRegion());
+					prevState.pos.intersect(tmp);
+
+					// Restrict regions by how they connect
+					ReduceByFliplessConnectivity(prevState.pos, nextWp.playerState.pos, prevState.vx, prevState.vy, prevState.inverseGravity, false);
+					// ReduceRangesByConnectivity(prevState, nextWp.playerState, frame, WallID::invalid());
+
+					// Add this path to list
+					WaypointPath newPath(history);
+					newPath.getLastPlayerState() = prevState;
+					newPath.target = nextWp;
+					new_paths.push_back(newPath);
+				} else {
+					// Not yet implemented waypoint types
+					Exceptions::unimplemented();
 				}
 			}
 		}
@@ -3927,6 +3938,159 @@ namespace Terrain {
 		}
 
 		return results;
+	}
+
+	std::vector<ElementRegion> GetUncoveredRanges(const LocalFrame& frame, const WaypointPath& history, const std::set<GenericID>& elements) {
+		std::vector<ElementRegion> coveredParts;
+		bool hasWalkingConn = false;
+		Region fullVisitedRegion(history.source.playerState.pos);
+		Region mustPos = history.source.playerState.pos;
+		GenericWaypoint& prevPastWp = GenericWaypoint(history.source);
+		for (std::vector<GenericWaypoint>::const_iterator it2 = history.waypoints.cbegin(); it2 != history.waypoints.cend(); it2++) {
+			const GenericWaypoint& pastWp = *it2;
+
+			bool toSurface = pastWp.id.isWall();
+			bool isWalkingConn = toSurface && pastWp.id == prevPastWp.id;
+
+			const PlayerStateRange& fromState = prevPastWp.playerState;
+			const PlayerStateRange& toState = pastWp.playerState;
+
+			// TODO: clean this up once it works
+			if (hasWalkingConn) {
+				PlayerStateRange fromStateMust(fromState); fromStateMust.pos = Region(mustPos);
+				PlayerStateRange toStateMust(toState);
+
+				if (isWalkingConn) {
+					// Sanity check
+					// Exceptions::assert(!fromStateMust.pos.x.intersects(toState.pos.x));
+
+					// TODO: could probably do this with some reduceconnectivity implementation to incorporate vx
+					int absDist = (toState.pos.x - fromStateMust.pos.x).abs().getLowerBound();
+					// absDist of 1 -> overshoot of 6      (touching regions, can land anywhere on the first 6 pixels)
+					// absDist of 2 -> overshoot of 5
+					int overshoot = 6 - ((absDist - 1) % 6);
+					if (toState.pos.x > fromStateMust.pos.x) {
+						// Going right
+						toStateMust.pos.x.addUpperBound(toState.pos.x.getLowerBound() + overshoot - 1);
+					} else {
+						// Going left
+						toStateMust.pos.x.addLowerBound(toState.pos.x.getUpperBound() - overshoot + 1);
+					}
+					
+					mustPos = Region(toStateMust.pos).join(fromStateMust.pos);
+					Region touchedRegion(mustPos);
+					GenericID touchedElement = pastWp.id;
+					coveredParts.emplace_back(touchedElement, touchedRegion);
+				} else {
+					ReduceByFliplessConnectivity(fromStateMust.pos, toStateMust.pos, fromStateMust.vx, fromStateMust.vy, fromStateMust.inverseGravity, toSurface);
+					// ReduceRangesByConnectivity(fromStateMust, toStateMust, frame, toSurface ? pastWp.id.unwrapWall() : WallID::invalid());
+
+					mustPos = Region(toStateMust.pos);
+
+					Region touchedRegion(mustPos);
+					GenericID touchedElement = pastWp.id;
+					coveredParts.emplace_back(touchedElement, touchedRegion);
+				}
+			} else if (isWalkingConn) {
+				// Sanity check
+				IntInterval newMustXRange(toState.pos.x);
+				Exceptions::assert(!fromState.pos.x.intersects(toState.pos.x));
+					
+				// TODO: could probably do this with some reduceconnectivity implementation to incorporate vx
+				int absDist = (toState.pos.x - fromState.pos.x).abs().getLowerBound();
+				// absDist of 1 -> overshoot of 6      (touching regions, can land anywhere on the first 6 pixels)
+				// absDist of 2 -> overshoot of 5
+				int overshoot = 6 - ((absDist - 1) % 6);
+				if (toState.pos.x > fromState.pos.x) {
+					// Going right
+					newMustXRange.addUpperBound(toState.pos.x.getLowerBound() + overshoot - 1);
+				} else {
+					// Going left
+					newMustXRange.addLowerBound(toState.pos.x.getUpperBound() - overshoot + 1);
+				}
+
+				if (newMustXRange.contains(toState.pos.x)) {
+					// may = must, no need to do anything special for this connection
+					isWalkingConn = false;
+					mustPos = Region(toState.pos);
+				} else {
+					mustPos = Region(newMustXRange, toState.pos.y);
+				}
+
+				mustPos.join(fromState.pos);
+
+				Region touchedRegion(mustPos);
+				GenericID touchedElement = pastWp.id;
+				coveredParts.emplace_back(touchedElement, touchedRegion);
+			} else {
+				// Just cover the touched position for this element
+				Region touchedRegion(toState.pos);
+				GenericID touchedElement = pastWp.id;
+				coveredParts.emplace_back(touchedElement, touchedRegion);
+			}
+
+			hasWalkingConn |= isWalkingConn;
+			prevPastWp = pastWp;
+			fullVisitedRegion.join(pastWp.playerState.pos);
+		}
+
+		// Sort the covered parts (by element id and ascending x order)
+		std::sort(coveredParts.begin(), coveredParts.end());
+
+		// Derive the uncovered parts from the covered ones
+		std::vector<ElementRegion> uncoveredParts;
+
+		for (std::set<GenericID>::const_iterator it = elements.cbegin(); it != elements.cend(); it++) {
+			const GenericID& el_id = *it;
+			Exceptions::assert(el_id.is_valid());
+			
+			if (el_id.isCorner()) {
+				// Don't connect to self
+				if (el_id == GenericID(history.source.corner_id)) {
+					continue;
+				}
+				// To connect to a corner, you *must* have been behind it at some point
+				const CornerID& c = el_id.unwrapCorner();
+				const Corner& corner = GetCornerInLocalFrame(c, frame);
+				if (!corner.GetRegionBefore(c.goingUp).intersects(fullVisitedRegion)) {
+					continue;
+				}
+				// You also may not have already been past it
+				if (corner.GetRegionAfter(c.goingUp).intersects(fullVisitedRegion)) {
+					continue;
+				}
+			}
+
+			const Region& connectingRegion = GetConnectingRegionInLocalFrame(el_id, frame);
+
+			int firstUncoveredX = connectingRegion.x.getLowerBound();
+			for (std::vector<ElementRegion>::const_iterator it2 = coveredParts.cbegin(); it2 != coveredParts.cend(); it2++) {
+				const ElementRegion& el_reg = *it2;
+				if (el_reg.element_id != el_id) {
+					// Wrong element
+					continue;
+				}
+
+				const IntInterval& coveredXRange = el_reg.region.x;
+				int lastUncoveredX = coveredXRange.getIntervalBelow().getUpperBound();
+				int newFirstUncoveredX = coveredXRange.getIntervalAbove().getLowerBound();
+
+				IntInterval uncoveredXRange(firstUncoveredX, lastUncoveredX);
+				firstUncoveredX = newFirstUncoveredX;
+
+				if (!uncoveredXRange.is_bottom()) {
+					uncoveredParts.emplace_back(el_id, Region(uncoveredXRange, connectingRegion.y));
+				}
+			}
+
+			int finalUncoveredX = connectingRegion.x.getUpperBound();
+			IntInterval finalUncoveredXRange(firstUncoveredX, finalUncoveredX);
+			if (!finalUncoveredXRange.is_bottom()) {
+				uncoveredParts.emplace_back(el_id, Region(finalUncoveredXRange, connectingRegion.y));
+			}
+		}
+
+		return uncoveredParts;
 	}
 
 	// This simulates the game frame by frame, so isn't terribly efficient

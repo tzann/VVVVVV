@@ -37,6 +37,9 @@ namespace Geometry {
 		return val >= min && val <= max;
 	}
 	bool IntInterval::contains(const IntInterval& other) const {
+		if (is_top() || other.is_bottom()) {
+			return true;
+		}
 		return other.min >= min && other.max <= max;
 	}
 

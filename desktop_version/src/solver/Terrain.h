@@ -418,7 +418,7 @@ namespace Terrain {
 		GenericID(WallID wall) : type(WallIDType), data(wall) { }
 		GenericID(LineID line) : type(LineIDType), data(line) { }
 
-		bool is_valid(void) {
+		bool is_valid(void) const {
 			switch (type) {
 				default:
 					return false;
@@ -524,6 +524,10 @@ namespace Terrain {
 		}
 		bool operator> (const GenericID& other) const {
 			return !(*this <= other);
+		}
+
+		static GenericID invalid(void) {
+			return GenericID();
 		}
 	};
 
@@ -749,6 +753,58 @@ namespace Terrain {
 			}
 		}
 	};
+	struct ElementRegion {
+		GenericID element_id;
+		Region region;
+		ElementRegion(void) : element_id(GenericID::invalid()), region(Region::bottom()) { }
+		ElementRegion(GenericID element_id, Region region) : element_id(element_id), region(region) { }
+
+		bool is_bottom(void) const {
+			return region.is_bottom() || !element_id.is_valid();
+		}
+
+		bool operator== (const ElementRegion& other) const {
+			if (element_id != other.element_id) {
+				return false;
+			} else if (region.x.getLowerBound() != other.region.x.getLowerBound()) {
+				return false;
+			} else if (region.x.getUpperBound() != other.region.x.getUpperBound()) {
+				return false;
+			} else if (region.y.getLowerBound() != other.region.y.getLowerBound()) {
+				return false;
+			} else if (region.y.getUpperBound() != other.region.y.getUpperBound()) {
+				return false;
+			}
+			return true;
+		}
+		bool operator!= (const ElementRegion& other) const {
+			return !(*this == other);
+		}
+		bool operator< (const ElementRegion& other) const {
+			if (element_id != other.element_id) {
+				return element_id < other.element_id;
+			} else if (!region.x.intersects(other.region.x)) {
+				return region.x < other.region.x;
+			} else if (region.x.getLowerBound() == other.region.x.getLowerBound()) {
+				return region.x.getUpperBound() < other.region.x.getUpperBound();
+			} else if (region.x.getUpperBound() == other.region.x.getUpperBound()) {
+				return region.x.getLowerBound() < other.region.x.getLowerBound();
+			} else {
+				// Shouldn't compare overlapping x regions of same element!
+				Exceptions::error();
+			}
+			return false;
+		}
+		bool operator<=(const ElementRegion& other) const {
+			return (*this < other) || (*this == other);
+		}
+		bool operator>=(const ElementRegion& other) const {
+			return !(*this < other);
+		}
+		bool operator> (const ElementRegion& other) const {
+			return !(*this <= other);
+		}
+	};
 	
 	// ------------------
 	// Hook functions
@@ -819,6 +875,7 @@ namespace Terrain {
 
 	std::vector<WaypointPath> NewFindCornerConnections(CornerID c_id);
 	std::vector<WaypointPath> NewRecursiveSurfaceConnections(const LocalFrame& frame, const WaypointPath& history, const std::set<GenericID>& elements);
+	std::vector<ElementRegion> GetUncoveredRanges(const LocalFrame& frame, const WaypointPath& history, const std::set<GenericID>& elements);
 
 	void FindConnectingSurfaces(CornerID from_id, CornerID to_id);
 
