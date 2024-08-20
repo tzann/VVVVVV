@@ -684,7 +684,11 @@ namespace Terrain {
 			vx.make_bottom();
 			vy.make_bottom();
 		}
-
+		PlayerStateRange& make_top(void) {
+			pos.make_top();
+			vx.make_top();
+			vy.make_top();
+		}
 		bool is_bottom(void) const {
 			return pos.is_bottom() || vx.is_bottom() || vy.is_bottom();
 		}
@@ -722,6 +726,9 @@ namespace Terrain {
 
 		static PlayerStateRange bottom(void) {
 			return PlayerStateRange().make_bottom();
+		}
+		static PlayerStateRange top(void) {
+			return PlayerStateRange().make_top();
 		}
 	};
 	struct CornerWaypoint {

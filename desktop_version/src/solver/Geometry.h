@@ -239,6 +239,9 @@ namespace Geometry {
 		bool is_negative(void) const {
 			return min <= max && max <= 0;
 		}
+		bool is_bounded(void) const {
+			return has_lower_bound() && has_upper_bound();
+		}
 		bool intersects(const IntInterval& other) const {
 			if (is_bottom() || other.is_bottom()) {
 				return false;
@@ -504,14 +507,14 @@ namespace Geometry {
 			if (has_upper_bound()) {
 				return IntInterval::fromLowerBound(max + 1);
 			} else {
-				return IntInterval::bottom();
+				return IntInterval::top();
 			}
 		}
 		IntInterval getIntervalBelow(void) const {
 			if (has_lower_bound()) {
 				return IntInterval::fromUpperBound(min - 1);
 			} else {
-				return IntInterval::bottom();
+				return IntInterval::top();
 			}
 		}
 
@@ -547,6 +550,11 @@ namespace Geometry {
 		Region& make_bottom(void) {
 			x.make_bottom();
 			y.make_bottom();
+			return *this;
+		}
+		Region& make_top(void) {
+			x.make_top();
+			y.make_top();
 			return *this;
 		}
 		Region& regularize(void) {

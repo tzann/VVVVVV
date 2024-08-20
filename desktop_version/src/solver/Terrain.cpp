@@ -3300,10 +3300,43 @@ namespace Terrain {
 			return GetWallInLocalFrame(el_id.unwrapWall(), frame).GetConnectingRegion();
 		} else if (el_id.isLine()) {
 			return GetGravityLineInLocalFrame(el_id.unwrapLine(), frame).GetConnectingRegion();
+		} else {
+			Exceptions::unimplemented();
+		}
+	}
+	Region GetBeforeConnectionRegionInLocalFrame(GenericID el_id, const LocalFrame& frame) {
+		if (!el_id.is_valid()) {
+			return Region::bottom();
 		}
 
-		// Should be unreachable
-		return Region::bottom();
+		if (el_id.isCorner()) {
+			CornerID& c_id = el_id.unwrapCorner();
+			Corner& c = GetCornerInLocalFrame(c_id, frame);
+			return c.GetRegionBefore(c_id.goingUp).join(c.GetIntermediateRegion());
+		} else if (el_id.isWall()) {
+			return GetWallInLocalFrame(el_id.unwrapWall(), frame).GetBoundedRegion();
+		} else if (el_id.isLine()) {
+			return Region::top();
+		} else {
+			Exceptions::unimplemented();
+		}
+	}
+	Region GetAfterConnectionRegionInLocalFrame(GenericID el_id, const LocalFrame& frame) {
+		if (!el_id.is_valid()) {
+			return Region::bottom();
+		}
+
+		if (el_id.isCorner()) {
+			CornerID& c_id = el_id.unwrapCorner();
+			Corner& c = GetCornerInLocalFrame(c_id, frame);
+			return c.GetRegionAfter(c_id.goingUp);
+		} else if (el_id.isWall()) {
+			return GetWallInLocalFrame(el_id.unwrapWall(), frame).GetBoundedRegion();
+		} else if (el_id.isLine()) {
+			return Region::top();
+		} else {
+			Exceptions::unimplemented();
+		}
 	}
 
 	// Iteratively explore connecting regions
@@ -3767,13 +3800,58 @@ namespace Terrain {
 
 	std::vector<WaypointPath> RevampedRecursiveSurfaceConnections(const LocalFrame& frame, const WaypointPath& history, const std::set<GenericID>& elements) {
 		std::vector<WaypointPath> results;
+		if (history.getLastPlayerStateConst().is_bottom()) {
+			return results;
+		} else if (!history.is_partial()) {
+			results.push_back(history);
+			return results;
+		}
+
 		std::vector<PlayerStateRange> prev_states;
 		std::vector<WaypointPath> new_paths;
 
-	
 		const Region validConnectionRegion = RevampedGetValidConnectionRegion(frame, history);
 		std::vector<PlayerStateRange> outgoingPrevStates = RevampedGetOutgoingConnectionStates(frame, history);
-		std::vector<ElementRegion> element_regions = RevampedGetUncoveredRanges(frame, history, elements);
+		std::vector<ElementRegion> nextConnections = RevampedGetNextPossibleConnections(frame, history, elements);
+
+		// Create all new possible paths (some will inevitably be invalid)
+		for (std::vector<PlayerStateRange>::const_iterator prev_state_it = outgoingPrevStates.cbegin(); prev_state_it != outgoingPrevStates.cend(); prev_state_it++) {
+			const PlayerStateRange& prevStateOut = *prev_state_it;
+			Exceptions::assert(!prevStateOut.is_bottom());
+			for (std::vector<ElementRegion>::const_iterator next_conn_it = nextConnections.cbegin(); next_conn_it != nextConnections.cend(); next_conn_it++) {
+				const ElementRegion& nextConn = *next_conn_it;
+				Exceptions::assert(nextConn.element_id.is_valid() && !nextConn.region.is_bottom());
+
+				PlayerStateRange newPrevState(prevStateOut);
+				PlayerStateRange nextStateIn = PlayerStateRange::top();
+				nextStateIn.inverseGravity = newPrevState.inverseGravity;
+				nextStateIn.pos.intersect(nextConn.region);
+
+				// TODO: better reduction
+				ReduceByFliplessConnectivity(newPrevState.pos, nextStateIn.pos, newPrevState.vx, newPrevState.vy, newPrevState.inverseGravity, nextConn.element_id.isWall());
+				
+				if (newPrevState.is_bottom() || nextStateIn.is_bottom()) {
+					continue;
+				}
+
+				WaypointPath newPath(history);
+				newPath.waypoints.back().playerStateOut = newPrevState;
+				if (nextConn.element_id.isCorner()) {
+					newPath.target.corner_id = nextConn.element_id.unwrapCorner();
+					newPath.target.playerState = nextStateIn;
+				} else {
+					GenericWaypoint newWaypoint;
+					newWaypoint.id = nextConn.element_id;
+					newWaypoint.playerState = nextStateIn;
+					newWaypoint.playerStateOut = PlayerStateRange::bottom();
+
+					newPath.waypoints.push_back(newWaypoint);
+				}
+
+				new_paths.push_back(newPath);
+			}
+		}
+
 
 	}
 
@@ -3859,9 +3937,8 @@ namespace Terrain {
 		return prev_states;
 	}
 
-	std::vector<ElementRegion> RevampedGetUncoveredRanges(const LocalFrame& frame, const WaypointPath& history, const std::set<GenericID>& elements) {
+	std::vector<ElementRegion> RevampedGetCoveredRanges(const LocalFrame& frame, const WaypointPath& history) {
 		std::vector<ElementRegion> coveredRanges;
-		std::vector<ElementRegion> uncoveredRanges;
 
 		// Go through the history, covering every region of every platform that definitely could have been reached using the same connections
 		PlayerStateRange definitelyReachable(history.source.playerState);
@@ -3870,9 +3947,196 @@ namespace Terrain {
 		Region totalDefinitelyReached(definitelyReachable.pos);
 		Region totalMaybeReached(maybeReachable.pos);
 
+		GenericWaypoint& const lastWp = GenericWaypoint(history.source);
 		// Iterate over all previous waypoints
-		
-		// TODO:
+		for (std::vector<GenericWaypoint>::const_iterator it = history.waypoints.cbegin(); it != history.waypoints.cend(); it++) {
+			const GenericWaypoint& wp = *it;
+
+			bool fromSurface = lastWp.id.isWall();
+			bool toSurface = wp.id.isWall();
+
+			const PlayerStateRange& fromStateOut = lastWp.playerStateOut;
+
+			const PlayerStateRange& toStateIn = wp.playerState;
+			const PlayerStateRange& toStateOut = wp.playerStateOut;
+
+			Exceptions::assert(fromStateOut.inverseGravity == definitelyReachable.inverseGravity);
+			Exceptions::assert(fromStateOut.inverseGravity == maybeReachable.inverseGravity);
+
+			// Create new player states
+			PlayerStateRange newDefinitelyReachable = PlayerStateRange::top();
+			newDefinitelyReachable.pos.intersect(GetConnectingRegionInLocalFrame(wp.id, frame));
+			PlayerStateRange newMaybeReachable(newDefinitelyReachable);
+
+			// Reduce them as much as possible by connectivity
+			ReduceByFliplessConnectivity(definitelyReachable.pos, newDefinitelyReachable.pos, definitelyReachable.vx, definitelyReachable.vy, definitelyReachable.inverseGravity, toSurface);
+			ReduceByFliplessConnectivity(maybeReachable.pos, newMaybeReachable.pos, maybeReachable.vx, maybeReachable.vy, maybeReachable.inverseGravity, toSurface);
+
+			Exceptions::assert(!newDefinitelyReachable.is_bottom() && !newMaybeReachable.is_bottom());
+
+			coveredRanges.emplace_back(wp.id, newMaybeReachable.pos);
+
+			lastWp = wp;
+			totalDefinitelyReached.join(newDefinitelyReachable.pos);
+			totalMaybeReached.join(newMaybeReachable.pos);
+			definitelyReachable = newDefinitelyReachable;
+			maybeReachable = newMaybeReachable;
+
+			// Walking logic and flipping logic (in -> out state)
+			if (wp.id.isCorner()) {
+				// Do nothing
+			} else if (wp.id.isLine()) {
+				// Do regular gravity line flip
+				DoGravityLineFlip(definitelyReachable);
+				DoGravityLineFlip(maybeReachable);
+			} else if (wp.id.isWall()) {
+				RoomWall& surface = GetWallInLocalFrame(wp.id.unwrapWall(), frame);
+				maybeReachable.pos.join(surface.GetConnectingRegion());
+				maybeReachable.vx.join(FULL_X_SPEED_RANGE);
+				maybeReachable.vy.join(PLATFORM_Y_SPEED_RANGE_FOR_GRAVITY(toStateIn.inverseGravity));
+				if (fromStateOut.inverseGravity != toStateIn.inverseGravity) {
+					// Flip
+					DoFlip(definitelyReachable);
+					DoFlip(maybeReachable);
+				}
+				// TODO: add edgeflips to maybeReachable
+			} else {
+				// Unimplemented waypoint type
+				Exceptions::unimplemented();
+			}
+		}
+
+		if (!history.is_partial()) {
+			const GenericID target_el_id = GenericID(history.target.corner_id);
+
+			const PlayerStateRange& fromStateOut = lastWp.playerStateOut;
+			const PlayerStateRange& toState = history.target.playerState;
+
+			Exceptions::assert(fromStateOut.inverseGravity == definitelyReachable.inverseGravity);
+			Exceptions::assert(fromStateOut.inverseGravity == maybeReachable.inverseGravity);
+
+			// Create new player states
+			PlayerStateRange newDefinitelyReachable = PlayerStateRange::top();
+			newDefinitelyReachable.pos.intersect(GetConnectingRegionInLocalFrame(target_el_id, frame));
+			PlayerStateRange newMaybeReachable(newDefinitelyReachable);
+
+			// Reduce them as much as possible by connectivity
+			ReduceByFliplessConnectivity(definitelyReachable.pos, newDefinitelyReachable.pos, definitelyReachable.vx, definitelyReachable.vy, definitelyReachable.inverseGravity, false);
+			ReduceByFliplessConnectivity(maybeReachable.pos, newMaybeReachable.pos, maybeReachable.vx, maybeReachable.vy, maybeReachable.inverseGravity, false);
+
+			Exceptions::assert(!newDefinitelyReachable.is_bottom() && !newMaybeReachable.is_bottom());
+
+			coveredRanges.emplace_back(target_el_id, newMaybeReachable.pos);
+
+			totalDefinitelyReached.join(newDefinitelyReachable.pos);
+			totalMaybeReached.join(newMaybeReachable.pos);
+			definitelyReachable = newDefinitelyReachable;
+			maybeReachable = newMaybeReachable;
+		}
+
+		return coveredRanges;
+	}
+
+	std::vector<ElementRegion> RevampedGetNextPossibleConnections(const LocalFrame& frame, const WaypointPath& history, const std::set<GenericID>& elements) {
+		std::vector<ElementRegion> coveredRanges = RevampedGetCoveredRanges(frame, history);
+		std::vector<ElementRegion> uncoveredRanges;
+
+		bool allow_inbetween_regions = true;
+
+		const Region sourceCornerRegion = GetCornerInLocalFrame(history.source.corner_id, frame).GetValidRegion(history.source.corner_id.goingUp);
+		const Region nextConnectionRegion = GetAfterConnectionRegionInLocalFrame(history.getLastElementID(), frame);
+
+		for (std::set<GenericID>::const_iterator el_it = elements.cbegin(); el_it != elements.cend(); el_it++) {
+			const GenericID& el_id = *el_it;
+			Region elBeforeConnRegion = GetBeforeConnectionRegionInLocalFrame(el_id, frame);
+			Region elConnRegion = GetConnectingRegionInLocalFrame(el_id, frame);
+
+			// Collect all ranges for this element
+			int firstUncoveredX = INT_MIN;
+			std::vector<IntInterval> ordered_disjoint_ranges;
+			std::vector<IntInterval> uncovered_disjoint_ranges;
+			bool done = false;
+			while (!done) {
+				int min_lower_bound = INT_MAX;
+				IntInterval lowestXInterval = IntInterval::bottom();
+				for (std::vector<ElementRegion>::const_iterator range_it = coveredRanges.cbegin(); range_it != coveredRanges.cend(); range_it++) {
+					const ElementRegion& range = *range_it;
+					if (range.element_id != el_id || range.region.is_bottom()) {
+						continue;
+					}
+					int xLowerBound = range.region.x.getLowerBound();
+					if (xLowerBound >= min_lower_bound || xLowerBound < firstUncoveredX) {
+						continue;
+					}
+
+					min_lower_bound = xLowerBound;
+					lowestXInterval = IntInterval(range.region.x);
+				}
+
+				// No more intervals found
+				if (lowestXInterval.is_bottom()) {
+					done = true;
+				} else {
+					bool anything_changed = true;
+					while (anything_changed) {
+						anything_changed = false;
+						for (std::vector<ElementRegion>::const_iterator range_it = coveredRanges.cbegin(); range_it != coveredRanges.cend(); range_it++) {
+							const ElementRegion& range = *range_it;
+							if (range.element_id != el_id || range.region.is_bottom()) {
+								continue;
+							}
+							const IntInterval& thisXInterval = range.region.x;
+							if (lowestXInterval.contains(thisXInterval) || !lowestXInterval.intersects(thisXInterval)) {
+								continue;
+							}
+
+							lowestXInterval.join(range.region.x);
+							anything_changed = true;
+						}
+					}
+				}
+
+				// Create the next uncovered region
+				IntInterval uncoveredRange = lowestXInterval.getIntervalBelow().addLowerBound(firstUncoveredX);
+				firstUncoveredX = lowestXInterval.getIntervalAbove().getLowerBound();
+
+				if (uncoveredRange.is_bottom()) {
+					// TODO: does this ever happen? probably
+					continue;
+				} else if (!allow_inbetween_regions && uncoveredRange.is_bounded()) {
+					continue;
+				}
+
+				// Can the element we're coming from connect to this new region?
+				Region uncoveredRegion(uncoveredRange, elConnRegion.y);
+				// Special case for corners
+				if (el_id.isCorner()) {
+					const CornerID& el_corner_id = el_id.unwrapCorner();
+					const Corner& el_corner = GetCornerInLocalFrame(el_corner_id, frame);
+					if (!nextConnectionRegion.contains(el_corner.pos)) {
+						continue;
+					} else if (!sourceCornerRegion.contains(el_corner.pos)) {
+						continue;
+					}
+				} else {
+					uncoveredRegion.intersect(sourceCornerRegion);
+				}
+				uncoveredRegion.intersect(nextConnectionRegion);
+
+				if (uncoveredRegion.is_bottom()) {
+					// TODO: does this ever happen?
+					continue;
+				}
+
+				const Region& posBefore = history.getLastPlayerStateConst().pos;
+				if (!posBefore.intersects(elBeforeConnRegion)) {
+					// TODO: does this ever happen?
+					continue;
+				}
+
+				uncoveredRanges.emplace_back(el_id, uncoveredRegion);
+			}
+		}
 
 		return uncoveredRanges;
 	}
