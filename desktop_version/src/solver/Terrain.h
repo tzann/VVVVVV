@@ -905,6 +905,7 @@ namespace Terrain {
 	void RenderCollisionBitmap(IntVector offset);
 	void RenderFullConnection(const FullConnection& conn);
 	void RenderWaypointPath(const WaypointPath& path);
+	void NiceRenderWaypointPath(const WaypointPath& path);
 
 	// --------------------------------------
 	// Functions

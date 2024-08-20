@@ -161,7 +161,7 @@ namespace Terrain {
 			if (all_paths.size() != 0) {
 				game.totalflips %= all_paths.size();
 			}
-			RenderWaypointPath(all_paths.at(game.totalflips));
+			NiceRenderWaypointPath(all_paths.at(game.totalflips));
 			return;
 
 			int num_walls = currentRoomData.walls.size();
@@ -584,6 +584,106 @@ namespace Terrain {
 			RenderPixel(fromCorner.pos + sDir - pDir + sDir);
 			RenderPixel(fromCorner.pos - pDir - pDir - pDir + sDir);
 			RenderPixel(fromCorner.pos - pDir + sDir + sDir + sDir);
+		}
+	}
+
+	void NiceRenderWaypointPath(const WaypointPath& path) {
+		const Corner& fromCorner = GetCorner(path.source.corner_id);
+		const Corner& toCorner = GetCorner(path.target.corner_id);
+
+		IntVector roomOffset = GetMinDistanceOffsetBetweenRooms(GetCurrentRoomPosition(), path.source.corner_id.room);
+
+		// From region (blue)
+		SDL_SetRenderDrawColor(gameScreen.m_renderer, 0, 0, 255, 150);
+		Region fromRegion(path.source.playerState.pos);
+		fromRegion.x += roomOffset.x;
+		fromRegion.y += roomOffset.y;
+		fromRegion.x.max += VIRIDIAN_W - 1;
+		fromRegion.y.max += VIRIDIAN_H - 1;
+		RenderRegion(fromRegion);
+
+		// To region (red)
+		SDL_SetRenderDrawColor(gameScreen.m_renderer, 255, 0, 0, 150);
+		Region toRegion(path.target.playerState.pos);
+		toRegion.x += roomOffset.x;
+		toRegion.y += roomOffset.y;
+		toRegion.x.max += VIRIDIAN_W - 1;
+		toRegion.y.max += VIRIDIAN_H - 1;
+		RenderRegion(toRegion);
+
+		// Intermediate surfaces (yellow)
+		// Also connection lines (green)
+		IntVector lastPos = (fromRegion.getMin() + fromRegion.getMax()) / 2;
+		IntVector thisPos;
+
+		for (std::vector<GenericWaypoint>::const_iterator it = path.waypoints.cbegin(); it != path.waypoints.cend(); it++) {
+			const GenericWaypoint& wp = *it;
+			SDL_SetRenderDrawColor(gameScreen.m_renderer, 255, 255, 0, 150);
+			Region waypointRegion(wp.playerState.pos);
+			waypointRegion.x += roomOffset.x;
+			waypointRegion.x.max += VIRIDIAN_W - 1;
+			waypointRegion.y += roomOffset.y;
+			thisPos = (waypointRegion.getMin() + waypointRegion.getMax()) / 2;
+			if (wp.id.isWall()) {
+				if (GetWall(wp.id.unwrapWall()).type == Floor) {
+					thisPos.y -= 1;
+					thisPos.y += VIRIDIAN_H - 1;
+					waypointRegion.y += VIRIDIAN_H - 1;
+				} else if (GetWall(wp.id.unwrapWall()).type == Ceiling) {
+					thisPos.y += 1;
+				}
+			} else {
+				waypointRegion.y.max += VIRIDIAN_H - 1;
+				thisPos.y += (VIRIDIAN_H - 1) / 2;
+			}
+			RenderRegion(waypointRegion);
+			SDL_SetRenderDrawColor(gameScreen.m_renderer, 0, 255, 0, 150);
+			RenderLine(lastPos, thisPos);
+			lastPos = thisPos;
+		}
+		thisPos = (toRegion.getMin() + toRegion.getMax()) / 2;
+		SDL_SetRenderDrawColor(gameScreen.m_renderer, 0, 255, 0, 150);
+		RenderLine(lastPos, thisPos);
+		lastPos = thisPos;
+
+		// Corners (blue / red / white)
+		if (path.source.corner_id.is_same_corner(path.target.corner_id)) {
+			SDL_SetRenderDrawColor(gameScreen.m_renderer, 255, 255, 255, 255);
+		} else {
+			SDL_SetRenderDrawColor(gameScreen.m_renderer, 255, 170, 170, 255);
+			if (path.target.corner_id.room == GetCurrentRoomPosition()) {
+				IntVector pDir = toCorner.GetPrimaryDir(path.target.corner_id.goingUp);
+				IntVector sDir = toCorner.GetSecondaryDir(path.target.corner_id.goingUp);
+				IntVector cPos = toCorner.pos - pDir + sDir;
+				if (toCorner.type == TopLeft || toCorner.type == TopRight) {
+					cPos.y += VIRIDIAN_H - 1;
+				}
+				if (toCorner.type == TopLeft || toCorner.type == BottomLeft) {
+					cPos.x += VIRIDIAN_W - 1;
+				}
+				RenderPixel(cPos);
+				RenderPixel(cPos - pDir);
+				RenderPixel(cPos + sDir);
+				RenderPixel(cPos - pDir - pDir);
+				RenderPixel(cPos + sDir + sDir);
+			}
+			SDL_SetRenderDrawColor(gameScreen.m_renderer, 170, 170, 255, 255);
+		}
+		if (path.source.corner_id.room == GetCurrentRoomPosition()) {
+			IntVector pDir = fromCorner.GetPrimaryDir(path.source.corner_id.goingUp);
+			IntVector sDir = fromCorner.GetSecondaryDir(path.source.corner_id.goingUp);
+			IntVector cPos = fromCorner.pos - pDir + sDir;
+			if (fromCorner.type == TopLeft || fromCorner.type == TopRight) {
+				cPos.y += VIRIDIAN_H - 1;
+			}
+			if (fromCorner.type == TopLeft || fromCorner.type == BottomLeft) {
+				cPos.x += VIRIDIAN_W - 1;
+			}
+			RenderPixel(cPos);
+			RenderPixel(cPos - pDir);
+			RenderPixel(cPos + sDir);
+			RenderPixel(cPos - pDir - pDir);
+			RenderPixel(cPos + sDir + sDir);
 		}
 	}
 
@@ -3137,7 +3237,7 @@ namespace Terrain {
 	// The region to or from which connections can be made
 	Region Corner::GetConnectingRegion(bool goingUp) const {
 		IntVector primaryDir = GetPrimaryDir(goingUp);
-		IntVector primaryGap(horizontalGap, verticalGap);
+		IntVector primaryGap(horizontalGap - 1, verticalGap - 1);
 		primaryGap *= primaryDir;
 
 		// 1 pixel past the corner to 6/10 pixels past the corner
