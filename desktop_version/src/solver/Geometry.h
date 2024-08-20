@@ -249,6 +249,13 @@ namespace Geometry {
 			}
 			return true;
 		}
+		bool exactly_equals(const IntInterval& other) const {
+			if (is_bottom()) {
+				return other.is_bottom();
+			}
+
+			return min == other.min && max == other.max;
+		}
 
 		bool contains(int val) const;
 		bool contains(const IntInterval& other) const;
@@ -580,6 +587,13 @@ namespace Geometry {
 
 			return x.intersects(other.x) && y.intersects(other.y);
 		}
+		bool exactly_equals(const Region& other) const {
+			if (is_bottom()) {
+				return other.is_bottom();
+			}
+
+			return x.exactly_equals(other.x) && y.exactly_equals(other.y);
+		}
 
 		bool contains(const Region& other) const;
 		bool contains(const IntVector& val) const;
@@ -739,6 +753,13 @@ namespace Geometry {
 				return false;
 			}
 			return true;
+		}
+		bool exactly_equals(const FloatInterval& other) const {
+			if (is_bottom()) {
+				return other.is_bottom();
+			}
+
+			return min == other.min && max == other.max;
 		}
 
 		FloatInterval& join(const FloatInterval& other);

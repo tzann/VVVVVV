@@ -356,6 +356,7 @@ namespace Terrain {
 		RoomPosition room;
 		int lineIndex;
 
+		LineID(void) : room(RoomPosition::invalid()), lineIndex(-1) { }
 		LineID(RoomPosition r, int i) : room(r), lineIndex(i) { }
 
 		bool is_valid(void) const {
@@ -386,6 +387,10 @@ namespace Terrain {
 		}
 		bool operator> (const LineID& other) const {
 			return !(*this <= other);
+		}
+
+		static LineID invalid(void) {
+			return LineID(RoomPosition::invalid(), -1);
 		}
 	};
 
@@ -683,6 +688,41 @@ namespace Terrain {
 		bool is_bottom(void) const {
 			return pos.is_bottom() || vx.is_bottom() || vy.is_bottom();
 		}
+
+		bool intersects(const PlayerStateRange& other) const {
+			if (is_bottom() || other.is_bottom()) {
+				return false;
+			} else if (inverseGravity != other.inverseGravity) {
+				return false;
+			} else if (!pos.intersects(other.pos)) {
+				return false;
+			} else if (!vx.intersects(other.vx)) {
+				return false;
+			} else if (!vy.intersects(other.vy)) {
+				return false;
+			}
+			return true;
+		}
+
+		bool exactly_equals(const PlayerStateRange& other) const {
+			if (is_bottom()) {
+				return other.is_bottom();
+			} else if (inverseGravity != other.inverseGravity) {
+				return false;
+			} else if (!pos.exactly_equals(other.pos)) {
+				return false;
+			} else if (!vx.exactly_equals(other.vx)) {
+				return false;
+			} else if (!vy.exactly_equals(other.vy)) {
+				return false;
+			}
+
+			return true;
+		}
+
+		static PlayerStateRange bottom(void) {
+			return PlayerStateRange().make_bottom();
+		}
 	};
 	struct CornerWaypoint {
 		CornerID corner_id;
@@ -693,23 +733,51 @@ namespace Terrain {
 	struct SurfaceWaypoint {
 		WallID wall_id;
 		PlayerStateRange playerState;
+		PlayerStateRange playerStateOut;
+
+		bool doesFlip(void) const {
+			if (playerState.is_bottom() || playerStateOut.is_bottom()) {
+				return false;
+			} else {
+				return playerStateOut.inverseGravity != playerState.inverseGravity;
+			}
+		}
 	};
 	struct LineWaypoint {
 		LineID line_id;
 		PlayerStateRange playerState;
+		PlayerStateRange playerStateOut;
 	};
 	struct GenericWaypoint {
 		GenericID id;
 		PlayerStateRange playerState;
+		PlayerStateRange playerStateOut;
 
 		GenericWaypoint() : id(), playerState() { }
-		GenericWaypoint(const CornerWaypoint& corner_wp) : id(corner_wp.corner_id), playerState(corner_wp.playerState) { }
+		GenericWaypoint(const CornerWaypoint& corner_wp) : id(corner_wp.corner_id), playerState(corner_wp.playerState), playerStateOut(PlayerStateRange::bottom()) { }
 
 		CornerWaypoint unwrapCornerWaypoint(void) {
 			Exceptions::assert(id.isCorner());
 			CornerWaypoint result;
 			result.corner_id = id.unwrapCorner();
 			result.playerState = playerState;
+			Exceptions::assert(playerStateOut.is_bottom() || playerState.exactly_equals(playerStateOut));
+			return result;
+		}
+		SurfaceWaypoint unwrapSurfaceWaypoint(void) {
+			Exceptions::assert(id.isWall());
+			SurfaceWaypoint result;
+			result.wall_id = id.unwrapWall();
+			result.playerState = playerState;
+			result.playerStateOut = playerStateOut;
+			return result;
+		}
+		LineWaypoint unwrapLineWaypoint(void) {
+			Exceptions::assert(id.isLine());
+			LineWaypoint result;
+			result.line_id = id.unwrapLine();
+			result.playerState = playerState;
+			result.playerStateOut = playerStateOut;
 			return result;
 		}
 	};
