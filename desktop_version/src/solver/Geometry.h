@@ -504,17 +504,21 @@ namespace Geometry {
 		IntInterval& difference(const IntInterval& other);
 
 		IntInterval getIntervalAbove(void) const {
-			if (has_upper_bound()) {
+			if (is_bottom()) {
+				return IntInterval::top();
+			} else if (has_upper_bound()) {
 				return IntInterval::fromLowerBound(max + 1);
 			} else {
-				return IntInterval::top();
+				return IntInterval::bottom();
 			}
 		}
 		IntInterval getIntervalBelow(void) const {
-			if (has_lower_bound()) {
+			if (is_bottom()) {
+				return IntInterval::top();
+			} else if (has_lower_bound()) {
 				return IntInterval::fromUpperBound(min - 1);
 			} else {
-				return IntInterval::top();
+				return IntInterval::bottom();
 			}
 		}
 

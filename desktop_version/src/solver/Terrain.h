@@ -683,11 +683,13 @@ namespace Terrain {
 			pos.make_bottom();
 			vx.make_bottom();
 			vy.make_bottom();
+			return *this;
 		}
 		PlayerStateRange& make_top(void) {
 			pos.make_top();
 			vx.make_top();
 			vy.make_top();
+			return *this;
 		}
 		bool is_bottom(void) const {
 			return pos.is_bottom() || vx.is_bottom() || vy.is_bottom();
@@ -951,6 +953,13 @@ namespace Terrain {
 	std::vector<WaypointPath> NewFindCornerConnections(CornerID c_id);
 	std::vector<WaypointPath> NewRecursiveSurfaceConnections(const LocalFrame& frame, const WaypointPath& history, const std::set<GenericID>& elements);
 	std::vector<ElementRegion> GetUncoveredRanges(const LocalFrame& frame, const WaypointPath& history, const std::set<GenericID>& elements);
+
+	std::vector<WaypointPath> RevampedFindCornerConnections(CornerID c_id);
+	std::vector<WaypointPath> RevampedRecursiveSurfaceConnections(const LocalFrame& frame, const WaypointPath& history, const std::set<GenericID>& elements);
+	Region RevampedGetValidConnectionRegion(const LocalFrame& frame, const WaypointPath& history);
+	std::vector<PlayerStateRange> RevampedGetOutgoingConnectionStates(const LocalFrame& frame, const WaypointPath& history);
+	std::vector<ElementRegion> RevampedGetCoveredRanges(const LocalFrame& frame, const WaypointPath& history);
+	std::vector<ElementRegion> RevampedGetNextPossibleConnections(const LocalFrame& frame, const WaypointPath& history, const std::set<GenericID>& elements);
 
 	void FindConnectingSurfaces(CornerID from_id, CornerID to_id);
 

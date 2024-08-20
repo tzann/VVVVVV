@@ -141,6 +141,7 @@ namespace Terrain {
 			}
 
 			std::vector<WaypointPath> all_paths;
+			/*
 			for (int c = 0; c < currentRoomData.corners.size(); c++) {
 				CornerID c_id(currentRoom, c, false);
 				std::vector<WaypointPath> paths = NewFindCornerConnections(c_id);
@@ -149,77 +150,18 @@ namespace Terrain {
 				std::vector<WaypointPath> paths2 = NewFindCornerConnections(c_id2);
 				all_paths.insert(all_paths.end(), paths2.begin(), paths2.end());
 			}
+			*/
+			{
+				CornerID c_id(currentRoom, 0, false);
+				std::vector<WaypointPath> paths = RevampedFindCornerConnections(c_id);
+				all_paths.insert(all_paths.end(), paths.begin(), paths.end());
+			}
 			game.timetrialshinytarget = all_paths.size();
 
-			CornerID c_id(currentRoom, 0, false);
-			int pair_count = 0;
-			for (std::vector<WaypointPath>::const_iterator it1 = all_paths.begin(); it1 != all_paths.end(); it1++) {
-				if ((*it1).source.corner_id != c_id) {
-					continue;
-				}
-				const WaypointPath& path1 = *it1;
-				for (std::vector<WaypointPath>::const_iterator it2 = all_paths.begin(); it2 != all_paths.end(); it2++) {
-					if ((*it2).source.corner_id != (*it1).target.corner_id) {
-						continue;
-					}
-					const WaypointPath& path2 = *it2;
-					if (!path1.target.playerState.intersects(path2.source.playerState)) {
-						continue;
-					}
-					if (path2.target.corner_id.is_same_corner(path1.source.corner_id)) {
-						continue;
-					}
-					for (std::vector<WaypointPath>::const_iterator it3 = all_paths.begin(); it3 != all_paths.end(); it3++) {
-						if ((*it3).source.corner_id != (*it2).target.corner_id) {
-							continue;
-						}
-						const WaypointPath& path3 = *it3;
-						if (!path2.target.playerState.intersects(path3.source.playerState)) {
-							continue;
-						}
-						if (path3.target.corner_id.is_same_corner(path1.source.corner_id) || path3.target.corner_id.is_same_corner(path2.source.corner_id)) {
-							continue;
-						}
-						for (std::vector<WaypointPath>::const_iterator it4 = all_paths.begin(); it4 != all_paths.end(); it4++) {
-							if ((*it4).source.corner_id != (*it3).target.corner_id) {
-								continue;
-							}
-							const WaypointPath& path4 = *it4;
-							if (!path3.target.playerState.intersects(path4.source.playerState)) {
-								continue;
-							}
-							if (path4.target.corner_id.is_same_corner(path1.source.corner_id) || path4.target.corner_id.is_same_corner(path2.source.corner_id) || path4.target.corner_id.is_same_corner(path3.source.corner_id)) {
-								continue;
-							}
-							for (std::vector<WaypointPath>::const_iterator it5 = all_paths.begin(); it5 != all_paths.end(); it5++) {
-								if ((*it5).source.corner_id != (*it4).target.corner_id) {
-									continue;
-								}
-								const WaypointPath& path5 = *it5;
-								if (!path4.target.playerState.intersects(path5.source.playerState)) {
-									continue;
-								}
-								if (path5.target.corner_id.is_same_corner(path1.source.corner_id) || path5.target.corner_id.is_same_corner(path2.source.corner_id) || path5.target.corner_id.is_same_corner(path3.source.corner_id) || path5.target.corner_id.is_same_corner(path4.source.corner_id)) {
-									continue;
-								}
-								if (pair_count == game.totalflips) {
-									RenderWaypointPath(path1);
-									RenderWaypointPath(path2);
-									RenderWaypointPath(path3);
-									RenderWaypointPath(path4);
-									RenderWaypointPath(path5);
-								}
-								pair_count++;
-							}
-						}
-					}
-				}
+			if (all_paths.size() != 0) {
+				game.totalflips %= all_paths.size();
 			}
-			game.deathcounts = pair_count;
-			if (pair_count != 0) {
-				game.totalflips %= pair_count;
-			}
-
+			RenderWaypointPath(all_paths.at(game.totalflips));
 			return;
 
 			int num_walls = currentRoomData.walls.size();
@@ -624,16 +566,24 @@ namespace Terrain {
 		} else {
 			SDL_SetRenderDrawColor(gameScreen.m_renderer, 255, 100, 100, 255);
 			if (path.target.corner_id.room == GetCurrentRoomPosition()) {
-				RenderPixel(toCorner.pos);
-				RenderPixel(toCorner.pos - toCorner.GetPrimaryDir(path.target.corner_id.goingUp));
-				RenderPixel(toCorner.pos + toCorner.GetSecondaryDir(path.target.corner_id.goingUp));
+				IntVector pDir = toCorner.GetPrimaryDir(path.target.corner_id.goingUp);
+				IntVector sDir = toCorner.GetSecondaryDir(path.target.corner_id.goingUp);
+				RenderPixel(toCorner.pos - pDir + sDir);
+				RenderPixel(toCorner.pos - pDir - pDir + sDir);
+				RenderPixel(toCorner.pos + sDir - pDir + sDir);
+				RenderPixel(toCorner.pos - pDir - pDir - pDir + sDir);
+				RenderPixel(toCorner.pos - pDir + sDir + sDir + sDir);
 			}
 			SDL_SetRenderDrawColor(gameScreen.m_renderer, 100, 100, 255, 255);
 		}
 		if (path.source.corner_id.room == GetCurrentRoomPosition()) {
-			RenderPixel(fromCorner.pos);
-			RenderPixel(fromCorner.pos - fromCorner.GetPrimaryDir(path.source.corner_id.goingUp));
-			RenderPixel(fromCorner.pos + fromCorner.GetSecondaryDir(path.source.corner_id.goingUp));
+			IntVector pDir = fromCorner.GetPrimaryDir(path.source.corner_id.goingUp);
+			IntVector sDir = fromCorner.GetSecondaryDir(path.source.corner_id.goingUp);
+			RenderPixel(fromCorner.pos - pDir + sDir);
+			RenderPixel(fromCorner.pos - pDir - pDir + sDir);
+			RenderPixel(fromCorner.pos + sDir - pDir + sDir);
+			RenderPixel(fromCorner.pos - pDir - pDir - pDir + sDir);
+			RenderPixel(fromCorner.pos - pDir + sDir + sDir + sDir);
 		}
 	}
 
@@ -3230,7 +3180,7 @@ namespace Terrain {
 	}
 
 	Region Corner::GetValidRegion(bool goingUp) const {
-		IntVector gap(horizontalGap, verticalGap);
+		IntVector gap(horizontalGap - 1, verticalGap - 1);
 		IntVector negativeGap(horizontalNegativeGap - 1, verticalNegativeGap - 1);
 
 		IntVector primaryDir = GetPrimaryDir(goingUp);
@@ -3798,6 +3748,94 @@ namespace Terrain {
 		return results;
 	}
 
+	std::vector<WaypointPath> RevampedFindCornerConnections(CornerID c_id) {
+		RoomPosition cornerRoom = c_id.room;
+		const LocalFrame& frame = LocalFrame(GlobalPosition(cornerRoom, IntVector::zero()), false, false);
+
+		Corner corner = GetCornerInLocalFrame(c_id, frame);
+
+		IntVector gap(corner.horizontalGap, corner.verticalGap);
+		IntVector negativeGap(corner.horizontalNegativeGap, corner.verticalNegativeGap);
+
+		IntVector primaryDir = corner.GetPrimaryDir(c_id.goingUp);
+		IntVector secondaryDir = corner.GetSecondaryDir(c_id.goingUp);
+
+		IntVector beforeCorner = corner.pos - secondaryDir * gap;
+		IntVector afterCorner = corner.pos + primaryDir * gap + secondaryDir * negativeGap;
+
+		Region validRegion(beforeCorner, afterCorner);
+
+		std::set<GenericID> elements;
+		// Corners
+		{
+			std::set<CornerID> tmp_corners = FindCornersInRelativeRegion(frame, validRegion);
+			for (std::set<CornerID>::iterator it = tmp_corners.begin(); it != tmp_corners.end(); it++) {
+				Corner& corner = GetCornerInLocalFrame(*it, frame);
+				if (!validRegion.contains(corner.pos)) {
+					continue;
+				}
+				elements.emplace(*it);
+			}
+		}
+		// Walls
+		{
+			std::set<WallID> walls = FindWallsInRelativeRegion(frame, validRegion);
+			for (std::set<WallID>::iterator it = walls.begin(); it != walls.end(); it++) {
+				RoomWall& wall = GetWallInLocalFrame(*it, frame);
+				if (wall.type != Ceiling && wall.type != Floor) {
+					continue;
+				}
+				if (!wall.walkable) {
+					continue;
+				}
+				if (!wall.GetConnectingRegion().intersects(validRegion)) {
+					continue;
+				}
+				elements.emplace(*it);
+			}
+		}
+		// Lines
+		{
+			std::set<LineID> tmp_lines = FindLinesInRelativeRegion(frame, validRegion);
+			for (std::set<LineID>::iterator it = tmp_lines.begin(); it != tmp_lines.end(); it++) {
+				GravityLine& line = GetGravityLineInLocalFrame(*it, frame);
+				if (!line.GetConnectingRegion().intersects(validRegion)) {
+					continue;
+				}
+				elements.emplace(*it);
+			}
+		}
+
+		std::vector<WaypointPath> results;
+		for (int inverseGravity = 0; inverseGravity < 2; inverseGravity++) {
+			int secondary_y = corner.GetSecondaryDir(c_id.goingUp).y;
+			if (inverseGravity && secondary_y > 0) {
+				continue;
+			}
+			else if (!inverseGravity && secondary_y < 0) {
+				continue;
+			}
+
+			CornerWaypoint source;
+
+			source.corner_id = c_id;
+			source.playerState.inverseGravity = inverseGravity;
+			source.playerState.pos = corner.GetConnectingRegion(c_id.goingUp);
+			corner.GetSpeedRange(source.playerState.vx, source.playerState.vy, c_id.goingUp);
+			WaypointPath history(source);
+
+			std::vector<WaypointPath> this_result = RevampedRecursiveSurfaceConnections(frame, history, elements);
+			for (std::vector<WaypointPath>::iterator it = this_result.begin(); it != this_result.end(); it++) {
+				if ((*it).target.playerState.is_bottom()) {
+					continue;
+				}
+				results.push_back(*it);
+			}
+		}
+
+		return results;
+	}
+
 	std::vector<WaypointPath> RevampedRecursiveSurfaceConnections(const LocalFrame& frame, const WaypointPath& history, const std::set<GenericID>& elements) {
 		std::vector<WaypointPath> results;
 		if (history.getLastPlayerStateConst().is_bottom()) {
@@ -3807,7 +3845,6 @@ namespace Terrain {
 			return results;
 		}
 
-		std::vector<PlayerStateRange> prev_states;
 		std::vector<WaypointPath> new_paths;
 
 		const Region validConnectionRegion = RevampedGetValidConnectionRegion(frame, history);
@@ -3835,7 +3872,11 @@ namespace Terrain {
 				}
 
 				WaypointPath newPath(history);
-				newPath.waypoints.back().playerStateOut = newPrevState;
+				if (newPath.waypoints.empty()) {
+					newPath.source.playerState = newPrevState;
+				} else {
+					newPath.waypoints.back().playerStateOut = newPrevState;
+				}
 				if (nextConn.element_id.isCorner()) {
 					newPath.target.corner_id = nextConn.element_id.unwrapCorner();
 					newPath.target.playerState = nextStateIn;
@@ -3852,7 +3893,23 @@ namespace Terrain {
 			}
 		}
 
+		// Reduce paths by connectivity, make recursive calls to complete them if necessary
+		for (std::vector<WaypointPath>::iterator path_it = new_paths.begin(); path_it != new_paths.end(); path_it++) {
+			WaypointPath& newPath = *path_it;
 
+			// TODO: reduce the paths by connectivity
+
+			// Add the path to the results
+			if (newPath.is_partial()) {
+				// Make recursive call to complete the path
+				std::vector<WaypointPath> rec_results = RevampedRecursiveSurfaceConnections(frame, newPath, elements);
+				results.insert(results.end(), rec_results.begin(), rec_results.end());
+			} else {
+				results.push_back(newPath);
+			}
+		}
+
+		return results;
 	}
 
 	Region RevampedGetValidConnectionRegion(const LocalFrame& frame, const WaypointPath& history) {
@@ -4043,7 +4100,7 @@ namespace Terrain {
 
 		bool allow_inbetween_regions = true;
 
-		const Region sourceCornerRegion = GetCornerInLocalFrame(history.source.corner_id, frame).GetValidRegion(history.source.corner_id.goingUp);
+		const Region validConnectionRegion = RevampedGetValidConnectionRegion(frame, history);
 		const Region nextConnectionRegion = GetAfterConnectionRegionInLocalFrame(history.getLastElementID(), frame);
 
 		for (std::set<GenericID>::const_iterator el_it = elements.cbegin(); el_it != elements.cend(); el_it++) {
@@ -4108,29 +4165,28 @@ namespace Terrain {
 				}
 
 				// Can the element we're coming from connect to this new region?
-				Region uncoveredRegion(uncoveredRange, elConnRegion.y);
+				Region uncoveredRegion(uncoveredRange, IntInterval::top());
+				uncoveredRegion.intersect(elConnRegion);
 				// Special case for corners
 				if (el_id.isCorner()) {
 					const CornerID& el_corner_id = el_id.unwrapCorner();
 					const Corner& el_corner = GetCornerInLocalFrame(el_corner_id, frame);
-					if (!nextConnectionRegion.contains(el_corner.pos)) {
-						continue;
-					} else if (!sourceCornerRegion.contains(el_corner.pos)) {
+					if (!validConnectionRegion.contains(el_corner.pos)) {
 						continue;
 					}
+					uncoveredRegion.intersect(nextConnectionRegion);
 				} else {
-					uncoveredRegion.intersect(sourceCornerRegion);
+					uncoveredRegion.intersect(validConnectionRegion);
 				}
-				uncoveredRegion.intersect(nextConnectionRegion);
 
 				if (uncoveredRegion.is_bottom()) {
-					// TODO: does this ever happen?
+					// TODO: does this ever happen? -> yes
 					continue;
 				}
 
 				const Region& posBefore = history.getLastPlayerStateConst().pos;
 				if (!posBefore.intersects(elBeforeConnRegion)) {
-					// TODO: does this ever happen?
+					// TODO: does this ever happen? -> yes
 					continue;
 				}
 
