@@ -687,8 +687,8 @@ namespace Terrain {
 		}
 		PlayerStateRange& make_top(void) {
 			pos.make_top();
-			vx.make_top();
-			vy.make_top();
+			vx.make_top().join(FULL_X_SPEED_RANGE);
+			vy.make_top().join(FULL_Y_SPEED_RANGE);
 			return *this;
 		}
 		bool is_bottom(void) const {
@@ -763,7 +763,7 @@ namespace Terrain {
 		PlayerStateRange playerStateOut;
 
 		GenericWaypoint() : id(), playerState() { }
-		GenericWaypoint(const CornerWaypoint& corner_wp) : id(corner_wp.corner_id), playerState(corner_wp.playerState), playerStateOut(PlayerStateRange::bottom()) { }
+		GenericWaypoint(const CornerWaypoint& corner_wp) : id(corner_wp.corner_id), playerState(corner_wp.playerState), playerStateOut(corner_wp.playerState) { }
 
 		CornerWaypoint unwrapCornerWaypoint(void) {
 			Exceptions::assert(id.isCorner());
@@ -801,6 +801,24 @@ namespace Terrain {
 
 		bool is_partial(void) const {
 			return !target.corner_id.is_valid();
+		}
+		bool is_bottom(void) const {
+			if (source.playerState.is_bottom()) {
+				return true;
+			} else if (!is_partial() && target.playerState.is_bottom()) {
+				return true;
+			} else if (!waypoints.empty()) {
+				// Only validate playerStateIn for last entry
+				if (waypoints.back().playerState.is_bottom()) {
+					return true;
+				}
+				for (std::vector<GenericWaypoint>::const_reverse_iterator wp_it = ++waypoints.crbegin(); wp_it != waypoints.crend(); wp_it++) {
+					if ((*wp_it).playerState.is_bottom() || (*wp_it).playerStateOut.is_bottom()) {
+						return true;
+					}
+				}
+				return false;
+			}
 		}
 		GenericID getLastElementID(void) const {
 			if (target.corner_id.is_valid()) {
@@ -958,9 +976,10 @@ namespace Terrain {
 	std::vector<WaypointPath> RevampedFindCornerConnections(CornerID c_id);
 	std::vector<WaypointPath> RevampedRecursiveSurfaceConnections(const LocalFrame& frame, const WaypointPath& history, const std::set<GenericID>& elements);
 	Region RevampedGetValidConnectionRegion(const LocalFrame& frame, const WaypointPath& history);
-	std::vector<PlayerStateRange> RevampedGetOutgoingConnectionStates(const LocalFrame& frame, const WaypointPath& history);
+	std::vector<PlayerStateRange> RevampedGetOutgoingConnectionStates(const LocalFrame& frame, const WaypointPath& history, const std::vector<ElementRegion>& coveredRanges);
 	std::vector<ElementRegion> RevampedGetCoveredRanges(const LocalFrame& frame, const WaypointPath& history);
-	std::vector<ElementRegion> RevampedGetNextPossibleConnections(const LocalFrame& frame, const WaypointPath& history, const std::set<GenericID>& elements);
+	std::vector<ElementRegion> RevampedGetNextPossibleConnections(const LocalFrame& frame, const WaypointPath& history, const std::set<GenericID>& elements, const std::vector<ElementRegion>& coveredRanges);
+	void RevampedReducePath(const LocalFrame& frame, WaypointPath& path);
 
 	void FindConnectingSurfaces(CornerID from_id, CornerID to_id);
 

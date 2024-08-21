@@ -153,15 +153,17 @@ namespace Terrain {
 			*/
 			{
 				CornerID c_id(currentRoom, 0, false);
-				std::vector<WaypointPath> paths = RevampedFindCornerConnections(c_id);
-				all_paths.insert(all_paths.end(), paths.begin(), paths.end());
+				if (currentRoomData.corners.size() > c_id.cornerIndex) {
+					std::vector<WaypointPath> paths = RevampedFindCornerConnections(c_id);
+					all_paths.insert(all_paths.end(), paths.begin(), paths.end());
+				}
 			}
 			game.timetrialshinytarget = all_paths.size();
 
 			if (all_paths.size() != 0) {
 				game.totalflips %= all_paths.size();
+				NiceRenderWaypointPath(all_paths.at(game.totalflips));
 			}
-			NiceRenderWaypointPath(all_paths.at(game.totalflips));
 			return;
 
 			int num_walls = currentRoomData.walls.size();
@@ -614,40 +616,58 @@ namespace Terrain {
 		// Intermediate surfaces (yellow)
 		// Also connection lines (green)
 		IntVector lastPos = (fromRegion.getMin() + fromRegion.getMax()) / 2;
-		IntVector thisPos;
+		IntVector thisPos, thisPosOut;
 
 		for (std::vector<GenericWaypoint>::const_iterator it = path.waypoints.cbegin(); it != path.waypoints.cend(); it++) {
 			const GenericWaypoint& wp = *it;
 			SDL_SetRenderDrawColor(gameScreen.m_renderer, 255, 255, 0, 150);
 			Region waypointRegion(wp.playerState.pos);
+			Region waypointRegionOut(wp.playerStateOut.pos);
 			waypointRegion.x += roomOffset.x;
-			waypointRegion.x.max += VIRIDIAN_W - 1;
 			waypointRegion.y += roomOffset.y;
+			waypointRegionOut.x += roomOffset.x;
+			waypointRegionOut.y += roomOffset.y;
 			thisPos = (waypointRegion.getMin() + waypointRegion.getMax()) / 2;
+			thisPosOut = (waypointRegionOut.getMin() + waypointRegionOut.getMax()) / 2;
 			if (wp.id.isWall()) {
+				RoomWall& surface = GetWall(wp.id.unwrapWall());
+				if (!surface.minCornerConcave) {
+					waypointRegion.x.min += VIRIDIAN_W - 1;
+					waypointRegionOut.x.min += VIRIDIAN_W - 1;
+				}
+				if (surface.maxCornerConcave) {
+					waypointRegion.x.max += VIRIDIAN_W - 1;
+					waypointRegionOut.x.max += VIRIDIAN_W - 1;
+				}
 				if (GetWall(wp.id.unwrapWall()).type == Floor) {
-					thisPos.y -= 1;
 					thisPos.y += VIRIDIAN_H - 1;
 					waypointRegion.y += VIRIDIAN_H - 1;
+					thisPosOut.y += VIRIDIAN_H - 1;
+					waypointRegionOut.y += VIRIDIAN_H - 1;
 				} else if (GetWall(wp.id.unwrapWall()).type == Ceiling) {
-					thisPos.y += 1;
+
 				}
 			} else {
-				waypointRegion.y.max += VIRIDIAN_H - 1;
+				waypointRegion.x.min -= VIRIDIAN_W - 1;
+				waypointRegion.y.min -= VIRIDIAN_H - 1;
 				thisPos.y += (VIRIDIAN_H - 1) / 2;
+				waypointRegionOut.x.min -= VIRIDIAN_W - 1;
+				waypointRegionOut.y.min -= VIRIDIAN_H - 1;
+				thisPosOut.y += (VIRIDIAN_H - 1) / 2;
 			}
-			RenderRegion(waypointRegion);
+			// RenderRegion(waypointRegion.difference(waypointRegionOut));
+			// RenderRegion(waypointRegionOut.difference(waypointRegion));
 			SDL_SetRenderDrawColor(gameScreen.m_renderer, 0, 255, 0, 150);
-			RenderLine(lastPos, thisPos);
-			lastPos = thisPos;
+			RenderLine(lastPos, (thisPos + thisPosOut) / 2);
+			lastPos = (thisPos + thisPosOut) / 2;
 		}
 		thisPos = (toRegion.getMin() + toRegion.getMax()) / 2;
 		SDL_SetRenderDrawColor(gameScreen.m_renderer, 0, 255, 0, 150);
 		RenderLine(lastPos, thisPos);
-		lastPos = thisPos;
 
 		// Corners (blue / red / white)
-		if (path.source.corner_id.is_same_corner(path.target.corner_id)) {
+		bool sameCorner = path.source.corner_id.is_same_corner(path.target.corner_id);
+		if (sameCorner) {
 			SDL_SetRenderDrawColor(gameScreen.m_renderer, 255, 255, 255, 255);
 		} else {
 			SDL_SetRenderDrawColor(gameScreen.m_renderer, 255, 170, 170, 255);
@@ -666,6 +686,7 @@ namespace Terrain {
 				RenderPixel(cPos + sDir);
 				RenderPixel(cPos - pDir - pDir);
 				RenderPixel(cPos + sDir + sDir);
+				RenderPixel(cPos + sDir + sDir + sDir);
 			}
 			SDL_SetRenderDrawColor(gameScreen.m_renderer, 170, 170, 255, 255);
 		}
@@ -684,6 +705,12 @@ namespace Terrain {
 			RenderPixel(cPos + sDir);
 			RenderPixel(cPos - pDir - pDir);
 			RenderPixel(cPos + sDir + sDir);
+			if (sameCorner && path.source.corner_id.goingUp != path.target.corner_id.goingUp) {
+				SDL_SetRenderDrawColor(gameScreen.m_renderer, 255, 170, 170, 255);
+				RenderPixel(cPos - pDir - pDir - pDir);
+				SDL_SetRenderDrawColor(gameScreen.m_renderer, 170, 170, 255, 255);
+			}
+			RenderPixel(cPos + sDir + sDir + sDir);
 		}
 	}
 
@@ -1880,6 +1907,56 @@ namespace Terrain {
 				max.x = pos.x - 1 - VIRIDIAN_CX - 1; // Touching with equality is past the line
 			} else {
 				continue;
+			}
+			
+			// TODO: remove parts of the line hitbox that intersect with terrain
+			bool allCollide = true;
+			while (allCollide) {
+				for (int y = min.y; y <= max.y; y++) {
+					if (GetCurrentRoomPlayerCollisionAt(IntVector(min.x, y)) == 0) {
+						allCollide = false;
+						break;
+					}
+				}
+				if (allCollide) {
+					min.x += 1;
+				}
+			}
+			allCollide = true;
+			while (allCollide) {
+				for (int x = min.x; x <= max.x; x++) {
+					if (GetCurrentRoomPlayerCollisionAt(IntVector(x, min.y)) == 0) {
+						allCollide = false;
+						break;
+					}
+				}
+				if (allCollide) {
+					min.y += 1;
+				}
+			}
+			allCollide = true;
+			while (allCollide) {
+				for (int y = min.y; y <= max.y; y++) {
+					if (GetCurrentRoomPlayerCollisionAt(IntVector(max.x, y)) == 0) {
+						allCollide = false;
+						break;
+					}
+				}
+				if (allCollide) {
+					max.x -= 1;
+				}
+			}
+			allCollide = true;
+			while (allCollide) {
+				for (int x = min.x; x <= max.x; x++) {
+					if (GetCurrentRoomPlayerCollisionAt(IntVector(x, max.y)) == 0) {
+						allCollide = false;
+						break;
+					}
+				}
+				if (allCollide) {
+					max.y -= 1;
+				}
 			}
 
 			result.lines.emplace_back(isHorizontal, min, max);
@@ -3948,8 +4025,9 @@ namespace Terrain {
 		std::vector<WaypointPath> new_paths;
 
 		const Region validConnectionRegion = RevampedGetValidConnectionRegion(frame, history);
-		std::vector<PlayerStateRange> outgoingPrevStates = RevampedGetOutgoingConnectionStates(frame, history);
-		std::vector<ElementRegion> nextConnections = RevampedGetNextPossibleConnections(frame, history, elements);
+		std::vector<ElementRegion> coveredRanges = RevampedGetCoveredRanges(frame, history);
+		std::vector<PlayerStateRange> outgoingPrevStates = RevampedGetOutgoingConnectionStates(frame, history, coveredRanges);
+		std::vector<ElementRegion> nextConnections = RevampedGetNextPossibleConnections(frame, history, elements, coveredRanges);
 
 		// Create all new possible paths (some will inevitably be invalid)
 		for (std::vector<PlayerStateRange>::const_iterator prev_state_it = outgoingPrevStates.cbegin(); prev_state_it != outgoingPrevStates.cend(); prev_state_it++) {
@@ -3959,10 +4037,25 @@ namespace Terrain {
 				const ElementRegion& nextConn = *next_conn_it;
 				Exceptions::assert(nextConn.element_id.is_valid() && !nextConn.region.is_bottom());
 
+				// Don't connect to the same element twice in a row
+				if (nextConn.element_id == history.getLastElementID()) {
+					continue;
+				}
+
 				PlayerStateRange newPrevState(prevStateOut);
 				PlayerStateRange nextStateIn = PlayerStateRange::top();
 				nextStateIn.inverseGravity = newPrevState.inverseGravity;
 				nextStateIn.pos.intersect(nextConn.region);
+
+				if (nextConn.element_id.isWall()) {
+					// Can only land on surface with correct gravity
+					RoomWall& nextSurface = GetWallInLocalFrame(nextConn.element_id.unwrapWall(), frame);
+					if (nextStateIn.inverseGravity && nextSurface.type != Ceiling) {
+						continue;
+					} else if (!nextStateIn.inverseGravity && nextSurface.type != Floor) {
+						continue;
+					}
+				}
 
 				// TODO: better reduction
 				ReduceByFliplessConnectivity(newPrevState.pos, nextStateIn.pos, newPrevState.vx, newPrevState.vy, newPrevState.inverseGravity, nextConn.element_id.isWall());
@@ -3997,7 +4090,11 @@ namespace Terrain {
 		for (std::vector<WaypointPath>::iterator path_it = new_paths.begin(); path_it != new_paths.end(); path_it++) {
 			WaypointPath& newPath = *path_it;
 
-			// TODO: reduce the paths by connectivity
+			// Reduce the paths by connectivity, throwing away garbage
+			RevampedReducePath(frame, newPath);
+			if (newPath.is_bottom()) {
+				continue;
+			}
 
 			// Add the path to the results
 			if (newPath.is_partial()) {
@@ -4034,7 +4131,7 @@ namespace Terrain {
 		return validConnectionRegion;
 	}
 
-	std::vector<PlayerStateRange> RevampedGetOutgoingConnectionStates(const LocalFrame& frame, const WaypointPath& history) {
+	std::vector<PlayerStateRange> RevampedGetOutgoingConnectionStates(const LocalFrame& frame, const WaypointPath& history, const std::vector<ElementRegion>& coveredRanges) {
 		std::vector<PlayerStateRange> prev_states;
 
 		GenericID last_element_id = history.getLastElementID();
@@ -4050,7 +4147,25 @@ namespace Terrain {
 			prev_states.push_back(prevState);
 		} else if (last_element_id.isWall()) {
 			RoomWall& surface = GetWallInLocalFrame(last_element_id.unwrapWall(), frame);
-			const Region walkingRegion = surface.GetConnectingRegion();
+			// Ideally this wouldn't revisit covered ranges
+			Region walkingRegion = surface.GetConnectingRegion();
+			for (std::vector<ElementRegion>::const_iterator range_it = coveredRanges.cbegin(); range_it != coveredRanges.cend(); range_it++) {
+				const ElementRegion& range = *range_it;
+				if (range.element_id != last_element_id) {
+					continue;
+				}
+
+				// Don't allow walking past a must-visited region
+				if (range.region.x < prevState.pos.x) {
+					walkingRegion.x.intersect(range.region.x.getIntervalAbove());
+				} else if (range.region.x > prevState.pos.x) {
+					walkingRegion.x.intersect(range.region.x.getIntervalBelow());
+				} else if (range.region.x.getLowerBound() < prevState.pos.x.getLowerBound()) {
+					walkingRegion.x.addLowerBound(prevState.pos.x.getLowerBound());
+				} else if (range.region.x.getUpperBound() < prevState.pos.x.getUpperBound()) {
+					walkingRegion.x.addUpperBound(prevState.pos.x.getUpperBound());
+				}
+			}
 			// A few cases here:
 			// 1. walk to a position and flip (without walking off the platform)
 			PlayerStateRange walkThenFlip(prevState);
@@ -4117,49 +4232,66 @@ namespace Terrain {
 			const PlayerStateRange& toStateIn = wp.playerState;
 			const PlayerStateRange& toStateOut = wp.playerStateOut;
 
+			// Sanity check for matching gravity
 			Exceptions::assert(fromStateOut.inverseGravity == definitelyReachable.inverseGravity);
 			Exceptions::assert(fromStateOut.inverseGravity == maybeReachable.inverseGravity);
 
 			// Create new player states
 			PlayerStateRange newDefinitelyReachable = PlayerStateRange::top();
 			newDefinitelyReachable.pos.intersect(GetConnectingRegionInLocalFrame(wp.id, frame));
+			newDefinitelyReachable.inverseGravity = toStateIn.inverseGravity;
 			PlayerStateRange newMaybeReachable(newDefinitelyReachable);
 
 			// Reduce them as much as possible by connectivity
-			ReduceByFliplessConnectivity(definitelyReachable.pos, newDefinitelyReachable.pos, definitelyReachable.vx, definitelyReachable.vy, definitelyReachable.inverseGravity, toSurface);
 			ReduceByFliplessConnectivity(maybeReachable.pos, newMaybeReachable.pos, maybeReachable.vx, maybeReachable.vy, maybeReachable.inverseGravity, toSurface);
+			Exceptions::assert(!newMaybeReachable.is_bottom());
 
-			Exceptions::assert(!newDefinitelyReachable.is_bottom() && !newMaybeReachable.is_bottom());
+			if (!maybeReachable.pos.x.intersects(definitelyReachable.pos.x)) {
+				// Cannot directly get a definite connection
+				// Hacky fix for now: just make outermost pixel "definitely" reachable
+				if (maybeReachable.pos.x > definitelyReachable.pos.x) {
+					definitelyReachable.pos.x.join(maybeReachable.pos.x.getLowerBound());
+				} else {
+					definitelyReachable.pos.x.join(maybeReachable.pos.x.getUpperBound());
+				}
+				definitelyReachable.vx.join(FULL_X_SPEED_RANGE);
+				definitelyReachable.vy.join(!fromSurface ? Y_SPEED_RANGE_FOR_GRAVITY(definitelyReachable.inverseGravity) : PLATFORM_Y_SPEED_RANGE_FOR_GRAVITY(definitelyReachable.inverseGravity));
+			}
+			ReduceByFliplessConnectivity(definitelyReachable.pos, newDefinitelyReachable.pos, definitelyReachable.vx, definitelyReachable.vy, definitelyReachable.inverseGravity, toSurface);
+			Exceptions::assert(!newDefinitelyReachable.is_bottom());
 
-			coveredRanges.emplace_back(wp.id, newMaybeReachable.pos);
-
-			lastWp = wp;
-			totalDefinitelyReached.join(newDefinitelyReachable.pos);
-			totalMaybeReached.join(newMaybeReachable.pos);
-			definitelyReachable = newDefinitelyReachable;
-			maybeReachable = newMaybeReachable;
-
-			// Walking logic and flipping logic (in -> out state)
+			// Walking logic and flipping logic (connect in -> out state)
 			if (wp.id.isCorner()) {
 				// Do nothing
 			} else if (wp.id.isLine()) {
 				// Do regular gravity line flip
-				DoGravityLineFlip(definitelyReachable);
-				DoGravityLineFlip(maybeReachable);
+				DoGravityLineFlip(newDefinitelyReachable);
+				DoGravityLineFlip(newMaybeReachable);
 			} else if (wp.id.isWall()) {
 				RoomWall& surface = GetWallInLocalFrame(wp.id.unwrapWall(), frame);
-				maybeReachable.pos.join(surface.GetConnectingRegion());
-				maybeReachable.vx.join(FULL_X_SPEED_RANGE);
-				maybeReachable.vy.join(PLATFORM_Y_SPEED_RANGE_FOR_GRAVITY(toStateIn.inverseGravity));
-				if (fromStateOut.inverseGravity != toStateIn.inverseGravity) {
-					// Flip
-					DoFlip(definitelyReachable);
-					DoFlip(maybeReachable);
+				newMaybeReachable.pos.join(surface.GetConnectingRegion());
+				newMaybeReachable.vx.join(FULL_X_SPEED_RANGE);
+				newMaybeReachable.vy.join(PLATFORM_Y_SPEED_RANGE_FOR_GRAVITY(newMaybeReachable.inverseGravity));
+				// TODO: add edgeflips (to newMaybeReachable or separately?)
+				// Flip off surface if necessary
+				if (!toStateOut.is_bottom() && toStateOut.inverseGravity != toStateIn.inverseGravity) {
+					DoFlip(newDefinitelyReachable);
+					DoFlip(newMaybeReachable);
 				}
-				// TODO: add edgeflips to maybeReachable
 			} else {
 				// Unimplemented waypoint type
 				Exceptions::unimplemented();
+			}
+
+			// Update loop variables
+			lastWp = wp; // TODO: this assignment is a COPY not a reference
+			definitelyReachable = newDefinitelyReachable;
+			maybeReachable = newMaybeReachable;
+			// Update aggregators
+			totalDefinitelyReached.join(definitelyReachable.pos);
+			totalMaybeReached.join(maybeReachable.pos);
+			if (!definitelyReachable.is_bottom()) {
+				coveredRanges.emplace_back(wp.id, definitelyReachable.pos);
 			}
 		}
 
@@ -4194,8 +4326,7 @@ namespace Terrain {
 		return coveredRanges;
 	}
 
-	std::vector<ElementRegion> RevampedGetNextPossibleConnections(const LocalFrame& frame, const WaypointPath& history, const std::set<GenericID>& elements) {
-		std::vector<ElementRegion> coveredRanges = RevampedGetCoveredRanges(frame, history);
+	std::vector<ElementRegion> RevampedGetNextPossibleConnections(const LocalFrame& frame, const WaypointPath& history, const std::set<GenericID>& elements, const std::vector<ElementRegion>& coveredRanges) {
 		std::vector<ElementRegion> uncoveredRanges;
 
 		bool allow_inbetween_regions = true;
@@ -4207,6 +4338,15 @@ namespace Terrain {
 			const GenericID& el_id = *el_it;
 			Region elBeforeConnRegion = GetBeforeConnectionRegionInLocalFrame(el_id, frame);
 			Region elConnRegion = GetConnectingRegionInLocalFrame(el_id, frame);
+
+			// Don't allow connecting to backwards corners
+			if (el_id.isCorner()) {
+				CornerID c = el_id.unwrapCorner();
+				Region beforeCornerRegion = GetCornerInLocalFrame(c, frame).GetRegionBefore(c.goingUp);
+				if (!beforeCornerRegion.intersects(validConnectionRegion)) {
+					continue;
+				}
+			}
 
 			// Collect all ranges for this element
 			int firstUncoveredX = INT_MIN;
@@ -4224,7 +4364,7 @@ namespace Terrain {
 					int xLowerBound = range.region.x.getLowerBound();
 					if (xLowerBound >= min_lower_bound || xLowerBound < firstUncoveredX) {
 						continue;
-					}
+					} 
 
 					min_lower_bound = xLowerBound;
 					lowestXInterval = IntInterval(range.region.x);
@@ -4253,6 +4393,7 @@ namespace Terrain {
 					}
 				}
 
+				// TODO: make this work for (vertical) lines
 				// Create the next uncovered region
 				IntInterval uncoveredRange = lowestXInterval.getIntervalBelow().addLowerBound(firstUncoveredX);
 				firstUncoveredX = lowestXInterval.getIntervalAbove().getLowerBound();
@@ -4280,13 +4421,11 @@ namespace Terrain {
 				}
 
 				if (uncoveredRegion.is_bottom()) {
-					// TODO: does this ever happen? -> yes
 					continue;
 				}
 
 				const Region& posBefore = history.getLastPlayerStateConst().pos;
 				if (!posBefore.intersects(elBeforeConnRegion)) {
-					// TODO: does this ever happen? -> yes
 					continue;
 				}
 
@@ -4295,6 +4434,269 @@ namespace Terrain {
 		}
 
 		return uncoveredRanges;
+	}
+
+	void RevampedReducePath(const LocalFrame& frame, WaypointPath& path) {
+		bool is_partial = path.is_partial();
+		if (path.waypoints.empty()) {
+			return;
+		}
+		
+		std::vector<ElementRegion> coveredRangesBwd;
+		PlayerStateRange mustState = PlayerStateRange::bottom();
+
+		// Backwards pass first because why not
+		GenericWaypoint* nextWp = &(path.waypoints.back());
+		if (!path.is_partial()) {
+			CornerWaypoint& targetWp = path.target;
+
+			PlayerStateRange& fromStateIn = nextWp->playerState;
+			PlayerStateRange& fromStateOut = nextWp->playerStateOut;
+
+			PlayerStateRange& toStateIn = targetWp.playerState;
+
+			// Reduce state ranges by how they connect
+			ReduceByFliplessConnectivity(fromStateOut.pos, toStateIn.pos, fromStateOut.vx, fromStateOut.vy, fromStateOut.inverseGravity, false);
+			Exceptions::assert(!fromStateOut.pos.is_bottom() && !toStateIn.pos.is_bottom());
+			
+			mustState = PlayerStateRange(fromStateOut);
+			if (fromStateOut.inverseGravity != fromStateIn.inverseGravity) {
+				if (nextWp->id.isLine()) {
+					DoGravityLineFlip(mustState);
+				} else {
+					DoFlip(mustState);
+				}
+			}
+			coveredRangesBwd.emplace_back(nextWp->id, mustState.pos);
+		}
+		for (std::vector<GenericWaypoint>::reverse_iterator wp_it = ++path.waypoints.rbegin(); wp_it != path.waypoints.rend(); wp_it++) {
+			GenericWaypoint& wp = *wp_it;
+
+			PlayerStateRange& fromStateIn = wp.playerState;
+			PlayerStateRange& fromStateOut = wp.playerStateOut;
+
+			PlayerStateRange& toStateIn = nextWp->playerState;
+
+			// Reduce state ranges by how they connect
+			ReduceByFliplessConnectivity(fromStateOut.pos, toStateIn.pos, fromStateOut.vx, fromStateOut.vy, fromStateOut.inverseGravity, nextWp->id.isWall());
+			Exceptions::assert(!fromStateOut.pos.is_bottom() && !toStateIn.pos.is_bottom());
+
+			if (!path.is_partial()) {
+				// Remove must regions from previous connections
+				for (std::vector<ElementRegion>::const_iterator range_it = coveredRangesBwd.cbegin(); range_it != coveredRangesBwd.cend(); range_it++) {
+					const ElementRegion& range = *range_it;
+					if (range.element_id != wp.id) {
+						continue;
+					}
+
+					fromStateOut.pos.difference(range.region);
+					if (fromStateOut.pos.intersects(range.region)) {
+						fromStateOut.pos.x.difference(range.region.x);
+						// TODO: this probably doesn't always hold
+						// Exceptions::assert(!fromStateOut.pos.intersects(range.region));
+						if (fromStateOut.pos.intersects(range.region)) {
+							// TODO: In this case do we want to duplicate? or is there always a way to pick the better option?
+							IntInterval left = range.region.x.getIntervalBelow().intersect(fromStateOut.pos.x);
+							IntInterval right = range.region.x.getIntervalAbove().intersect(fromStateOut.pos.x);
+							
+							// Pick the closer one if the in-region is not between them
+							if (fromStateIn.pos.x.getUpperBound() <= left.getUpperBound()) {
+								fromStateOut.pos.x = left;
+							} else if (fromStateIn.pos.x.getLowerBound() >= right.getLowerBound()) {
+								fromStateOut.pos.x = right;
+							} else {
+								// TODO: can this happen? -> apparently yes, idk if it's a bug
+								// Exceptions::error();
+							}
+						}
+
+					}
+				}
+
+				// Reduce ranges again just to be sure
+				ReduceByFliplessConnectivity(fromStateOut.pos, toStateIn.pos, fromStateOut.vx, fromStateOut.vy, fromStateOut.inverseGravity, nextWp->id.isWall());
+
+				// Update must state
+				Region fromConnRegion = GetConnectingRegionInLocalFrame(wp.id, frame);
+				Region toConnRegion = GetConnectingRegionInLocalFrame(nextWp->id, frame);
+				ReduceByFliplessConnectivity(fromConnRegion, toConnRegion, FULL_X_SPEED_RANGE, FULL_Y_SPEED_RANGE, mustState.inverseGravity, nextWp->id.isWall());
+
+				if (!toConnRegion.intersects(mustState.pos)) {
+					// Special case: the must range doesn't overlap the region which can connect to the previous element
+					// We have to "manually" extend it the minimum amount
+					// Hacky fix for now: extend it to the outermost pixel of the connecting region
+					if (toConnRegion.x < mustState.pos.x) {
+						mustState.pos.x.join(toConnRegion.x.getUpperBound());
+					} else {
+						mustState.pos.x.join(toConnRegion.x.getLowerBound());
+					}
+					mustState.vx.join(FULL_X_SPEED_RANGE);
+					mustState.vy.join(!nextWp->id.isWall() ? Y_SPEED_RANGE_FOR_GRAVITY(mustState.inverseGravity) : PLATFORM_Y_SPEED_RANGE_FOR_GRAVITY(mustState.inverseGravity));
+				}
+
+				PlayerStateRange newMustState = PlayerStateRange::top();
+				newMustState.inverseGravity = mustState.inverseGravity;
+				newMustState.pos = GetConnectingRegionInLocalFrame(wp.id, frame);
+				newMustState.vx = FULL_X_SPEED_RANGE;
+				newMustState.vy = FULL_Y_SPEED_RANGE;
+				ReduceByFliplessConnectivity(newMustState.pos, mustState.pos, newMustState.vx, newMustState.vy, newMustState.inverseGravity, nextWp->id.isWall());
+				if (fromStateOut.inverseGravity != fromStateIn.inverseGravity) {
+					if (wp.id.isLine()) {
+						DoGravityLineFlip(newMustState);
+					} else {
+						DoFlip(newMustState);
+					}
+				}
+				mustState = newMustState;
+				coveredRangesBwd.emplace_back(wp.id, mustState.pos);
+				Exceptions::assert(!mustState.is_bottom());
+			}
+
+			nextWp = &wp;
+		}
+		{
+			CornerWaypoint& sourceWp = path.source;
+
+			PlayerStateRange& fromStateOut = sourceWp.playerState;
+
+			PlayerStateRange& toStateIn = nextWp->playerState;
+
+			// Reduce state ranges by how they connect
+			ReduceByFliplessConnectivity(fromStateOut.pos, toStateIn.pos, fromStateOut.vx, fromStateOut.vy, fromStateOut.inverseGravity, nextWp->id.isWall());
+			Exceptions::assert(!fromStateOut.pos.is_bottom() && !toStateIn.pos.is_bottom());
+		}
+
+		// Already eliminated this path, no further analysis needed
+		if (path.is_bottom()) {
+			return;
+		}
+
+		// Forwards pass next
+		std::vector<ElementRegion> coveredRangesFwd;
+		PlayerStateRange mustStateFwd = PlayerStateRange::bottom();
+		GenericWaypoint* lastWp = &(path.waypoints.front());
+		{
+			CornerWaypoint& sourceWp = path.source;
+
+			PlayerStateRange& fromStateOut = sourceWp.playerState;
+
+			PlayerStateRange& toStateIn = lastWp->playerState;
+			PlayerStateRange& toStateOut = lastWp->playerStateOut;
+
+			// Reduce state ranges by how they connect
+			ReduceByFliplessConnectivity(fromStateOut.pos, toStateIn.pos, fromStateOut.vx, fromStateOut.vy, fromStateOut.inverseGravity, lastWp->id.isWall());
+			Exceptions::assert(!fromStateOut.pos.is_bottom() && !toStateIn.pos.is_bottom());
+
+			mustStateFwd = PlayerStateRange(toStateIn);
+			if (toStateIn.inverseGravity != toStateOut.inverseGravity) {
+				if (lastWp->id.isLine()) {
+					DoGravityLineFlip(mustStateFwd);
+				} else {
+					DoFlip(mustStateFwd);
+				}
+			}
+
+			coveredRangesFwd.emplace_back(lastWp->id, mustStateFwd.pos);
+		}
+		for (std::vector<GenericWaypoint>::iterator wp_it = ++path.waypoints.begin(); wp_it != path.waypoints.end(); wp_it++) {
+			GenericWaypoint& wp = *wp_it;
+
+			PlayerStateRange& fromStateOut = lastWp->playerStateOut;
+
+			PlayerStateRange& toStateIn = wp.playerState;
+			PlayerStateRange& toStateOut = wp.playerStateOut;
+
+			// Reduce state ranges by how they connect
+			ReduceByFliplessConnectivity(fromStateOut.pos, toStateIn.pos, fromStateOut.vx, fromStateOut.vy, fromStateOut.inverseGravity, wp.id.isWall());
+			Exceptions::assert(!fromStateOut.pos.is_bottom() && !toStateIn.pos.is_bottom());
+
+			// Remove must regions from later connections
+			for (std::vector<ElementRegion>::const_iterator range_it = coveredRangesFwd.cbegin(); range_it != coveredRangesFwd.cend(); range_it++) {
+				const ElementRegion& range = *range_it;
+				if (range.element_id != wp.id) {
+					continue;
+				}
+
+				toStateIn.pos.difference(range.region);
+				if (toStateIn.pos.intersects(range.region)) {
+					toStateIn.pos.x.difference(range.region.x);
+					// TODO: this probably doesn't always hold
+					// Exceptions::assert(!fromStateOut.pos.intersects(range.region));
+					if (toStateIn.pos.intersects(range.region)) {
+						// TODO: In this case do we want to duplicate? or is there always a way to pick the better option?
+						IntInterval left = range.region.x.getIntervalBelow().intersect(toStateIn.pos.x);
+						IntInterval right = range.region.x.getIntervalAbove().intersect(toStateIn.pos.x);
+
+						// Pick the closer one if the in-region is not between them
+						if (toStateOut.pos.x.getUpperBound() <= left.getUpperBound()) {
+							toStateIn.pos.x = left;
+						} else if (toStateOut.pos.x.getLowerBound() >= right.getLowerBound()) {
+							toStateIn.pos.x = right;
+						} else {
+							// TODO: can this happen? -> apparently yes, idk if it's a bug
+							// Exceptions::error();
+						}
+					}
+
+				}
+			}
+
+			// Reduce ranges again just to be sure
+			ReduceByFliplessConnectivity(fromStateOut.pos, toStateIn.pos, fromStateOut.vx, fromStateOut.vy, fromStateOut.inverseGravity, wp.id.isWall());
+
+			// Update must state
+			Region fromConnRegion = GetConnectingRegionInLocalFrame(lastWp->id, frame);
+			Region toConnRegion = GetConnectingRegionInLocalFrame(wp.id, frame);
+			ReduceByFliplessConnectivity(fromConnRegion, toConnRegion, FULL_X_SPEED_RANGE, mustStateFwd.vy, mustStateFwd.inverseGravity, wp.id.isWall());
+
+			if (!fromConnRegion.intersects(mustStateFwd.pos)) {
+				// Special case: the must range doesn't overlap the region which can connect to the previous element
+				// We have to "manually" extend it the minimum amount
+				// Hacky fix for now: extend it to the outermost pixel of the connecting region
+				if (fromConnRegion.x < mustStateFwd.pos.x) {
+					mustStateFwd.pos.x.join(fromConnRegion.x.getUpperBound());
+				} else {
+					mustStateFwd.pos.x.join(fromConnRegion.x.getLowerBound());
+				}
+				mustStateFwd.vx.join(FULL_X_SPEED_RANGE);
+			}
+
+			PlayerStateRange newMustState = PlayerStateRange::top();
+			newMustState.inverseGravity = mustStateFwd.inverseGravity;
+			newMustState.pos = GetConnectingRegionInLocalFrame(wp.id, frame);
+			newMustState.vx = FULL_X_SPEED_RANGE;
+			newMustState.vy = FULL_Y_SPEED_RANGE;
+			ReduceByFliplessConnectivity(mustStateFwd.pos, newMustState.pos, mustStateFwd.vx, mustStateFwd.vy, mustStateFwd.inverseGravity, wp.id.isWall());
+			if (toStateOut.inverseGravity != toStateIn.inverseGravity) {
+				if (wp.id.isLine()) {
+					DoGravityLineFlip(newMustState);
+				} else {
+					DoFlip(newMustState);
+				}
+			}
+			mustStateFwd = newMustState;
+			coveredRangesFwd.emplace_back(wp.id, mustStateFwd.pos);
+
+			Exceptions::assert(!mustStateFwd.is_bottom());
+
+			lastWp = &wp;
+		}
+		if (!path.is_partial()) {
+			CornerWaypoint& targetWp = path.target;
+
+			PlayerStateRange& fromStateOut = lastWp->playerStateOut;
+
+			PlayerStateRange& toStateIn = targetWp.playerState;
+
+			// Reduce state ranges by how they connect
+			ReduceByFliplessConnectivity(fromStateOut.pos, toStateIn.pos, fromStateOut.vx, fromStateOut.vy, fromStateOut.inverseGravity, false);
+			Exceptions::assert(!fromStateOut.pos.is_bottom() && !toStateIn.pos.is_bottom());
+		}
+
+		// Already eliminated this path, no further analysis needed
+		if (path.is_bottom()) {
+			return;
+		}
 	}
 
 	std::vector<WaypointPath> NewRecursiveSurfaceConnections(const LocalFrame& frame, const WaypointPath& history, const std::set<GenericID>& elements) {

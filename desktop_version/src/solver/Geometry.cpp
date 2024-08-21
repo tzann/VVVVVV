@@ -122,8 +122,8 @@ namespace Geometry {
 			return FloatInterval(b);
 		}
 
-		int min = SDL_min(a.min, b.min);
-		int max = SDL_max(a.max, b.max);
+		float min = SDL_min(a.min, b.min);
+		float max = SDL_max(a.max, b.max);
 		return FloatInterval(min, max);
 	}
 	FloatInterval FloatInterval::intersect(const FloatInterval& a, const FloatInterval& b) {
@@ -131,8 +131,8 @@ namespace Geometry {
 			return FloatInterval::bottom();
 		}
 
-		int min = SDL_max(a.min, b.min);
-		int max = SDL_min(a.max, b.max);
+		float min = SDL_max(a.min, b.min);
+		float max = SDL_min(a.max, b.max);
 		return FloatInterval(min, max);
 	}
 	FloatInterval& FloatInterval::join(const FloatInterval& other) {
