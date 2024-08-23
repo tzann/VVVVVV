@@ -52,6 +52,8 @@ namespace Terrain {
 					}
 				}
 			}
+			LoadRoom(RoomPosition(0, 19));
+			obj.entities[0].xp = 50;
 
 			return;
 			RoomData& currentRoomData = GetRoomData(currentRoom);
@@ -123,6 +125,8 @@ namespace Terrain {
 	}
 
 	int counter = 0;
+	CornerID path_cid;
+	std::vector<WaypointPath> all_paths;
 
 	void AfterTileRenderHook(void) {
 		BeforeRenderHook();
@@ -136,11 +140,6 @@ namespace Terrain {
 			SDL_SetRenderDrawBlendMode(gameScreen.m_renderer, SDL_BLENDMODE_BLEND);
 			SDL_SetRenderDrawColor(gameScreen.m_renderer, 0, 255, 0, 150);
 
-			if (currentRoomData.corners.empty()) {
-				return;
-			}
-
-			std::vector<WaypointPath> all_paths;
 			/*
 			for (int c = 0; c < currentRoomData.corners.size(); c++) {
 				CornerID c_id(currentRoom, c, false);
@@ -152,10 +151,14 @@ namespace Terrain {
 			}
 			*/
 			{
-				CornerID c_id(currentRoom, 0, false);
-				if (currentRoomData.corners.size() > c_id.cornerIndex) {
-					std::vector<WaypointPath> paths = RevampedFindCornerConnections(c_id);
-					all_paths.insert(all_paths.end(), paths.begin(), paths.end());
+				CornerID c_id(RoomPosition(0, 19), 0, false);
+				if (c_id != path_cid) {
+					path_cid = c_id;
+					all_paths.clear();
+					if (GetRoomData(c_id.room).corners.size() > c_id.cornerIndex) {
+						std::vector<WaypointPath> paths = RevampedFindCornerConnections(c_id);
+						all_paths.insert(all_paths.end(), paths.begin(), paths.end());
+					}
 				}
 			}
 			game.timetrialshinytarget = all_paths.size();
@@ -1372,6 +1375,7 @@ namespace Terrain {
 
 	void InitializeConnectedRooms(RoomPosition startingRoom) {
 		std::vector<RoomPosition> queue;
+		std::vector<RoomPosition> queue2;
 		queue.push_back(startingRoom);
 
 		while (queue.size() > 0) {
@@ -1382,6 +1386,7 @@ namespace Terrain {
 				// Already initialized, skip
 				continue;
 			}
+			queue2.push_back(room);
 
 			InitializeRoomData(room);
 			RoomData& roomData = GetRoomData(room);
@@ -1397,6 +1402,14 @@ namespace Terrain {
 			if (roomData.right) {
 				queue.push_back(room.NextRoomRight());
 			}
+		}
+
+		// Cross-room initialization
+		while (queue2.size() > 0) {
+			RoomPosition room = queue2.back();
+			queue2.pop_back();
+
+			CrossRoomInitialization(room);
 		}
 
 		LoadRoom(startingRoom);
@@ -1690,6 +1703,7 @@ namespace Terrain {
 				newCorner.horizontalNegativeGap = horizontalNegativeGap;
 				newCorner.verticalNegativeGap = verticalNegativeGap;
 				newCorner.simple = simple;
+				newCorner.deadEnd = false;
 				if (up_left) {
 					newCorner.type = BottomRight;
 				} else if (left) {
@@ -1960,6 +1974,54 @@ namespace Terrain {
 			}
 
 			result.lines.emplace_back(isHorizontal, min, max);
+		}
+	}
+
+	void CrossRoomInitialization(RoomPosition room_pos) {
+		// Can't handle towers (yet)
+		Exceptions::require(!room_pos.IsTower());
+
+		RoomData& result = GetRoomData(room_pos);
+		Exceptions::require(result.initialized);
+
+		// Let's do a quick check to see which corners trivially can't connect to anything at all
+		int num_corners = result.corners.size();
+		for (int c = 0; c < num_corners; c++) {
+			Corner& corner = result.corners.at(c);
+			for (int d = 0; d < 2 && !corner.deadEnd; d++) {
+				bool goingUp = d != 0;
+				const Region& afterCorner = corner.GetRegionAfter(goingUp).intersect(corner.GetValidRegion(goingUp));
+
+				GlobalPosition minCorner(room_pos, afterCorner.getMin());
+				GlobalPosition maxCorner(room_pos, afterCorner.getMax());
+
+				minCorner = DoAllRoomChanges(minCorner);
+				maxCorner = DoAllRoomChanges(maxCorner);
+
+				LocalFrame frame = LocalFrame(GlobalPosition(room_pos, IntVector::zero()), false, false);
+
+				std::set<CornerID> corners = FindCornersInRelativeRegion(frame, afterCorner);
+				if (!corners.empty()) {
+					continue;
+				}
+				std::set<WallID> walls = FindWallsInRelativeRegion(frame, afterCorner);
+				for (std::set<WallID>::const_iterator w_it = walls.cbegin(); w_it != walls.cend(); w_it++) {
+					RoomWall& w = GetWall(*w_it);
+					if (w.walkable) {
+						if (w.type == Ceiling && goingUp) {
+							continue;
+						} else if (w.type == Floor && !goingUp) {
+							continue;
+						}
+					}
+				}
+				std::set<LineID> lines = FindLinesInRelativeRegion(frame, afterCorner);
+				if (!lines.empty()) {
+					continue;
+				}
+
+				corner.deadEnd |= true;
+			}
 		}
 	}
 
@@ -3083,7 +3145,6 @@ namespace Terrain {
 		return surfaces_below;
 	}
 
-
 	std::set<CornerID> FindCornersInRegion(GlobalPosition from, GlobalPosition to) {
 		std::set<CornerID> result;
 
@@ -3929,26 +3990,20 @@ namespace Terrain {
 		RoomPosition cornerRoom = c_id.room;
 		const LocalFrame& frame = LocalFrame(GlobalPosition(cornerRoom, IntVector::zero()), false, false);
 
-		Corner corner = GetCornerInLocalFrame(c_id, frame);
-
-		IntVector gap(corner.horizontalGap, corner.verticalGap);
-		IntVector negativeGap(corner.horizontalNegativeGap, corner.verticalNegativeGap);
-
-		IntVector primaryDir = corner.GetPrimaryDir(c_id.goingUp);
-		IntVector secondaryDir = corner.GetSecondaryDir(c_id.goingUp);
-
-		IntVector beforeCorner = corner.pos - secondaryDir * gap;
-		IntVector afterCorner = corner.pos + primaryDir * gap + secondaryDir * negativeGap;
-
-		Region validRegion(beforeCorner, afterCorner);
+		const Corner& sourceCorner = GetCornerInLocalFrame(c_id, frame);
+		Region validRegion = sourceCorner.GetValidRegion(c_id.goingUp);
 
 		std::set<GenericID> elements;
 		// Corners
 		{
 			std::set<CornerID> tmp_corners = FindCornersInRelativeRegion(frame, validRegion);
 			for (std::set<CornerID>::iterator it = tmp_corners.begin(); it != tmp_corners.end(); it++) {
-				Corner& corner = GetCornerInLocalFrame(*it, frame);
-				if (!validRegion.contains(corner.pos)) {
+				Corner& tmp_corner = GetCornerInLocalFrame(*it, frame);
+				if (!validRegion.contains(tmp_corner.pos) || tmp_corner.deadEnd) {
+					continue;
+				}
+				Region regionBeforeTmpCorner = tmp_corner.GetRegionBefore((*it).goingUp);
+				if (!regionBeforeTmpCorner.intersects(validRegion)) {
 					continue;
 				}
 				elements.emplace(*it);
@@ -3985,7 +4040,7 @@ namespace Terrain {
 
 		std::vector<WaypointPath> results;
 		for (int inverseGravity = 0; inverseGravity < 2; inverseGravity++) {
-			int secondary_y = corner.GetSecondaryDir(c_id.goingUp).y;
+			int secondary_y = sourceCorner.GetSecondaryDir(c_id.goingUp).y;
 			if (inverseGravity && secondary_y > 0) {
 				continue;
 			}
@@ -3997,8 +4052,8 @@ namespace Terrain {
 
 			source.corner_id = c_id;
 			source.playerState.inverseGravity = inverseGravity;
-			source.playerState.pos = corner.GetConnectingRegion(c_id.goingUp);
-			corner.GetSpeedRange(source.playerState.vx, source.playerState.vy, c_id.goingUp);
+			source.playerState.pos = sourceCorner.GetConnectingRegion(c_id.goingUp);
+			sourceCorner.GetSpeedRange(source.playerState.vx, source.playerState.vy, c_id.goingUp);
 			WaypointPath history(source);
 
 			std::vector<WaypointPath> this_result = RevampedRecursiveSurfaceConnections(frame, history, elements);
@@ -4272,7 +4327,17 @@ namespace Terrain {
 				newMaybeReachable.pos.join(surface.GetConnectingRegion());
 				newMaybeReachable.vx.join(FULL_X_SPEED_RANGE);
 				newMaybeReachable.vy.join(PLATFORM_Y_SPEED_RANGE_FOR_GRAVITY(newMaybeReachable.inverseGravity));
+				
+				// Add walking distance between the in and out state
+				if (!toStateIn.is_bottom() && !toStateOut.is_bottom() && !toStateIn.pos.x.intersects(toStateOut.pos.x)) {
+					if (toStateIn.pos.x < toStateOut.pos.x) {
+						newDefinitelyReachable.pos.x.join(toStateIn.pos.x.getIntervalAbove().intersect(toStateOut.pos.x.getIntervalBelow()));
+					} else {
+						newDefinitelyReachable.pos.x.join(toStateIn.pos.x.getIntervalBelow().intersect(toStateOut.pos.x.getIntervalAbove()));
+					}
+				}
 				// TODO: add edgeflips (to newMaybeReachable or separately?)
+				
 				// Flip off surface if necessary
 				if (!toStateOut.is_bottom() && toStateOut.inverseGravity != toStateIn.inverseGravity) {
 					DoFlip(newDefinitelyReachable);
@@ -4460,6 +4525,13 @@ namespace Terrain {
 			Exceptions::assert(!fromStateOut.pos.is_bottom() && !toStateIn.pos.is_bottom());
 			
 			mustState = PlayerStateRange(fromStateOut);
+			if (!fromStateOut.is_bottom() && !fromStateIn.is_bottom() && !fromStateOut.pos.x.intersects(fromStateIn.pos.x)) {
+				if (fromStateOut.pos.x < fromStateIn.pos.x) {
+					mustState.pos.x.join(fromStateOut.pos.x.getIntervalAbove().intersect(fromStateIn.pos.x.getIntervalBelow()));
+				} else {
+					mustState.pos.x.join(fromStateOut.pos.x.getIntervalBelow().intersect(fromStateIn.pos.x.getIntervalAbove()));
+				}
+			}
 			if (fromStateOut.inverseGravity != fromStateIn.inverseGravity) {
 				if (nextWp->id.isLine()) {
 					DoGravityLineFlip(mustState);
@@ -4540,6 +4612,13 @@ namespace Terrain {
 				newMustState.vx = FULL_X_SPEED_RANGE;
 				newMustState.vy = FULL_Y_SPEED_RANGE;
 				ReduceByFliplessConnectivity(newMustState.pos, mustState.pos, newMustState.vx, newMustState.vy, newMustState.inverseGravity, nextWp->id.isWall());
+				if (!fromStateOut.is_bottom() && !fromStateIn.is_bottom() && !fromStateOut.pos.x.intersects(fromStateIn.pos.x)) {
+					if (fromStateOut.pos.x < fromStateIn.pos.x) {
+						newMustState.pos.x.join(fromStateOut.pos.x.getIntervalAbove().intersect(fromStateIn.pos.x.getIntervalBelow()));
+					} else {
+						newMustState.pos.x.join(fromStateOut.pos.x.getIntervalBelow().intersect(fromStateIn.pos.x.getIntervalAbove()));
+					}
+				}
 				if (fromStateOut.inverseGravity != fromStateIn.inverseGravity) {
 					if (wp.id.isLine()) {
 						DoGravityLineFlip(newMustState);
@@ -4588,6 +4667,7 @@ namespace Terrain {
 			Exceptions::assert(!fromStateOut.pos.is_bottom() && !toStateIn.pos.is_bottom());
 
 			mustStateFwd = PlayerStateRange(toStateIn);
+			mustStateFwd.pos.x.join(toStateOut.pos.x).difference(toStateOut.pos.x).join(toStateIn.pos.x);
 			if (toStateIn.inverseGravity != toStateOut.inverseGravity) {
 				if (lastWp->id.isLine()) {
 					DoGravityLineFlip(mustStateFwd);
@@ -4667,6 +4747,10 @@ namespace Terrain {
 			newMustState.vx = FULL_X_SPEED_RANGE;
 			newMustState.vy = FULL_Y_SPEED_RANGE;
 			ReduceByFliplessConnectivity(mustStateFwd.pos, newMustState.pos, mustStateFwd.vx, mustStateFwd.vy, mustStateFwd.inverseGravity, wp.id.isWall());
+			if (!toStateIn.is_bottom() && !toStateOut.is_bottom() && !toStateIn.pos.x.intersects(toStateOut.pos.x)) {
+				IntInterval betweenInterval = IntInterval(toStateOut.pos.x).join(toStateIn.pos.x).difference(toStateOut.pos.x).difference(toStateIn.pos.x);
+				newMustState.pos.x.join(betweenInterval);
+			}
 			if (toStateOut.inverseGravity != toStateIn.inverseGravity) {
 				if (wp.id.isLine()) {
 					DoGravityLineFlip(newMustState);
@@ -4674,6 +4758,7 @@ namespace Terrain {
 					DoFlip(newMustState);
 				}
 			}
+			// TODO: we could check here that the new must/maybe states cover something new, and aren't repeats
 			mustStateFwd = newMustState;
 			coveredRangesFwd.emplace_back(wp.id, mustStateFwd.pos);
 
@@ -5380,11 +5465,8 @@ namespace Terrain {
 			to.make_bottom();
 			return false;
 		}
-		if (!from.is_bounded() || !to.is_bounded()) {
-			// TODO: this is very imprecise
-			VVV_exit(-1);
-			return true;
-		}
+		// TODO: this is very imprecise
+		Exceptions::require(from.is_bounded() && to.is_bounded());
 		
 		const IntInterval delta_x = to.x - from.x;
 		const IntInterval delta_y = to.y - from.y;
@@ -5402,6 +5484,7 @@ namespace Terrain {
 		IntInterval d_y = 0;
 
 		int frames_elapsed = 0;
+		bool definitelyLanded = false;
 		while (!d_y.intersects(delta_y) || !d_x.intersects(delta_x)) {
 			// Check we didn't fall past the end
 			if (d_y > delta_y && a_y >= 0 && v_y >= 0) {
@@ -5421,6 +5504,9 @@ namespace Terrain {
 			if (toSurface) {
 				if (a_y > 0) {
 					int surfaceY = delta_y.max;
+					if (d_y.getLowerBound() > surfaceY) {
+						definitelyLanded = true;
+					}
 					if (delta_x.contains(d_x) && prev_dy < surfaceY) {
 						// Don't allow moving past the surface
 						d_y.clamp(IntInterval::fromUpperBound(surfaceY));
@@ -5432,6 +5518,9 @@ namespace Terrain {
 					}
 				} else {
 					int surfaceY = delta_y.min;
+					if (d_y.getUpperBound() < surfaceY) {
+						definitelyLanded = true;
+					}
 					if (delta_x.contains(d_x) && prev_dy > surfaceY) {
 						// Don't allow moving past the surface
 						d_y.clamp(IntInterval::fromLowerBound(surfaceY));
@@ -5450,15 +5539,48 @@ namespace Terrain {
 		// Now we are overlapping, find reachable parts
 		Region reachableToRegion = Region::bottom();
 		Region startableFromRegion = Region::bottom();
-
-		while (d_y.intersects(delta_y) && d_x.intersects(delta_x)) {
+		while (d_y.intersects(delta_y) && d_x.intersects(delta_x) && !definitelyLanded) {
 			Region reachableThisFrame = Region::intersect(to, Region(from.x + d_x, from.y + d_y));
 			Region startableThisFrame = Region::intersect(from, Region(to.x - d_x, to.y - d_y));
 
 			reachableToRegion.join(reachableThisFrame);
 			startableFromRegion.join(startableThisFrame);
 
+			IntInterval prev_dx(d_x);
+			IntInterval prev_dy(d_y);
 			DoIntervalPhysicsStep(a_x, a_y, v_x, v_y, d_x, d_y);
+
+			if (toSurface && !definitelyLanded) {
+				if (a_y > 0) {
+					int surfaceY = delta_y.max;
+					if (d_y.getLowerBound() > surfaceY) {
+						definitelyLanded = true;
+					}
+					if (delta_x.contains(d_x) && prev_dy < surfaceY) {
+						// Don't allow moving past the surface
+						d_y.clamp(IntInterval::fromUpperBound(surfaceY));
+					} else if (d_x.intersects(delta_x)) {
+						// Account for landing on the surface
+						if (IntInterval::join(prev_dy, d_y).intersects(surfaceY)) {
+							d_y.join(surfaceY);
+						}
+					}
+				} else {
+					int surfaceY = delta_y.min;
+					if (d_y.getUpperBound() < surfaceY) {
+						definitelyLanded = true;
+					}
+					if (delta_x.contains(d_x) && prev_dy > surfaceY) {
+						// Don't allow moving past the surface
+						d_y.clamp(IntInterval::fromLowerBound(surfaceY));
+					} else if (d_x.intersects(delta_x)) {
+						// Account for landing on the surface
+						if (IntInterval::join(prev_dy, d_y).intersects(surfaceY)) {
+							d_y.join(surfaceY);
+						}
+					}
+				}
+			}
 			frames_elapsed++;
 		}
 

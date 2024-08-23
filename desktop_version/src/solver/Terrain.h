@@ -187,7 +187,7 @@ namespace Terrain {
 		int verticalGap, horizontalGap;
 		int verticalNegativeGap, horizontalNegativeGap;
 		int verticalWallLength, horizontalWallLength;
-		bool simple;
+		bool simple, deadEnd;
 
 		IntVector GetPrimaryDir(bool inverseGravity) const;
 		IntVector GetSecondaryDir(bool inverseGravity) const;
@@ -945,6 +945,7 @@ namespace Terrain {
 	void LoadRoom(RoomPosition room_pos);
 	void InitializeConnectedRooms(RoomPosition startingRoom);
 	void InitializeRoomData(RoomPosition room_pos);
+	void CrossRoomInitialization(RoomPosition room_pos);
 	bool CanConnectRooms(RoomPosition r1, RoomPosition r2);
 	void CreateRoomNodes(RoomPosition r);
 	void ConnectNodes(NavigationNodeID from, NavigationNodeID to);
