@@ -60,8 +60,9 @@ namespace Solver {
     struct stateinfo {
         std::size_t prev_hash;
         int8_t input;
+        uint16_t heuristic;
 
-        stateinfo(std::size_t h, int8_t i) : prev_hash(h), input(i) {}
+        stateinfo(std::size_t hash, int8_t i, uint16_t h) : prev_hash(hash), input(i), heuristic(h) {}
     };
 
     // Reduced from 44 to 14 bytes
@@ -212,6 +213,8 @@ namespace Solver {
         uint8_t num_l_plus_r;           //  4 bytes -> 1 byte
         uint8_t next_corner;            //  4 bytes -> 1 byte
         uint16_t f_count;               //  4 bytes -> 2 bytes
+
+        uint16_t input_count;
     };
 
 	void entrypoint();
@@ -221,6 +224,7 @@ namespace Solver {
     void stateful_solver();
 
     void cached_stateful_solver();
+    void playback_ref();
 
     void stateless_solver(bool debug_checks);
 
@@ -264,7 +268,11 @@ namespace Solver {
     int room_adjusted_x(int rx, int x);
     int room_adjusted_y(int ry, int y);
     bool passed_next_corner(int next_corner, int room_x, int room_y, int player_x, int player_y);
+    bool before_next_corner(int next_corner, int room_x, int room_y, int player_x, int player_y);
     uint16_t get_heuristic(int next_corner, int room_x, int room_y, int player_x, int player_y);
+    uint16_t get_input_frames_heuristic(int next_corner, int room_x, int room_y, int player_x, int player_y, int gravity, float vx, float vy, int tapleft, int tapright);
+    uint16_t get_input_frames_heuristic_x(int next_corner, int room_x, int room_y, int player_x, int player_y, int gravity, float vx, float vy, int tapleft, int tapright);
+    uint16_t get_input_frames_heuristic_y(int next_corner, int room_x, int room_y, int player_x, int player_y, int gravity, float vx, float vy, int tapleft, int tapright);
 
     std::size_t hash_naivestate(naivestate s);
     std::size_t hash_cached_naivestate(cachednaivestate s);

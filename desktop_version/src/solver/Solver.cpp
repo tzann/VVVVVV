@@ -123,6 +123,8 @@ namespace Solver {
             namespace GANTRY_AND_DOLLY {
                 const corner ENTRY_1(112, 104, 78, 46, RIGHT_DOWN);
                 const corner ENTRY_2(112, 104, 86, 70, RIGHT_DOWN);
+                const corner PLATFORM(112, 104, 194, 70, UP_RIGHT);
+                const corner EXIT_RIGHT(112, 104, 246, 65, RIGHT_UP);
             }
 
             // Comms Relay
@@ -205,6 +207,16 @@ namespace Solver {
                 });
 
             const Scenario START(113, 105, 200, 161, 0, 0, { CORNERS::SOLITUDE });
+
+            const Scenario START_TO_LINEAR_COLLIDER(113, 105, 200, 161, 0, 0, {
+                CORNERS::SOLITUDE,
+                CORNERS::TRAFFIC_JAM::ENTRY_1,
+                CORNERS::TRAFFIC_JAM::ENTRY_2,
+                CORNERS::ATMOSPHERIC_FILTERING_UNIT::ENTRY_1,
+                CORNERS::ATMOSPHERIC_FILTERING_UNIT::ENTRY_2,
+                CORNERS::ATMOSPHERIC_FILTERING_UNIT::EXIT_1,
+                CORNERS::ATMOSPHERIC_FILTERING_UNIT::EXIT_2,
+                });
             
             const Scenario TRAFFIC_JAM_TO_SECRET(115, 105, 57, 161, 0, 0, {
                 CORNERS::SOLITUDE,
@@ -256,6 +268,8 @@ namespace Solver {
                 CORNERS::SECURITY_SWEEP::EXIT,
                 CORNERS::GANTRY_AND_DOLLY::ENTRY_1,
                 CORNERS::GANTRY_AND_DOLLY::ENTRY_2,
+                CORNERS::GANTRY_AND_DOLLY::PLATFORM,
+                CORNERS::GANTRY_AND_DOLLY::EXIT_RIGHT,
                 CORNERS::COMMS_RELAY::STEPS,
                 CORNERS::COMMS_RELAY::LEDGE,
                 CORNERS::COMMS_RELAY::SNAKE_1,
@@ -1114,7 +1128,14 @@ namespace Solver {
 
     // Current Benchmarks:
     // The Yes Men: 4630052 states visited, ~1:30 runtime (cached_stateful)
-    static Scenario scenario = LAB::SCENARIOS::IL_START_TO_DONT_FLIP_OUT_IGNORE_LINE;
+    static Scenario scenario = SS1::SCENARIOS::GANTRY_AND_DOLLY_TO_COMMS_RELAY;
+    // static Scenario scenario = SS1::SCENARIOS::START;
+    // 0: Don't minimize inputs
+    // 1: Minimize total number of presses / releases
+    // 2: Minimize total number of frames held per button
+    static int MIN_INPUT_MODE = 2;
+    // This only works for MIN_INPUT_MODE == 2 for now
+    static bool SOLVE_MIN_FRAMES = false;
 
     // TODO: map.loadlevel caching
     // TODO: don't checkblocks for damage blocks
@@ -1156,13 +1177,14 @@ namespace Solver {
         game.noflashingmode = true;
 
         // Uncomment this to skip
-        debug_test();
+        // debug_test();
         // debug_test_cached();
         // squish_test();
+        // playback_ref();
 
         // Solve
         // stateful_solver();
-        // cached_stateful_solver();
+        cached_stateful_solver();
         // stateless_solver(true);
     }
 
@@ -1435,12 +1457,19 @@ namespace Solver {
 
                     q.push(new_state);
 
-                    // Remember where we came from to reconstruct the solution later
+                    // Remove previous state_map entry if it's worse
                     std::size_t new_state_hash = hash_naivestate(new_state);
+                    if (prev_state_map.find(new_state_hash) != prev_state_map.end()) {
+                        uint16_t prev_heuristic = prev_state_map.at(new_state_hash).heuristic;
+                        if (new_state.h < prev_heuristic) {
+                            prev_state_map.erase(new_state_hash);
+                        }
+                    }
+                    // Remember where we came from to reconstruct the solution later
                     if (prev_state_map.find(new_state_hash) == prev_state_map.end()) {
                         prev_state_map.emplace(std::piecewise_construct,
                             std::forward_as_tuple(new_state_hash),
-                            std::forward_as_tuple(s_hash, i));
+                            std::forward_as_tuple(s_hash, i, new_state.h));
                     }
                 }
             }
@@ -1498,7 +1527,19 @@ namespace Solver {
     void cached_stateful_solver() {
         load_scenario();
         cachednaivestate initial_state = create_cached_naivestate();
-        initial_state.h = get_heuristic(initial_state.next_corner, initial_state.game.roomx, initial_state.game.roomy, initial_state.player.x, initial_state.player.y);
+        
+        switch (MIN_INPUT_MODE) {
+        case 0: 
+            initial_state.h = get_heuristic(initial_state.next_corner, initial_state.game.roomx, initial_state.game.roomy, initial_state.player.x, initial_state.player.y);
+            break;
+        case 1:
+            // TODO
+            VVV_exit(2754);
+            break;
+        case 2:
+            initial_state.h = get_input_frames_heuristic(initial_state.next_corner, initial_state.game.roomx, initial_state.game.roomy, initial_state.player.x, initial_state.player.y, initial_state.game.gravitycontrol, initial_state.player.vx, initial_state.player.vy, initial_state.game.tapleft, initial_state.game.tapright);
+            break;
+        }
 
         std::size_t initial_hash = hash_cached_naivestate(initial_state);
 
@@ -1524,6 +1565,30 @@ namespace Solver {
                 }
                 // Store state hash for future comparisons
                 hash_set.insert(s_hash);
+
+                // Consistency check
+                {
+                    int num_dir_inputs = 0;
+                    int num_flip_inputs = 0;
+                    std::size_t hash = hash_cached_naivestate(s);
+                    while (hash != initial_hash) {
+                        if (prev_state_map.find(hash) == prev_state_map.end()) {
+                            VVV_exit(69); // Shouldn't happen
+                        }
+
+                        stateinfo i = prev_state_map.at(hash);
+                        int left = i.input & 1;
+                        int right = (i.input >> 1) & 1;
+                        int flip = (i.input >> 2) & 1;
+                        num_dir_inputs += left + right;
+                        num_flip_inputs += flip;
+                        hash = i.prev_hash;
+                    }
+
+                    if (num_dir_inputs + num_flip_inputs > s.input_count) {
+                        VVV_exit(27625);
+                    }
+                }
 
                 // Passed last corner, we're done!
                 if (s.next_corner == scenario.corners.size()) {
@@ -1572,26 +1637,95 @@ namespace Solver {
                     }
                     if (new_state.game.roomx != s.game.roomx || new_state.game.roomy != s.game.roomy) {
                         new_state.num_frames_in_room = 0;
-                    }
-                    else {
+                    } else {
                         new_state.num_frames_in_room = s.num_frames_in_room + 1;
                     }
 
-                    new_state.h = new_state.f_count + get_heuristic(new_state.next_corner, new_state.game.roomx, new_state.game.roomy, new_state.player.x, new_state.player.y);
+                    switch (MIN_INPUT_MODE) {
+                    case 0: break;
+                    case 1: {
+                        int16_t prev_count = s.input_count >> 3;
+                        int8_t prev_inputs = int8_t(s.input_count & 0b111);
+                        int8_t changed_inputs = prev_inputs ^ i;
+                        int16_t num_inputs = (changed_inputs & 1) + ((changed_inputs >> 1) & 1) + ((changed_inputs >> 2) & 1);
+
+                        new_state.input_count = ((prev_count + num_inputs) << 3) | i;
+                        break;
+                    }
+                    case 2: {
+                        new_state.input_count = s.input_count;
+                        int16_t num_inputs = (int16_t)left + (int16_t)right + (int16_t)flip;
+                        new_state.input_count += num_inputs;
+                        break;
+                    }
+                    }
+
+                    switch (MIN_INPUT_MODE) {
+                    case 0:
+                        new_state.h = new_state.f_count + get_heuristic(new_state.next_corner, new_state.game.roomx, new_state.game.roomy, new_state.player.x, new_state.player.y);
+                        break;
+                    case 1:
+                        // TODO
+                        VVV_exit(2033);
+                        break;
+                    case 2:
+                        new_state.h = new_state.input_count + get_input_frames_heuristic(new_state.next_corner, new_state.game.roomx, new_state.game.roomy, new_state.player.x, new_state.player.y, new_state.game.gravitycontrol, new_state.player.vx, new_state.player.vy, new_state.game.tapleft, new_state.game.tapright);
+                        break;
+                    }
+
                     if (new_state.h < s.h) {
+                        uint16_t b = s.input_count + get_input_frames_heuristic(s.next_corner, s.game.roomx, s.game.roomy, s.player.x, s.player.y, s.game.gravitycontrol, s.player.vx, s.player.vy, s.game.tapleft, s.game.tapright);
+                        uint16_t d = new_state.input_count + get_input_frames_heuristic(new_state.next_corner, new_state.game.roomx, new_state.game.roomy, new_state.player.x, new_state.player.y, new_state.game.gravitycontrol, new_state.player.vx, new_state.player.vy, new_state.game.tapleft, new_state.game.tapright);
+                        
                         VVV_exit(69420); // Should hopefully not happen, means heuristic might be inadmissible
                     }
 
+                    // Add state to queue
                     q.push(new_state);
 
-                    // Remember where we came from to reconstruct the solution later
+                    // Remove previous state_map entry if it's worse
                     std::size_t new_state_hash = hash_cached_naivestate(new_state);
-                    if (prev_state_map.find(new_state_hash) == prev_state_map.end()) {
+                    if (prev_state_map.find(new_state_hash) != prev_state_map.end()) {
+                        stateinfo& prev_info = prev_state_map.at(new_state_hash);
+                        if (prev_info.heuristic > new_state.h) {
+                            prev_info.heuristic = new_state.h;
+                            prev_info.prev_hash = s_hash;
+                        }
+                    } else {
+                        // Remember where we came from to reconstruct the solution later
+                        // TODO: how can we guarantee this reconstructs the right solution later? if we find a worse path to the solution first
                         prev_state_map.emplace(std::piecewise_construct,
                             std::forward_as_tuple(new_state_hash),
-                            std::forward_as_tuple(s_hash, i));
+                            std::forward_as_tuple(s_hash, i, new_state.h));
+                    }
+
+                    // Consistency check
+                    {
+                        int num_dir_inputs = 0;
+                        int num_flip_inputs = 0;
+                        std::size_t hash = hash_cached_naivestate(new_state);
+                        while (hash != initial_hash) {
+                            if (prev_state_map.find(hash) == prev_state_map.end()) {
+                                VVV_exit(69); // Shouldn't happen
+                            }
+
+                            stateinfo i = prev_state_map.at(hash);
+                            int left = i.input & 1;
+                            int right = (i.input >> 1) & 1;
+                            int flip = (i.input >> 2) & 1;
+                            num_dir_inputs += left + right;
+                            num_flip_inputs += flip;
+                            hash = i.prev_hash;
+                        }
+
+                        if (num_dir_inputs + num_flip_inputs > new_state.input_count) {
+                            VVV_exit(27625);
+                        }
                     }
                 }
+            }
+            if (q.empty()) {
+                VVV_exit(42069);
             }
         } // end q scope
 
@@ -1626,17 +1760,199 @@ namespace Solver {
 
         // Now play back the run in a loop
         int t = 0;
-        bool different_speeds = false;
+        bool different_speeds = true;
         while (true) {
+            int16_t total_inputs = 0;
             load_naive_state(restore_point);
             game.hours = 0;
-            game.deathcounts = num_states;
+            game.deathcounts = 0;
+            int8_t prev_i = 0;
             for (int idx = 0; idx < inputs.size(); idx++) {
                 int8_t i = inputs[idx];
 
                 bool left = i & 1;
                 bool right = i & 2;
                 bool flip = i & 4;
+                switch (MIN_INPUT_MODE) {
+                case 0: break;
+                case 1: {
+                    int8_t changed_inputs = prev_i ^ i;
+                    int16_t num_inputs = (changed_inputs & 1) + ((changed_inputs >> 1) & 1) + ((changed_inputs >> 2) & 1);
+                    total_inputs += num_inputs;
+                    game.deathcounts = total_inputs;
+                    break;
+                }
+                case 2: {
+                    int16_t num_inputs = (int16_t)left + (int16_t)right + (int16_t)flip;
+                    total_inputs += num_inputs;
+                    game.deathcounts = total_inputs;
+                    break;
+                }
+                }
+                prev_i = i;
+
+                game.hours++;
+                game.minutes = left;
+                game.seconds = right;
+                game.frames = flip;
+
+                key.clearKeys();
+                key.setKey(KEYBOARD_LEFT, left);
+                key.setKey(KEYBOARD_RIGHT, right);
+                key.setKey(KEYBOARD_v, flip);
+                do_game_step(true);
+                SDL_Delay((1 << t) * 34);
+            }
+            if (different_speeds) {
+                t = 2 - t;
+            }
+        }
+    }
+
+    void playback_ref() {
+        load_scenario();
+        cachednaivestate initial_state = create_cached_naivestate();
+        // Example solution
+        std::vector<int> inputs_ref;
+        for (int c = 0; c < 2; c++) {
+            inputs_ref.push_back(1); // L
+            inputs_ref.push_back(1); // L
+            inputs_ref.push_back(1); // L
+            inputs_ref.push_back(1); // L
+            inputs_ref.push_back(1); // L
+            inputs_ref.push_back(0);
+        }
+        inputs_ref.push_back(0);
+        inputs_ref.push_back(0);
+        inputs_ref.push_back(0);
+        inputs_ref.push_back(0);
+        inputs_ref.push_back(0);
+        inputs_ref.push_back(0);
+        inputs_ref.push_back(0);
+        inputs_ref.push_back(0);
+        inputs_ref.push_back(0);
+        inputs_ref.push_back(0);
+        inputs_ref.push_back(0);
+        inputs_ref.push_back(0);
+        inputs_ref.push_back(0);
+        inputs_ref.push_back(0);
+        inputs_ref.push_back(0);
+        inputs_ref.push_back(0);
+        inputs_ref.push_back(0);
+        inputs_ref.push_back(0);
+        inputs_ref.push_back(0);
+        inputs_ref.push_back(0);
+        inputs_ref.push_back(0);
+        inputs_ref.push_back(2); // R
+        inputs_ref.push_back(6); // R
+        for (int c = 0; c < 3; c++) {
+            inputs_ref.push_back(2); // R
+            inputs_ref.push_back(2); // R
+            inputs_ref.push_back(2); // R
+            inputs_ref.push_back(2); // R
+            inputs_ref.push_back(2); // R
+            inputs_ref.push_back(0);
+            inputs_ref.push_back(0);
+            inputs_ref.push_back(0);
+        }
+        inputs_ref.push_back(0);
+        inputs_ref.push_back(0);
+        inputs_ref.push_back(0);
+        inputs_ref.push_back(0);
+        inputs_ref.push_back(0);
+        inputs_ref.push_back(0);
+        inputs_ref.push_back(0);
+        inputs_ref.push_back(0);
+        inputs_ref.push_back(0);
+        inputs_ref.push_back(0);
+        inputs_ref.push_back(0);
+        inputs_ref.push_back(0);
+
+        // Clear the entity and block caches
+        load_cached_naivestate(initial_state);
+        naivestate restore_point = create_naive_state();
+        blockcache.clear();
+        entitycache.clear();
+
+        int ref_dir_input_count = 0;
+        int ref_flip_input_count = 0;
+        for (int idx = 0; idx < inputs_ref.size(); idx++) {
+            int8_t i = inputs_ref[idx];
+
+            bool left = i & 1;
+            bool right = i & 2;
+            bool flip = i & 4;
+
+            ref_dir_input_count += (int16_t)left + (int16_t)right;
+            ref_flip_input_count += flip ? 1 : 0;
+        }
+
+        // Now play back the run in a loop
+        int t = 0;
+        bool different_speeds = true;
+        while (true) {
+            int16_t total_dir_inputs = 0;
+            int16_t total_flip_inputs = 0;
+            load_naive_state(restore_point);
+            game.hours = 0;
+            game.deathcounts = 0;
+            int8_t prev_i = 0;
+            uint8_t next_corner = 0;
+            for (int idx = 0; idx < inputs_ref.size(); idx++) {
+                int8_t i = inputs_ref[idx];
+
+                bool left = i & 1;
+                bool right = i & 2;
+                bool flip = i & 4;
+                switch (MIN_INPUT_MODE) {
+                case 0: break;
+                case 1: {
+                    int8_t changed_inputs = prev_i ^ i;
+                    total_dir_inputs += (changed_inputs & 1) + ((changed_inputs >> 1) & 1);
+                    total_flip_inputs += ((changed_inputs >> 2) & 1);
+                    game.deathcounts = total_dir_inputs;
+                    break;
+                }
+                case 2: {
+                    // Check heuristic admissibility
+                    cachednaivestate new_state = create_cached_naivestate();
+
+                    if (passed_next_corner(next_corner, new_state.game.roomx, new_state.game.roomy, new_state.player.x, new_state.player.y)) {
+                        next_corner++;
+                    }
+
+
+                    int tmp_next_corner = next_corner;
+                    if (!before_next_corner(next_corner, new_state.game.roomx, new_state.game.roomy, new_state.player.x, new_state.player.y)) {
+                        if (passed_next_corner(next_corner, new_state.game.roomx, new_state.game.roomy, new_state.player.x, new_state.player.y)) {
+                            // Sanity check, shouldn't happen
+                            VVV_exit(29067);
+                        }
+                        // We can just solve the next corner directly without sacrificing accuracy
+                        if (next_corner + 1 < scenario.corners.size()) {
+                            tmp_next_corner++;
+                        }
+                    }
+
+                    uint16_t input_dir_h = total_dir_inputs + get_input_frames_heuristic_x(tmp_next_corner, new_state.game.roomx, new_state.game.roomy, new_state.player.x, new_state.player.y, new_state.game.gravitycontrol, new_state.player.vx, new_state.player.vy, new_state.game.tapleft, new_state.game.tapright);
+                    uint16_t input_flip_h = total_flip_inputs + get_input_frames_heuristic_y(tmp_next_corner, new_state.game.roomx, new_state.game.roomy, new_state.player.x, new_state.player.y, new_state.game.gravitycontrol, new_state.player.vx, new_state.player.vy, new_state.game.tapleft, new_state.game.tapright);
+
+                    if (input_dir_h > ref_dir_input_count) {
+                        uint16_t input_h = total_dir_inputs + get_input_frames_heuristic_x(tmp_next_corner, new_state.game.roomx, new_state.game.roomy, new_state.player.x, new_state.player.y, new_state.game.gravitycontrol, new_state.player.vx, new_state.player.vy, new_state.game.tapleft, new_state.game.tapright);
+                        VVV_exit(12307);
+                    }
+                    if (input_flip_h > ref_flip_input_count) {
+                        uint16_t input_h = total_flip_inputs + get_input_frames_heuristic_y(tmp_next_corner, new_state.game.roomx, new_state.game.roomy, new_state.player.x, new_state.player.y, new_state.game.gravitycontrol, new_state.player.vx, new_state.player.vy, new_state.game.tapleft, new_state.game.tapright);
+                        VVV_exit(12308);
+                    }
+
+                    total_dir_inputs += (int16_t)left + (int16_t)right;
+                    total_flip_inputs += (int16_t)flip;
+                    game.deathcounts = input_dir_h + input_flip_h;
+                    break;
+                }
+                }
+                prev_i = i;
 
                 game.hours++;
                 game.minutes = left;
@@ -1675,7 +1991,7 @@ namespace Solver {
             q.push(s);
             // Uncomment this to skip
 
-            std::size_t tmp_h;
+            std::size_t tmp_hash;
             naivestate tmp_state;
             while (q.size() > 0) {
                 // Take best unexplored state
@@ -1689,16 +2005,16 @@ namespace Solver {
                 // Store state hash for future comparisons
                 hash_set.insert(s.hash);
 
-                tmp_h = s.hash;
+                tmp_hash = s.hash;
                 // What inputs got us to this state
-                while (tmp_h != initial_hash) {
-                    if (prev_state_map.find(tmp_h) == prev_state_map.end()) {
+                while (tmp_hash != initial_hash) {
+                    if (prev_state_map.find(tmp_hash) == prev_state_map.end()) {
                         VVV_exit(69000);
                     }
 
-                    stateinfo i = prev_state_map.at(tmp_h);
+                    stateinfo i = prev_state_map.at(tmp_hash);
                     inputs.push_back(i.input);
-                    tmp_h = i.prev_hash;
+                    tmp_hash = i.prev_hash;
                 }
                 // Reverse order
                 // TODO: can we skip this? performance impact?
@@ -1778,14 +2094,21 @@ namespace Solver {
                         VVV_exit(69420); // Should hopefully not happen, means heuristic might be inadmissible
                     }
 
-                    tmp_h = hash_naivestate(tmp_state);
-                    q.emplace(tmp_state.h, tmp_h, tmp_state.f_count, tmp_state.next_corner);
+                    tmp_hash = hash_naivestate(tmp_state);
+                    q.emplace(tmp_state.h, tmp_hash, tmp_state.f_count, tmp_state.next_corner);
 
+                    // Remove previous state_map entry if it's worse
+                    if (prev_state_map.find(tmp_hash) != prev_state_map.end()) {
+                        uint16_t prev_heuristic = prev_state_map.at(tmp_hash).heuristic;
+                        if (tmp_state.h < prev_heuristic) {
+                            prev_state_map.erase(tmp_hash);
+                        }
+                    }
                     // Remember where we came from to reconstruct the solution later
-                    if (prev_state_map.find(tmp_h) == prev_state_map.end()) {
+                    if (prev_state_map.find(tmp_hash) == prev_state_map.end()) {
                         prev_state_map.emplace(std::piecewise_construct,
-                            std::forward_as_tuple(tmp_h),
-                            std::forward_as_tuple(s.hash, i));
+                            std::forward_as_tuple(tmp_hash),
+                            std::forward_as_tuple(s.hash, i, tmp_state.h));
                     }
                 }
 
@@ -2228,6 +2551,7 @@ namespace Solver {
         s.num_l_plus_r = 0;
         s.next_corner = 0;
         s.num_frames_in_room = 0;
+        s.input_count = 0;
 
         return s;
     }
@@ -2572,13 +2896,40 @@ namespace Solver {
 
     bool compare_cached_naivestates(cachednaivestate a, cachednaivestate b) {
         if (a.h == b.h) {
-            if (a.f_count == b.f_count) {
+            if (SOLVE_MIN_FRAMES && MIN_INPUT_MODE != 0 && a.f_count != b.f_count) {
+                // Prioritize low frame count for faster solutions
+                return a.f_count > b.f_count;
+            }
+
+            int a_depth, b_depth;
+            switch (MIN_INPUT_MODE) {
+            case 0:
+                a_depth = a.f_count;
+                b_depth = b.f_count;
+                break;
+            case 2:
+                a_depth = a.input_count;
+                b_depth = b.input_count;
+                break;
+            case 1:
+            default:
+                // TODO
+                a_depth = 0;
+                b_depth = 0;
+                VVV_exit(923);
+                break;
+            }
+            if (a_depth == b_depth) {
+                if (!SOLVE_MIN_FRAMES && MIN_INPUT_MODE != 0 && a.f_count != b.f_count) {
+                    // Prioritize low frame count for faster solutions
+                    return a.f_count > b.f_count;
+                }
                 // Prioritize low l+r count (because it's ugly)
                 return a.num_l_plus_r > b.num_l_plus_r;
                 // TODO: maybe prioritize least "input changes", to find the "nicest" solution
             }
-            // Prioritize high frame count (continue furthest branch -> reduces runtime, but not asymptotically)
-            return a.f_count < b.f_count;
+            // Prioritize high depth (continue furthest branch -> reduces runtime, but not asymptotically)
+            return a_depth < b_depth;
         }
         // Prioritize low heuristic -> fastest solution will be found first if heuristic is admissible
         return a.h > b.h;
@@ -2877,6 +3228,564 @@ namespace Solver {
         return false;
     }
 
+    bool before_next_corner(int next_corner, int room_x, int room_y, int player_x, int player_y) {
+        int px = room_adjusted_x(room_x, player_x);
+        int py = room_adjusted_y(room_y, player_y);
+
+        corner c = scenario.corners[next_corner];
+        int cx = room_adjusted_x(c.rx, c.x);
+        int cy = room_adjusted_y(c.ry, c.y);
+
+        // Subtract corner position from player position
+        int x_d = px - cx;
+        int y_d = py - cy;
+
+        switch (c.dir) {
+        case UP_LEFT:
+        case DOWN_LEFT:
+            return x_d > 0;
+        case LEFT_UP:
+        case RIGHT_UP:
+            return y_d > 0;
+        case LEFT_DOWN:
+        case RIGHT_DOWN:
+            return y_d < 0;
+        case UP_RIGHT:
+        case DOWN_RIGHT:
+            return x_d < 0;
+        case TRINKET:
+            return false;
+        case WARP_TOKEN:
+            return false;
+        }
+        return false;
+    }
+
+    int get_coasted_dist(float vx, int rx, int px) {
+        int sim_rx = rx;
+        int sim_px = px;
+        float sim_vx = vx;
+        while (sim_vx != 0.0f) {
+            if (sim_vx > 0.0f) {
+                sim_vx -= 1.1f;
+            }
+            else if (sim_vx < 0.0f) {
+                sim_vx += 1.1f;
+            }
+            if (SDL_fabsf(sim_vx) < 1.1f) {
+                sim_vx = 0.0f;
+            }
+            sim_px += sim_vx;
+            if (sim_px >= 308) {
+                sim_px -= 320;
+                sim_rx++;
+            }
+            else if (sim_px < -14) {
+                sim_px += 320;
+                sim_rx--;
+            }
+        }
+        return room_adjusted_x(sim_rx, sim_px) - room_adjusted_x(rx, px);
+    }
+
+    uint16_t get_input_frames_heuristic(int next_corner_orig, int room_x, int room_y, int player_x, int player_y, int gravity, float vx, float vy, int tapleft, int tapright) {
+        int total_inputs = 0;
+
+        int next_corner = next_corner_orig;
+        if (!before_next_corner(next_corner, room_x, room_y, player_x, player_y)) {
+            if (passed_next_corner(next_corner, room_x, room_y, player_x, player_y)) {
+                // Sanity check, shouldn't happen
+                VVV_exit(29067);
+            }
+            // We can just solve the next corner directly without sacrificing accuracy
+            if (next_corner + 1 < scenario.corners.size()) {
+                next_corner++;
+            }
+        }
+
+        total_inputs += get_input_frames_heuristic_x(next_corner, room_x, room_y, player_x, player_y, gravity, vx, vy, tapleft, tapright);
+        total_inputs += get_input_frames_heuristic_y(next_corner, room_x, room_y, player_x, player_y, gravity, vx, vy, tapleft, tapright);
+        return total_inputs;
+    }
+
+    uint16_t get_input_frames_heuristic_y(int next_corner, int room_x, int room_y, int player_x, int player_y, int gravity, float vx, float vy, int tapleft, int tapright) {
+        // Solve y dimension
+        int flip_inputs = 0;
+        int dist = 0;
+        int last_py = room_adjusted_y(room_y, player_y);
+        int last_ry = room_y;
+        float last_vy = vy;
+        int last_cy = room_adjusted_y(room_y, player_y);
+        int last_cry = room_y;
+        bool last_gravity = gravity;
+        bool isFirstSegment = true;
+        for (int c_idx = next_corner; c_idx < scenario.corners.size(); c_idx++) {
+            corner c = scenario.corners[c_idx];
+            int cy = room_adjusted_y(c.ry, c.y);
+
+            int c_dist = cy - last_cy;
+            if (dist == 0 && c_dist == 0) {
+                if (c_idx > next_corner && c_idx + 1 < scenario.corners.size()) {
+                    // Not quite sure what to do here yet, probably just continue
+                    // VVV_exit(79023);
+                }
+                continue;
+            }
+            else if (dist == 0 || c_dist != 0 && ((dist < 0) == (c_dist < 0))) {
+                // New segment or same Y direction
+                dist += c_dist;
+                last_cy = cy;
+                last_cry = c.ry;
+                if (c_idx + 1 < scenario.corners.size()) {
+                    continue;
+                }
+                else {
+                    // Pretend there's another corner after the last one
+                    c_dist = 0;
+                }
+            }
+
+            // Segment is finished, solve it
+            if (last_cy - last_py != dist || dist == 0 || c_dist != 0) {
+                // This can only happen if the corner sequence is ill-formed (i.e. dir change without intermediate 0 segment)
+                // Usually, this happens if we pass a corner, then go back (or around a different corner)
+                // Thus, it should only really happen on the first segment
+                if (!isFirstSegment || c_idx <= next_corner) {
+                    VVV_exit(46728);
+                }
+                // We just want to run the previous corner a second time, let's pretend there were two of them
+                corner c_prev = scenario.corners[c_idx - 1];
+                cy = room_adjusted_y(c_prev.ry, c_prev.y);
+                c_idx--;
+                c_dist = 0;
+            }
+
+            bool goingDown = dist > 0;
+            int delta_y = SDL_abs(dist);
+            float vyInDir = goingDown ? last_vy : -last_vy;
+            bool oppGrav = last_gravity == goingDown;
+            int goalGrav = -1;
+            if (c.dir == UP_LEFT || c.dir == UP_RIGHT) {
+                goalGrav = 1;
+            }
+            else if (c.dir == DOWN_LEFT || c.dir == DOWN_RIGHT) {
+                goalGrav = 0;
+            }
+
+            if (isFirstSegment && oppGrav && vyInDir > 0.0) {
+                // Can we reach the corner despite opposite gravity?
+                // TODO
+                VVV_exit(9382);
+            }
+            else if (oppGrav) {
+                flip_inputs++;
+                last_gravity = !last_gravity;
+            }
+            // We need to change gravity to pass the corner
+            if (goalGrav != -1 && last_gravity != goalGrav) {
+                flip_inputs++;
+                last_gravity = !last_gravity;
+            }
+
+            last_py = cy;
+            last_vy = 0.0;
+            last_ry = c.ry;
+            last_cy = cy;
+            last_cry = c.ry;
+            dist = 0;
+            isFirstSegment = false;
+        }
+        return flip_inputs;
+    }
+
+
+    uint16_t get_input_frames_heuristic_x(int next_corner, int room_x, int room_y, int player_x, int player_y, int gravity, float vx, float vy, int tapleft, int tapright) {
+        // Solve x dimension
+        int dir_inputs = 0;
+        int dist = 0;
+        int last_px = room_adjusted_x(room_x, player_x);
+        int last_rx = room_x;
+        float last_vx = vx;
+        int last_cx = room_adjusted_x(room_x, player_x);
+        int last_crx = room_x;
+        bool isFirstSegment = true;
+        for (int c_idx = next_corner; c_idx < scenario.corners.size(); c_idx++) {
+            corner c = scenario.corners[c_idx];
+            int cx = room_adjusted_x(c.rx, c.x);
+
+            int c_dist = cx - last_cx;
+            if (dist == 0 && c_dist == 0) {
+                if (c_idx > next_corner && c_idx + 1 < scenario.corners.size()) {
+                    // Not quite sure what to do here yet, probably just continue
+                    // VVV_exit(79023);
+                }
+                continue;
+            } else if (dist == 0 || c_dist != 0 && ((dist < 0) == (c_dist < 0))) {
+                // New segment or same X direction
+                dist += c_dist;
+                last_cx = cx;
+                last_crx = c.rx;
+                if (c_idx + 1 < scenario.corners.size()) {
+                    continue;
+                }
+                else {
+                    // Pretend there's another corner after the last one
+                    c_dist = 0;
+                }
+            }
+
+            // Segment is finished, solve it
+            if (last_cx - last_px != dist || dist == 0 || c_dist != 0) {
+                // This should never happen
+                // If it does, use the below solution
+                VVV_exit(46728);
+
+                // This can only happen if the corner sequence is ill-formed (i.e. dir change without intermediate 0 segment)
+                // Usually, this happens if we pass a corner, then go back (or around a different corner)
+                // Thus, it should only really happen on the first segment
+                if (!isFirstSegment || c_idx <= next_corner) {
+                    VVV_exit(46728);
+                }
+                // We just want to run the previous corner a second time, let's pretend there were two of them
+                corner c_prev = scenario.corners[c_idx - 1];
+                cx = room_adjusted_x(c_prev.rx, c_prev.x);
+                c_idx--;
+                c_dist = 0;
+            }
+            bool goingRight = dist > 0;
+            int delta_x = SDL_abs(dist);
+            float vxInDir = goingRight ? last_vx : -last_vx;
+            int tapInDir = goingRight ? tapright : tapleft;
+
+            if (isFirstSegment && vxInDir > 0.0f && !(tapInDir > 0 && tapInDir < 5)) {
+                // Check if we can just coast to the finish line
+                int coast_dist = get_coasted_dist(last_vx, last_rx, (last_px - 320 * last_rx));
+                if (SDL_abs(coast_dist) >= delta_x) {
+                    // No inputs needed
+                    last_px = cx;
+                    last_vx = 0.0;
+                    last_rx = c.rx;
+                    last_cx = cx;
+                    last_crx = c.rx;
+                    dist = 0;
+                    isFirstSegment = false;
+                    continue;
+                }
+            }
+
+            struct SimState {
+                int inputs;
+                int px; // In local coords
+                int rx;
+                float vx;
+                int tap; // tap in movement dir
+                int abs_dist;
+            };
+            float minSpeedForMaxCoast = 5.5f;
+            std::vector<SimState> possible_starts;
+            {
+                SimState state;
+                state.inputs = 0;
+                state.px = last_px - (last_rx * 320);
+                state.rx = last_rx;
+                state.vx = (vxInDir > 0.0) ? last_vx : 0.0;
+                state.tap = 0;
+                state.abs_dist = 0;
+                if (isFirstSegment) {
+                    // We may have nonzero vxInDir and tapInDir
+                    state.tap = tapInDir;
+
+                    // Try to proceed to a standard situation
+                    while (state.tap > 0 && (state.tap < 5 || SDL_fabsf(state.vx) < minSpeedForMaxCoast) && state.abs_dist < delta_x) {
+                        bool pressDir;
+                        if (state.tap < 5) {
+                            // It's always best to preserve tapInDir to profit off of coasting
+                            pressDir = true;
+                        }
+                        else if (state.vx < 2.2f && state.tap < 5) {
+                            // If we release our speed will be set to 0, so keep holding to preserve it
+                            pressDir = true;
+                        }
+                        else {
+                            // tapInDir >= 5 && vxInDir < 5.5f
+                            // Whether or not we want to keep accelerating depends on the exact distance to the goal
+                            pressDir = false;
+                        }
+
+                        if (!pressDir) {
+                            // Next decision is ambiguous, add release case to possible starts
+                            SimState new_state;
+                            new_state.inputs = state.inputs;
+                            new_state.tap = 0;
+                            new_state.vx = state.vx + ((state.vx == 0.0) ? 0.0 : (goingRight ? (-1.1f) : 1.1f));
+                            if (SDL_fabsf(new_state.vx) < 1.1f) {
+                                new_state.vx = 0.0f;
+                            }
+                            new_state.px = state.px + new_state.vx;
+                            new_state.abs_dist = state.abs_dist + SDL_abs(new_state.px - state.px);
+                            new_state.rx = state.rx;
+                            if (new_state.px >= 308) {
+                                new_state.px -= 320;
+                                new_state.rx++;
+                            }
+                            else if (new_state.px < -14) {
+                                new_state.px += 320;
+                                new_state.rx--;
+                            }
+                            possible_starts.push_back(new_state);
+                        }
+
+                        // Keeping dir pressed is guaranteed to be optimal
+                        state.inputs++;
+                        state.tap++;
+                        if (goingRight) {
+                            state.vx = SDL_min(6.0f, (state.vx + 3.0f) - 1.1f);
+                        }
+                        else {
+                            state.vx = SDL_max(-6.0f, (state.vx - 3.0f) + 1.1f);
+                        }
+                        int prev_px = state.px;
+                        state.px += state.vx;
+                        state.abs_dist += SDL_abs(state.px - prev_px);
+                        if (state.px >= 308) {
+                            state.px -= 320;
+                            state.rx++;
+                        }
+                        else if (state.px < -14) {
+                            state.px += 320;
+                            state.rx--;
+                        }
+                    }
+                }
+                possible_starts.push_back(state);
+            }
+
+            int best_result = INT_MAX;
+            for (int start_idx = 0; start_idx < possible_starts.size(); start_idx++) {
+                SimState state = possible_starts[start_idx];
+
+                // Can we reach the goal with no inputs?
+                int coast_dist = 0;
+                if (!(state.tap > 0 && state.tap < 5)) {
+                    coast_dist = SDL_abs(get_coasted_dist(state.vx, state.rx, state.px));
+                }
+                if (state.abs_dist + coast_dist >= delta_x) {
+                    best_result = SDL_min(best_result, state.inputs);
+                    continue;
+                }
+                // Sanity check, applicable if state not already past the goal
+                if (state.tap > 0 && (state.tap < 5 || SDL_fabsf(state.vx) < minSpeedForMaxCoast)) {
+                    VVV_exit(82373);
+                }
+                if (state.tap >= 5 && state.abs_dist + coast_dist + 4 * X_SPEED >= delta_x) {
+                    // We can trivially reach the goal with 5 or less inputs
+                    int num_inputs = (delta_x - state.abs_dist - coast_dist + X_SPEED - 1) / X_SPEED;
+                    best_result = SDL_min(best_result, state.inputs + num_inputs);
+                    continue;
+                }
+                
+                if (state.tap == 0) {
+                    // We know we can't coast to the finish line
+                    // It turns out the optimal cycle start timing is the same as for starting final inputs if we do a partial cycle
+                    // So just progress cycle starting inputs until we reach the goal or a standard cycle
+                    while (state.abs_dist < delta_x && (state.tap < 5 || SDL_fabsf(state.vx) < minSpeedForMaxCoast)) {
+                        bool pressDir = false;
+                        if (state.tap >= 5) {
+                            // This shouldn't be possible without reaching max speed
+                            VVV_exit(17052);
+                        }
+                        else if (SDL_fabsf(state.vx) < 2.2f || state.tap > 0 && state.tap < 5) {
+                            // Our speed will be 0 next frame unless we press the button
+                            pressDir = true;
+                        }
+                        else if (SDL_fabsf(state.vx) >= 3.3f) {
+                            // If we press now, the distance we travel in the frame after next will not improve by the maximum of 6 pixels
+                            // This is because we will have speed 1.1 if we don't press now, so we travel at least a pixel regardless of direction
+                            // But it's always possible to get 6 extra pixels on the second frame after pressing the directional input
+                            pressDir = false;
+                        }
+                        else {
+                            // This is the speed regime where rounding matters
+                            // There are two possibilities - either we wait one frame, or we start pressing now
+                            // We have to simulate two frames of pressed input to know which one is better
+
+                            // Case 1: Release, hold, hold
+                            int wait_px = state.px;
+                            int wait_rx = state.rx;
+                            float wait_vx = state.vx + (goingRight ? (-1.1f) : 1.1f);
+
+                            wait_px += wait_vx;
+                            if (wait_px >= 308) {
+                                wait_px -= 320;
+                                wait_rx++;
+                            }
+                            else if (wait_px < -14) {
+                                wait_px += 320;
+                                wait_rx--;
+                            }
+                            for (int i = 0; i < 2; i++) {
+                                wait_vx = wait_vx + (goingRight ? 1.9f : -1.9f);
+                                if (SDL_fabsf(wait_vx) >= 6.0f) {
+                                    wait_vx = goingRight ? 6.0f : -6.0f;
+                                }
+                                wait_px += wait_vx;
+                                if (wait_px >= 308) {
+                                    wait_px -= 320;
+                                    wait_rx++;
+                                }
+                                else if (wait_px < -14) {
+                                    wait_px += 320;
+                                    wait_rx--;
+                                }
+                            }
+                            
+                            // Case 2: hold, hold
+                            int hold_px = state.px;
+                            int hold_rx = state.rx;
+                            float hold_vx = state.vx + (goingRight ? 1.9f : -1.9f);
+                            // Note: hold_vx can be at most 5.19f here, so we don't need to cap it
+                            // Sanity check:
+                            if (SDL_fabsf(hold_vx) >= 6.0f) {
+                                VVV_exit(56209);
+                            }
+                            hold_px += hold_vx;
+                            if (hold_px >= 308) {
+                                hold_px -= 320;
+                                hold_rx++;
+                            }
+                            else if (hold_px < -14) {
+                                hold_px += 320;
+                                hold_rx--;
+                            }
+                            // Bonus check: does holding right reach the goal right away?
+                            int hold_1_dist = SDL_abs(room_adjusted_x(hold_rx, hold_px) - room_adjusted_x(state.rx, state.px));
+
+                            hold_vx = hold_vx + (goingRight ? 1.9f : -1.9f);
+                            if (SDL_fabsf(hold_vx) >= 6.0f) {
+                                hold_vx = goingRight ? 6.0f : -6.0f;
+                            }
+                            hold_px += hold_vx;
+                            if (hold_px >= 308) {
+                                hold_px -= 320;
+                                hold_rx++;
+                            }
+                            else if (hold_px < -14) {
+                                hold_px += 320;
+                                hold_rx--;
+                            }
+
+                            int wait_abs_dist = SDL_abs(room_adjusted_x(wait_rx, wait_px) - room_adjusted_x(state.rx, state.px));
+                            int hold_abs_dist = SDL_abs(room_adjusted_x(hold_rx, hold_px) - room_adjusted_x(state.rx, state.px));
+
+                            if (hold_1_dist + state.abs_dist >= delta_x) {
+                                pressDir = true;
+                                // I think this actually shouldn't happen, or at least not without wait + hold also reaching the goal
+                                // Because moving extra distance can only make rounding unfavorable, never the inverse
+                                // So wait + hold will always be equal or better since the first hold input just adds 3px of distance without changing rounding
+                            }
+                            else {
+                                // Hold if not worse since it uses fewer frames
+                                pressDir = hold_abs_dist >= wait_abs_dist;
+                            }
+                        }
+
+                        if (pressDir) {
+                            state.vx += goingRight ? 3.0f : -3.0f;
+                            state.inputs++;
+                            state.tap++;
+                        }
+                        state.vx += goingRight ? -1.1f : 1.1f;
+                        if (SDL_fabsf(state.vx) > 6.0f) {
+                            state.vx = goingRight ? 6.0f : -6.0f;
+                        }
+                        else if (SDL_fabsf(state.vx) < 1.1f) {
+                            state.vx = 0.0f;
+                            // Sanity check, this shouldn't happen
+                            // VVV_exit(198264);
+                        }
+                        int prev_px = state.px;
+                        state.px += state.vx;
+                        state.abs_dist += SDL_abs(state.px - prev_px);
+                        if (state.px >= 308) {
+                            state.px -= 320;
+                            state.rx++;
+                        }
+                        else if (state.px < -14) {
+                            state.px += 320;
+                            state.rx--;
+                        }
+                    }
+                }
+
+                if (state.abs_dist >= delta_x) {
+                    // We can reach the goal without further inputs
+                    best_result = SDL_min(best_result, state.inputs);
+                    continue;
+                }
+                else if (state.tap < 5 || SDL_fabsf(state.vx) < minSpeedForMaxCoast) {
+                    // Sanity check
+                    VVV_exit(17583);
+                }
+                // We are in a standard cycle start pos, i.e. tap >= 5 and vxInDir >= 5.5
+                int delta_rx = SDL_abs(last_crx - state.rx);
+                // Max amount of "unexpected" favorable rounding
+                int max_bonus_pixels = goingRight ? 3 * delta_rx : 0;
+                if (goingRight && state.px <= -5) {
+                    if (state.px <= -14) {
+                        max_bonus_pixels += 4;
+                    }
+                    else if (state.px <= -12) {
+                        max_bonus_pixels += 3;
+                    }
+                    else if (state.px <= -9) {
+                        max_bonus_pixels += 2;
+                    }
+                    else {
+                        max_bonus_pixels += 1;
+                    }
+                }
+                int cycleLen = goingRight ? 37 : 42;
+                int cycleInputs = 5;
+                // We ignore rounding for coasting distance because it's already captured by bonus pixels
+                int coastDist = goingRight ? 10 : 14;
+
+                int inputsSoFar = state.inputs;
+                int remaining_distance = delta_x - state.abs_dist - max_bonus_pixels - coastDist;
+                
+                if (remaining_distance > 5 * X_SPEED) {
+                    // Adding more 5-frame hold cycles is optimal
+                    int num_cycles = remaining_distance / cycleLen;
+                    remaining_distance %= cycleLen;
+                    if (remaining_distance > 5 * X_SPEED) {
+                        // Remaining distance can't be covered in 5 frames naively
+                        // Add another cycle
+                        num_cycles++;
+                        remaining_distance -= cycleLen;
+                    }
+                    inputsSoFar += num_cycles * cycleInputs;
+                }
+
+                if (remaining_distance > 0) {
+                    // Simply add some extra inputs right now to reach the goal by coasting
+                    inputsSoFar += (remaining_distance + X_SPEED - 1) / X_SPEED;
+                }
+
+                // We can reach the goal without further inputs
+                best_result = SDL_min(best_result, inputsSoFar);
+            }
+
+            dir_inputs += best_result;
+            last_px = cx;
+            last_vx = 0.0;
+            last_rx = c.rx;
+            last_cx = cx;
+            last_crx = c.rx;
+            dist = 0;
+            isFirstSegment = false;
+        }
+        return dir_inputs;
+    }
+
     // TODO: test this somehow
     // TODO: or at least verify signs and stuff, easy to get wrong
     // TODO: refactor eventually
@@ -2912,6 +3821,7 @@ namespace Solver {
                 // Going up, take smaller y
                 py = min_y;
             }
+            // TODO: what about trinkets? do they need to be handled here?
 
             // Subtract corner position from player position
             int x_d = px - cx;

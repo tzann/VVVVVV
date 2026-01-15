@@ -129,6 +129,7 @@ namespace Terrain {
 	std::vector<WaypointPath> all_paths;
 
 	void AfterTileRenderHook(void) {
+		return;
 		BeforeRenderHook();
 
 		RoomPosition currentRoom = GetCurrentRoomPosition();
@@ -150,18 +151,46 @@ namespace Terrain {
 				all_paths.insert(all_paths.end(), paths2.begin(), paths2.end());
 			}
 			*/
-			{
-				CornerID c_id(RoomPosition(0, 19), 0, false);
-				if (c_id != path_cid) {
-					path_cid = c_id;
-					all_paths.clear();
-					if (GetRoomData(c_id.room).corners.size() > c_id.cornerIndex) {
-						std::vector<WaypointPath> paths = RevampedFindCornerConnections(c_id);
-						all_paths.insert(all_paths.end(), paths.begin(), paths.end());
-					}
+			if (path_cid.cornerIndex != -2) {
+				std::set<CornerID> problem_corners;
+				problem_corners.emplace(RoomPosition(4, 19), 4, false);
+				problem_corners.emplace(RoomPosition(4, 19), 15, false);
+				CornerID last_cid = path_cid;
+				if (path_cid.cornerIndex == -1) {
+					path_cid.room.rx = 4;
+					path_cid.room.ry = 19;
+					path_cid.cornerIndex = 0;
+					path_cid.goingUp = false;
 				}
+
+				path_cid.cornerIndex++;
+				while (path_cid.cornerIndex >= GetRoomData(path_cid.room).corners.size()) {
+					path_cid.cornerIndex = 0;
+					if (path_cid.room.ry == 19) {
+						if (path_cid.room.rx == 19) {
+							path_cid.cornerIndex = -2;
+						}
+						path_cid.room = path_cid.room.NextRoomRight();
+						while (path_cid.room.IsTower()) {
+							path_cid.room = path_cid.room.NextRoomRight();
+						}
+					}
+					path_cid.room = path_cid.room.NextRoomDown();
+				}
+
+				if (last_cid.is_valid() && GetRoomData(last_cid.room).initialized && last_cid.room.ry > 1 && !GetCorner(last_cid).deadEnd && problem_corners.count(last_cid) == 0) {
+					std::vector<WaypointPath> paths = RevampedFindCornerConnections(last_cid);
+					all_paths.insert(all_paths.end(), paths.begin(), paths.end());
+				}
+
+				game.hours = path_cid.room.rx;
+				game.deathcounts = path_cid.room.ry;
+				game.timetrialshinytarget = path_cid.cornerIndex;
+				game.frames = path_cid.goingUp;
+
+			} else {
+				game.timetrialshinytarget = all_paths.size();
 			}
-			game.timetrialshinytarget = all_paths.size();
 
 			if (all_paths.size() != 0) {
 				game.totalflips %= all_paths.size();
