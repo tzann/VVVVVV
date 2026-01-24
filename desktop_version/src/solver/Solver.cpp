@@ -107,7 +107,7 @@ namespace Solver {
                 const corner EXIT_1(113, 103, 78, 78, UP_LEFT);
                 const corner EXIT_2(113, 103, 66, 25, LEFT_UP);
                 const corner EXIT_3(113, 103, 30, 25, DOWN_LEFT);
-                const corner EXIT_4(113, 103, 18, 110, DOWN_LEFT);
+                const corner EXIT_4(113, 103, 18, 110, LEFT_DOWN);
             }
 
             // Security Sweep
@@ -250,10 +250,8 @@ namespace Solver {
                 CORNERS::LINEAR_COLLIDER::ENTRY_4,
                 CORNERS::LINEAR_COLLIDER::EXIT_1,
                 CORNERS::LINEAR_COLLIDER::EXIT_2,
-                // These two corners make the search run 10x longer and add nothing
-                // TODO: Improving the heuristic could fix that
-                // CORNERS::LINEAR_COLLIDER::EXIT_3,
-                // CORNERS::LINEAR_COLLIDER::EXIT_4,
+                CORNERS::LINEAR_COLLIDER::EXIT_3,
+                CORNERS::LINEAR_COLLIDER::EXIT_4,
                 });
 
             const Scenario SECURITY_SWEEP(113, 103, -14, 161, 0, 0, {
@@ -263,6 +261,22 @@ namespace Solver {
                 CORNERS::SECURITY_SWEEP::GO_LEFT,
                 CORNERS::SECURITY_SWEEP::EXIT,
                 });
+
+            const Scenario LINEAR_COLLIDER_TO_SECURITY_SWEEP(114, 103, -14, 46, 1, 0, {
+                CORNERS::LINEAR_COLLIDER::ENTRY_1,
+                CORNERS::LINEAR_COLLIDER::ENTRY_2,
+                CORNERS::LINEAR_COLLIDER::ENTRY_3,
+                CORNERS::LINEAR_COLLIDER::ENTRY_4,
+                CORNERS::LINEAR_COLLIDER::EXIT_1,
+                CORNERS::LINEAR_COLLIDER::EXIT_2,
+                CORNERS::LINEAR_COLLIDER::EXIT_3,
+                CORNERS::LINEAR_COLLIDER::EXIT_4,
+                CORNERS::SECURITY_SWEEP::ENTRY_1,
+                CORNERS::SECURITY_SWEEP::ENTRY_2,
+                CORNERS::SECURITY_SWEEP::FLIP_DOWN,
+                CORNERS::SECURITY_SWEEP::GO_LEFT,
+                CORNERS::SECURITY_SWEEP::EXIT,
+            });
 
             const Scenario GANTRY_AND_DOLLY_TO_COMMS_RELAY(112, 103, 150, 161, 0, 0, {
                 CORNERS::SECURITY_SWEEP::EXIT,
@@ -284,7 +298,7 @@ namespace Solver {
 
             // TODO: gantry and dolly part 2
 
-            const Scenario THE_YES_MEN(112, 104, 113, 185, 0, 0, {
+            const Scenario THE_YES_MEN(112, 104, 113, 185, 0, 40, {
                 CORNERS::GANTRY_AND_DOLLY::EXIT,
                 CORNERS::THE_YES_MEN::ENTRY,
                 CORNERS::THE_YES_MEN::DROP,
@@ -322,7 +336,7 @@ namespace Solver {
                 CORNERS::TRENCH_WARFARE,
                 });
 
-            const Scenario STOP_AND_REFLECT_TO_VSTITCH(112, 105, 235, 134, 1, 48, {
+            const Scenario STOP_AND_REFLECT_TO_VSTITCH(112, 105, 105, 134, 1, 48, {
                 CORNERS::THE_YES_MEN::EXIT,
                 CORNERS::STOP_AND_REFLECT::ENTRY,
                 CORNERS::STOP_AND_REFLECT::LEDGE,
@@ -491,19 +505,19 @@ namespace Solver {
             }
             namespace IN_A_SINGLE_BOUND {
                 const int rx = 105;
-                const int ry = 117;
+                const int ry = 116;
                 const corner A(rx, ry, 198, 49, RIGHT_UP);
                 const corner B(rx, ry, 218, 49, DOWN_RIGHT);
             }
             namespace BARANI_BARANI {
                 const int rx = 106;
-                const int ry = 117;
+                const int ry = 116;
                 const corner A(rx, ry, 90, 177, DOWN_RIGHT);
                 const corner B(rx, ry, 98, 185, DOWN_RIGHT);
             }
             namespace SAFETY_DANCE {
                 const int rx = 106;
-                const int ry = 118;
+                const int ry = 117;
                 const corner A(rx, ry, 198, 22, RIGHT_DOWN);
                 const corner B(rx, ry, 206, 30, RIGHT_DOWN);
                 const corner C(rx, ry, 226, 30, UP_RIGHT);
@@ -824,6 +838,24 @@ namespace Solver {
                 CORNERS::FREE_YOUR_MIND::DROP,
             });
 
+            const Scenario LETTER_G_TO_IN_A_SINGLE_BOUND(103, 116, 39, 130, 1, 0, {
+                CORNERS::LETTER_G::GO_RIGHT,
+                CORNERS::FREE_YOUR_MIND::DROP,
+                CORNERS::IN_A_SINGLE_BOUND::A,
+                CORNERS::IN_A_SINGLE_BOUND::B,
+                });
+
+            const Scenario LETTER_G_TO_SAFETY_DANCE(103, 116, 39, 130, 1, 3, {
+                CORNERS::LETTER_G::GO_RIGHT,
+                CORNERS::FREE_YOUR_MIND::DROP,
+                CORNERS::IN_A_SINGLE_BOUND::A,
+                CORNERS::IN_A_SINGLE_BOUND::B,
+                CORNERS::BARANI_BARANI::A,
+                CORNERS::BARANI_BARANI::B,
+                CORNERS::SAFETY_DANCE::A,
+                CORNERS::SAFETY_DANCE::B,
+                });
+
             // TODO: Search space too large, can't confirm this ties TAS
             // TODO: nearest flippable surface check?
             const Scenario LETTER_G_TO_ENTANGLEMENT_GENERATOR(103, 116, 39, 130, 1, 0, {
@@ -1128,12 +1160,14 @@ namespace Solver {
 
     // Current Benchmarks:
     // The Yes Men: 4630052 states visited, ~1:30 runtime (cached_stateful)
-    static Scenario scenario = SS1::SCENARIOS::GANTRY_AND_DOLLY_TO_COMMS_RELAY;
+    // It's a Secret to Nobody: 1372903, 19s runtime
+    static Scenario scenario = LAB::SCENARIOS::LETTER_G_TO_SAFETY_DANCE;
     // static Scenario scenario = SS1::SCENARIOS::START;
     // 0: Don't minimize inputs
     // 1: Minimize total number of presses / releases
     // 2: Minimize total number of frames held per button
-    static int MIN_INPUT_MODE = 2;
+    static int MIN_INPUT_MODE = 0;
+    static bool CHECK_CONSISTENCY = false;
     // This only works for MIN_INPUT_MODE == 2 for now
     static bool SOLVE_MIN_FRAMES = false;
 
@@ -1378,7 +1412,7 @@ namespace Solver {
     void stateful_solver() {
         load_scenario();
         naivestate initial_state = create_naive_state();
-        initial_state.h = get_heuristic(initial_state.next_corner, initial_state.game.roomx, initial_state.game.roomy, initial_state.player.x, initial_state.player.y);
+        initial_state.h = get_heuristic(initial_state.next_corner, initial_state.game.roomx, initial_state.game.roomy, initial_state.player.x, initial_state.player.y, initial_state.game.gravitycontrol, initial_state.player.vx, initial_state.player.vy, initial_state.game.tapleft, initial_state.game.tapright);
 
         std::size_t initial_hash = hash_naivestate(initial_state);
 
@@ -1415,7 +1449,7 @@ namespace Solver {
                 game.seconds = 0;
                 game.frames = int(hash_set.size() * 3 / 10);
 
-                bool can_flip = (s.player.onground > 0 && s.game.gravitycontrol == 0 || s.player.onroof > 0 && s.game.gravitycontrol == 1);
+                bool can_flip = (!game.jumpheld || game.jumppressed > 0) && (obj.entities[0].onground > 0 && game.gravitycontrol == 0 || obj.entities[0].onroof > 0 && game.gravitycontrol == 1);
                 int max = can_flip ? 8 : 4;
                 for (int8_t i = 0; i < max; i++) {
                     bool left = i & 1;
@@ -1450,7 +1484,7 @@ namespace Solver {
                         new_state.num_frames_in_room = s.num_frames_in_room + 1;
                     }
 
-                    new_state.h = new_state.f_count + get_heuristic(new_state.next_corner, new_state.game.roomx, new_state.game.roomy, new_state.player.x, new_state.player.y);
+                    new_state.h = new_state.f_count + get_heuristic(new_state.next_corner, new_state.game.roomx, new_state.game.roomy, new_state.player.x, new_state.player.y, new_state.game.gravitycontrol, new_state.player.vx, new_state.player.vy, new_state.game.tapleft, new_state.game.tapright);
                     if (new_state.h < s.h) {
                         VVV_exit(69420); // Should hopefully not happen, means heuristic might be inadmissible
                     }
@@ -1530,7 +1564,7 @@ namespace Solver {
         
         switch (MIN_INPUT_MODE) {
         case 0: 
-            initial_state.h = get_heuristic(initial_state.next_corner, initial_state.game.roomx, initial_state.game.roomy, initial_state.player.x, initial_state.player.y);
+            initial_state.h = get_heuristic(initial_state.next_corner, initial_state.game.roomx, initial_state.game.roomy, initial_state.player.x, initial_state.player.y, initial_state.game.gravitycontrol, initial_state.player.vx, initial_state.player.vy, initial_state.game.tapleft, initial_state.game.tapright);
             break;
         case 1:
             // TODO
@@ -1566,30 +1600,6 @@ namespace Solver {
                 // Store state hash for future comparisons
                 hash_set.insert(s_hash);
 
-                // Consistency check
-                {
-                    int num_dir_inputs = 0;
-                    int num_flip_inputs = 0;
-                    std::size_t hash = hash_cached_naivestate(s);
-                    while (hash != initial_hash) {
-                        if (prev_state_map.find(hash) == prev_state_map.end()) {
-                            VVV_exit(69); // Shouldn't happen
-                        }
-
-                        stateinfo i = prev_state_map.at(hash);
-                        int left = i.input & 1;
-                        int right = (i.input >> 1) & 1;
-                        int flip = (i.input >> 2) & 1;
-                        num_dir_inputs += left + right;
-                        num_flip_inputs += flip;
-                        hash = i.prev_hash;
-                    }
-
-                    if (num_dir_inputs + num_flip_inputs > s.input_count) {
-                        VVV_exit(27625);
-                    }
-                }
-
                 // Passed last corner, we're done!
                 if (s.next_corner == scenario.corners.size()) {
                     load_cached_naivestate(s);
@@ -1606,7 +1616,8 @@ namespace Solver {
 
                 // bool has_control = (s.game.hascontrol && s.game.deathseq == -1 && s.game.lifeseq <= 5);
                 // TODO: does this work for line clips? I think so
-                bool can_flip = (s.player.onground > 0 && s.game.gravitycontrol == 0 || s.player.onroof > 0 && s.game.gravitycontrol == 1);
+                // TODO: should this use values read from `s` instead of directly reading the game?
+                bool can_flip = (!game.jumpheld || game.jumppressed > 0) && (obj.entities[0].onground > 0 && game.gravitycontrol == 0 || obj.entities[0].onroof > 0 && game.gravitycontrol == 1);
                 int max = can_flip ? 8 : 4;
                 for (int8_t i = 0; i < max; i++) {
                     bool left = i & 1;
@@ -1632,6 +1643,7 @@ namespace Solver {
                     new_state.f_count = s.f_count + 1;
                     new_state.num_l_plus_r = s.num_l_plus_r + (left && right ? 1 : 0);
                     new_state.next_corner = s.next_corner;
+                    
                     if (passed_next_corner(new_state.next_corner, new_state.game.roomx, new_state.game.roomy, new_state.player.x, new_state.player.y)) {
                         new_state.next_corner++;
                     }
@@ -1662,7 +1674,7 @@ namespace Solver {
 
                     switch (MIN_INPUT_MODE) {
                     case 0:
-                        new_state.h = new_state.f_count + get_heuristic(new_state.next_corner, new_state.game.roomx, new_state.game.roomy, new_state.player.x, new_state.player.y);
+                        new_state.h = new_state.f_count + get_heuristic(new_state.next_corner, new_state.game.roomx, new_state.game.roomy, new_state.player.x, new_state.player.y, new_state.game.gravitycontrol, new_state.player.vx, new_state.player.vy, new_state.game.tapleft, new_state.game.tapright);
                         break;
                     case 1:
                         // TODO
@@ -1674,6 +1686,9 @@ namespace Solver {
                     }
 
                     if (new_state.h < s.h) {
+                        do_game_render();
+                        uint16_t a = s.f_count + get_heuristic(s.next_corner, s.game.roomx, s.game.roomy, s.player.x, s.player.y, s.game.gravitycontrol, s.player.vx, s.player.vy, s.game.tapleft, s.game.tapright);
+                        uint16_t c = new_state.f_count + get_heuristic(new_state.next_corner, new_state.game.roomx, new_state.game.roomy, new_state.player.x, new_state.player.y, new_state.game.gravitycontrol, new_state.player.vx, new_state.player.vy, new_state.game.tapleft, new_state.game.tapright);
                         uint16_t b = s.input_count + get_input_frames_heuristic(s.next_corner, s.game.roomx, s.game.roomy, s.player.x, s.player.y, s.game.gravitycontrol, s.player.vx, s.player.vy, s.game.tapleft, s.game.tapright);
                         uint16_t d = new_state.input_count + get_input_frames_heuristic(new_state.next_corner, new_state.game.roomx, new_state.game.roomy, new_state.player.x, new_state.player.y, new_state.game.gravitycontrol, new_state.player.vx, new_state.player.vy, new_state.game.tapleft, new_state.game.tapright);
                         
@@ -1687,8 +1702,8 @@ namespace Solver {
                     std::size_t new_state_hash = hash_cached_naivestate(new_state);
                     if (prev_state_map.find(new_state_hash) != prev_state_map.end()) {
                         stateinfo& prev_info = prev_state_map.at(new_state_hash);
-                        if (prev_info.heuristic > new_state.h) {
-                            prev_info.heuristic = new_state.h;
+                        if (prev_info.heuristic > new_state.input_count) {
+                            prev_info.heuristic = new_state.input_count;
                             prev_info.prev_hash = s_hash;
                         }
                     } else {
@@ -1696,11 +1711,11 @@ namespace Solver {
                         // TODO: how can we guarantee this reconstructs the right solution later? if we find a worse path to the solution first
                         prev_state_map.emplace(std::piecewise_construct,
                             std::forward_as_tuple(new_state_hash),
-                            std::forward_as_tuple(s_hash, i, new_state.h));
+                            std::forward_as_tuple(s_hash, i, new_state.input_count));
                     }
 
                     // Consistency check
-                    {
+                    if (CHECK_CONSISTENCY) {
                         int num_dir_inputs = 0;
                         int num_flip_inputs = 0;
                         std::size_t hash = hash_cached_naivestate(new_state);
@@ -1774,7 +1789,9 @@ namespace Solver {
                 bool right = i & 2;
                 bool flip = i & 4;
                 switch (MIN_INPUT_MODE) {
-                case 0: break;
+                case 0:
+                    game.deathcounts = num_states;
+                    break;
                 case 1: {
                     int8_t changed_inputs = prev_i ^ i;
                     int16_t num_inputs = (changed_inputs & 1) + ((changed_inputs >> 1) & 1) + ((changed_inputs >> 2) & 1);
@@ -1929,7 +1946,7 @@ namespace Solver {
                             VVV_exit(29067);
                         }
                         // We can just solve the next corner directly without sacrificing accuracy
-                        if (next_corner + 1 < scenario.corners.size()) {
+                        if (next_corner + 1 < scenario.corners.size() && scenario.corners[next_corner].dir != TRINKET) {
                             tmp_next_corner++;
                         }
                     }
@@ -1976,7 +1993,7 @@ namespace Solver {
         load_scenario();
 
         naivestate initial_state = create_naive_state();
-        initial_state.h = get_heuristic(initial_state.next_corner, initial_state.game.roomx, initial_state.game.roomy, initial_state.player.x, initial_state.player.y);
+        initial_state.h = get_heuristic(initial_state.next_corner, initial_state.game.roomx, initial_state.game.roomy, initial_state.player.x, initial_state.player.y, initial_state.game.gravitycontrol, initial_state.player.vx, initial_state.player.vy, initial_state.game.tapleft, initial_state.game.tapright);
 
         std::size_t initial_hash = hash_naivestate(initial_state);
 
@@ -2057,7 +2074,7 @@ namespace Solver {
                 game.hours = obj.entities[0].invis;
 
                 naivestate restore_point = create_naive_state();
-                bool can_flip = (restore_point.player.onground > 0 && restore_point.game.gravitycontrol == 0 || restore_point.player.onroof > 0 && restore_point.game.gravitycontrol == 1);
+                bool can_flip = (!restore_point.game.jumpheld || restore_point.game.jumppressed > 0) && (restore_point.player.onground > 0 && restore_point.game.gravitycontrol == 0 || restore_point.player.onroof > 0 && restore_point.game.gravitycontrol == 1);
                 int max = can_flip ? 8 : 4;
 
                 if (debug_checks) {
@@ -2089,7 +2106,7 @@ namespace Solver {
                         tmp_state.next_corner++;
                     }
 
-                    tmp_state.h = tmp_state.f_count + get_heuristic(tmp_state.next_corner, tmp_state.game.roomx, tmp_state.game.roomy, tmp_state.player.x, tmp_state.player.y);
+                    tmp_state.h = tmp_state.f_count + get_heuristic(tmp_state.next_corner, tmp_state.game.roomx, tmp_state.game.roomy, tmp_state.player.x, tmp_state.player.y, tmp_state.game.gravitycontrol, tmp_state.player.vx, tmp_state.player.vy, tmp_state.game.tapleft, tmp_state.game.tapright);
                     if (tmp_state.h < s.heuristic) {
                         VVV_exit(69420); // Should hopefully not happen, means heuristic might be inadmissible
                     }
@@ -2534,9 +2551,9 @@ namespace Solver {
         if (s.game.roomx == 113 && s.game.roomy == 104) {
             // Hack: don't save entities or blocks in Comms Relay
         }
-        else if (s.game.roomx == 114 && (s.game.roomy == 103 || s.game.roomy == 104)) {
+        // else if (s.game.roomx == 114 && (s.game.roomy == 103 || s.game.roomy == 104)) {
             // Hack: don't save entities or blocks in Atmospheric Filtering Unit or It's a Secret to Nobody
-        }
+        // }
         else {
             s.cache_entry = fill_cache_entry();
         }
@@ -2873,11 +2890,15 @@ namespace Solver {
         }
         // Skip rendering to improve runtime
         if (render) {
-            graphics.clear();
-            graphics.set_render_target(graphics.gameTexture);
-            gamerender();
-            gameScreen.RenderPresent();
+            do_game_render();
         }
+    }
+
+    void do_game_render() {
+        graphics.clear();
+        graphics.set_render_target(graphics.gameTexture);
+        gamerender();
+        gameScreen.RenderPresent();
     }
 
     bool compare_naive_states(naivestate a, naivestate b) {
@@ -3254,11 +3275,13 @@ namespace Solver {
         case DOWN_RIGHT:
             return x_d < 0;
         case TRINKET:
-            return false;
+            // Note that we can collect the trinket in the range x [-17, 9], y [-22, 13]
+            return !(x_d >= -17 && x_d <= 9 && y_d >= -22 && y_d <= 13);
         case WARP_TOKEN:
-            return false;
+            // Note that we touch the warp token in the range x [-17, 9], y [-22, 13]
+            return !(x_d >= -17 && x_d <= 9 && y_d >= -22 && y_d <= 13);
         }
-        return false;
+        return true;
     }
 
     int get_coasted_dist(float vx, int rx, int px) {
@@ -3292,14 +3315,17 @@ namespace Solver {
         int total_inputs = 0;
 
         int next_corner = next_corner_orig;
-        if (!before_next_corner(next_corner, room_x, room_y, player_x, player_y)) {
+        while (!before_next_corner(next_corner, room_x, room_y, player_x, player_y)) {
             if (passed_next_corner(next_corner, room_x, room_y, player_x, player_y)) {
                 // Sanity check, shouldn't happen
                 VVV_exit(29067);
             }
             // We can just solve the next corner directly without sacrificing accuracy
-            if (next_corner + 1 < scenario.corners.size()) {
+            if (next_corner + 1 < scenario.corners.size() && scenario.corners[next_corner].dir != TRINKET) {
                 next_corner++;
+            }
+            else {
+                break;
             }
         }
 
@@ -3311,6 +3337,7 @@ namespace Solver {
     uint16_t get_input_frames_heuristic_y(int next_corner, int room_x, int room_y, int player_x, int player_y, int gravity, float vx, float vy, int tapleft, int tapright) {
         // Solve y dimension
         int flip_inputs = 0;
+        /*
         int dist = 0;
         int last_py = room_adjusted_y(room_y, player_y);
         int last_ry = room_y;
@@ -3322,12 +3349,39 @@ namespace Solver {
         for (int c_idx = next_corner; c_idx < scenario.corners.size(); c_idx++) {
             corner c = scenario.corners[c_idx];
             int cy = room_adjusted_y(c.ry, c.y);
+            int c_ry = c.ry;
 
             int c_dist = cy - last_cy;
+            if (c.dir == TRINKET) {
+                // Note that we can collect the trinket in the range x [-17, 9], y [-22, 13]
+                if (c_dist < -13) {
+                    cy += 13;
+                    c_dist += 13;
+                }
+                else if (c_dist > 22) {
+                    cy -= 22;
+                    c_dist -= 22;
+                }
+                else {
+                    cy -= c_dist;
+                    c_dist = 0;
+                }
+                // TODO: we should technically check for room transitions here
+            }
+
+
             if (dist == 0 && c_dist == 0) {
                 if (c_idx > next_corner && c_idx + 1 < scenario.corners.size()) {
                     // Not quite sure what to do here yet, probably just continue
                     // VVV_exit(79023);
+                }
+                if ((c.dir == UP_LEFT || c.dir == UP_RIGHT) && last_gravity == 0) {
+                    flip_inputs++;
+                    last_gravity = !last_gravity;
+                }
+                else if ((c.dir == DOWN_LEFT || c.dir == DOWN_RIGHT) && last_gravity == 1) {
+                    flip_inputs++;
+                    last_gravity = !last_gravity;
                 }
                 continue;
             }
@@ -3335,7 +3389,7 @@ namespace Solver {
                 // New segment or same Y direction
                 dist += c_dist;
                 last_cy = cy;
-                last_cry = c.ry;
+                last_cry = c_ry;
                 if (c_idx + 1 < scenario.corners.size()) {
                     continue;
                 }
@@ -3349,13 +3403,14 @@ namespace Solver {
             if (last_cy - last_py != dist || dist == 0 || c_dist != 0) {
                 // This can only happen if the corner sequence is ill-formed (i.e. dir change without intermediate 0 segment)
                 // Usually, this happens if we pass a corner, then go back (or around a different corner)
-                // Thus, it should only really happen on the first segment
-                if (!isFirstSegment || c_idx <= next_corner) {
+                // Thus, it should only really happen on the first segment, or for trinkets
+                corner c_prev = scenario.corners[c_idx - 1];
+                if ((!isFirstSegment || c_idx <= next_corner) && c_prev.dir != TRINKET) {
                     VVV_exit(46728);
                 }
                 // We just want to run the previous corner a second time, let's pretend there were two of them
-                corner c_prev = scenario.corners[c_idx - 1];
-                cy = room_adjusted_y(c_prev.ry, c_prev.y);
+                cy = last_cy;
+                c_ry = last_cry;
                 c_idx--;
                 c_dist = 0;
             }
@@ -3389,12 +3444,12 @@ namespace Solver {
 
             last_py = cy;
             last_vy = 0.0;
-            last_ry = c.ry;
+            last_ry = c_ry;
             last_cy = cy;
-            last_cry = c.ry;
+            last_cry = c_ry;
             dist = 0;
             isFirstSegment = false;
-        }
+        }*/
         return flip_inputs;
     }
 
@@ -3409,11 +3464,29 @@ namespace Solver {
         int last_cx = room_adjusted_x(room_x, player_x);
         int last_crx = room_x;
         bool isFirstSegment = true;
-        for (int c_idx = next_corner; c_idx < scenario.corners.size(); c_idx++) {
+        /*for (int c_idx = next_corner; c_idx < scenario.corners.size(); c_idx++) {
             corner c = scenario.corners[c_idx];
             int cx = room_adjusted_x(c.rx, c.x);
+            int c_rx = c.rx;
 
             int c_dist = cx - last_cx;
+            if (c.dir == TRINKET) {
+                // Note that we can collect the trinket in the range x [-17, 9], y [-22, 13]
+                if (c_dist < -9) {
+                    cx += 9;
+                    c_dist += 9;
+                }
+                else if (c_dist > 17) {
+                    cx -= 17;
+                    c_dist -= 17;
+                }
+                else {
+                    cx -= c_dist;
+                    c_dist = 0;
+                }
+                // TODO: we should technically check for room transitions here, although you wouldn't be able to collect the trinket from another room
+            }
+
             if (dist == 0 && c_dist == 0) {
                 if (c_idx > next_corner && c_idx + 1 < scenario.corners.size()) {
                     // Not quite sure what to do here yet, probably just continue
@@ -3424,7 +3497,7 @@ namespace Solver {
                 // New segment or same X direction
                 dist += c_dist;
                 last_cx = cx;
-                last_crx = c.rx;
+                last_crx = c_rx;
                 if (c_idx + 1 < scenario.corners.size()) {
                     continue;
                 }
@@ -3436,19 +3509,16 @@ namespace Solver {
 
             // Segment is finished, solve it
             if (last_cx - last_px != dist || dist == 0 || c_dist != 0) {
-                // This should never happen
-                // If it does, use the below solution
-                VVV_exit(46728);
-
                 // This can only happen if the corner sequence is ill-formed (i.e. dir change without intermediate 0 segment)
                 // Usually, this happens if we pass a corner, then go back (or around a different corner)
                 // Thus, it should only really happen on the first segment
-                if (!isFirstSegment || c_idx <= next_corner) {
-                    VVV_exit(46728);
+                corner c_prev = scenario.corners[c_idx - 1];
+                if ((!isFirstSegment || c_idx <= next_corner) && c_prev.dir != TRINKET) {
+                    VVV_exit(46729);
                 }
                 // We just want to run the previous corner a second time, let's pretend there were two of them
-                corner c_prev = scenario.corners[c_idx - 1];
-                cx = room_adjusted_x(c_prev.rx, c_prev.x);
+                cx = last_cx;
+                c_rx = last_crx;
                 c_idx--;
                 c_dist = 0;
             }
@@ -3464,28 +3534,20 @@ namespace Solver {
                     // No inputs needed
                     last_px = cx;
                     last_vx = 0.0;
-                    last_rx = c.rx;
+                    last_rx = c_rx;
                     last_cx = cx;
-                    last_crx = c.rx;
+                    last_crx = c_rx;
                     dist = 0;
                     isFirstSegment = false;
                     continue;
                 }
             }
 
-            struct SimState {
-                int inputs;
-                int px; // In local coords
-                int rx;
-                float vx;
-                int tap; // tap in movement dir
-                int abs_dist;
-            };
             float minSpeedForMaxCoast = 5.5f;
             std::vector<SimState> possible_starts;
             {
                 SimState state;
-                state.inputs = 0;
+                state.input_count = 0;
                 state.px = last_px - (last_rx * 320);
                 state.rx = last_rx;
                 state.vx = (vxInDir > 0.0) ? last_vx : 0.0;
@@ -3515,7 +3577,7 @@ namespace Solver {
                         if (!pressDir) {
                             // Next decision is ambiguous, add release case to possible starts
                             SimState new_state;
-                            new_state.inputs = state.inputs;
+                            new_state.input_count = state.input_count;
                             new_state.tap = 0;
                             new_state.vx = state.vx + ((state.vx == 0.0) ? 0.0 : (goingRight ? (-1.1f) : 1.1f));
                             if (SDL_fabsf(new_state.vx) < 1.1f) {
@@ -3536,7 +3598,7 @@ namespace Solver {
                         }
 
                         // Keeping dir pressed is guaranteed to be optimal
-                        state.inputs++;
+                        state.input_count++;
                         state.tap++;
                         if (goingRight) {
                             state.vx = SDL_min(6.0f, (state.vx + 3.0f) - 1.1f);
@@ -3570,7 +3632,7 @@ namespace Solver {
                     coast_dist = SDL_abs(get_coasted_dist(state.vx, state.rx, state.px));
                 }
                 if (state.abs_dist + coast_dist >= delta_x) {
-                    best_result = SDL_min(best_result, state.inputs);
+                    best_result = SDL_min(best_result, state.input_count);
                     continue;
                 }
                 // Sanity check, applicable if state not already past the goal
@@ -3580,7 +3642,7 @@ namespace Solver {
                 if (state.tap >= 5 && state.abs_dist + coast_dist + 4 * X_SPEED >= delta_x) {
                     // We can trivially reach the goal with 5 or less inputs
                     int num_inputs = (delta_x - state.abs_dist - coast_dist + X_SPEED - 1) / X_SPEED;
-                    best_result = SDL_min(best_result, state.inputs + num_inputs);
+                    best_result = SDL_min(best_result, state.input_count + num_inputs);
                     continue;
                 }
                 
@@ -3691,7 +3753,7 @@ namespace Solver {
 
                         if (pressDir) {
                             state.vx += goingRight ? 3.0f : -3.0f;
-                            state.inputs++;
+                            state.input_count++;
                             state.tap++;
                         }
                         state.vx += goingRight ? -1.1f : 1.1f;
@@ -3719,7 +3781,7 @@ namespace Solver {
 
                 if (state.abs_dist >= delta_x) {
                     // We can reach the goal without further inputs
-                    best_result = SDL_min(best_result, state.inputs);
+                    best_result = SDL_min(best_result, state.input_count);
                     continue;
                 }
                 else if (state.tap < 5 || SDL_fabsf(state.vx) < minSpeedForMaxCoast) {
@@ -3749,7 +3811,7 @@ namespace Solver {
                 // We ignore rounding for coasting distance because it's already captured by bonus pixels
                 int coastDist = goingRight ? 10 : 14;
 
-                int inputsSoFar = state.inputs;
+                int inputsSoFar = state.input_count;
                 int remaining_distance = delta_x - state.abs_dist - max_bonus_pixels - coastDist;
                 
                 if (remaining_distance > 5 * X_SPEED) {
@@ -3777,12 +3839,12 @@ namespace Solver {
             dir_inputs += best_result;
             last_px = cx;
             last_vx = 0.0;
-            last_rx = c.rx;
+            last_rx = c_rx;
             last_cx = cx;
-            last_crx = c.rx;
+            last_crx = c_rx;
             dist = 0;
             isFirstSegment = false;
-        }
+        }*/
         return dir_inputs;
     }
 
@@ -3796,74 +3858,282 @@ namespace Solver {
     // TODO: account for differing room heights (232 if map.warpy)
     // TODO: account for nearest flippable surface
     // TODO: maybe we can cache results starting from next_corner
-    uint16_t get_heuristic(int next_corner, int room_x, int room_y, int player_x, int player_y) {
-        bool can_flip = obj.entities[0].onground > 0 && game.gravitycontrol == 0 || obj.entities[0].onroof > 0 && game.gravitycontrol == 1;
-
+    uint16_t get_heuristic(int next_corner_orig, int room_x, int room_y, int player_x, int player_y, int gravity, float vx, float vy, int tapleft, int tapright) {
         int total_frames = 0;
+        int next_corner = next_corner_orig;
+        bool can_flip = (!game.jumpheld || game.jumppressed > 0) && (obj.entities[0].onground > 0 && game.gravitycontrol == 0 || obj.entities[0].onroof > 0 && game.gravitycontrol == 1);
+        bool can_double_flip = (!game.jumpheld || game.jumppressed > 0) && (obj.entities[0].onground > 0 && game.gravitycontrol == 0 && obj.entities[0].onroof > 0);
 
-        int min_x = room_adjusted_x(room_x, player_x);
-        int max_x = min_x;
-        int min_y = room_adjusted_y(room_y, player_y);
-        int max_y = min_y;
+        // Extract first corner from the loop below to handle initial acceleration
+        SimState state_ul = SimState(player_x, player_y, room_x, room_y, vx, vy, gravity, tapleft, tapright);
+        SimState state_dr = SimState(player_x, player_y, room_x, room_y, vx, vy, gravity, tapleft, tapright);
 
-        for (int c_idx = next_corner; c_idx < scenario.corners.size(); c_idx++) {
-            corner c = scenario.corners[c_idx];
+        while (next_corner < scenario.corners.size()) {
+            corner c = scenario.corners[next_corner];
             int cx = room_adjusted_x(c.rx, c.x);
             int cy = room_adjusted_y(c.ry, c.y);
 
-            int px = max_x;
-            int py = max_y;
-            if (c.dir == UP_LEFT || c.dir == LEFT_UP || c.dir == LEFT_DOWN || c.dir == DOWN_LEFT) {
-                // Going left, take smaller x
-                px = min_x;
+            int px_min = room_adjusted_x(state_ul.rx, state_ul.px);
+            int px_max = room_adjusted_x(state_dr.rx, state_dr.px);
+            int py_min = room_adjusted_y(state_ul.ry, state_ul.py);
+            int py_max = room_adjusted_y(state_dr.ry, state_dr.py);
+
+            bool trinket_or_warp = c.dir == TRINKET || c.dir == WARP_TOKEN;
+
+            int cx_min = cx;
+            int cx_max = cx;
+            int cy_min = cy;
+            int cy_max = cy;
+            if (trinket_or_warp) {
+                // Note that we can collect the trinket in the range x [-17, 9], y [-22, 13]
+                cx_min = cx - 17;
+                cx_max = cx + 9;
+                cy_min = cy - 22;
+                cy_max = cy + 13;
             }
-            if (c.dir == UP_LEFT || c.dir == UP_RIGHT || c.dir == LEFT_UP || c.dir == RIGHT_UP) {
-                // Going up, take smaller y
-                py = min_y;
-            }
-            // TODO: what about trinkets? do they need to be handled here?
 
             // Subtract corner position from player position
-            int x_d = px - cx;
-            int y_d = py - cy;
+            int x_d = px_min > cx_max ? (px_min - cx_max) : (px_max < cx_min ? (px_max - cx_min) : 0);
+            int y_d = py_min > cy_max ? (py_min - cy_max) : (py_max < cy_min ? (py_max - cy_min) : 0);
 
-            int frame_count = 0;
+            // Skip this corner if we may no longer be before it
+            {
+                bool is_before = true;
+                switch (c.dir) {
+                case UP_LEFT:
+                case DOWN_LEFT:
+                    if (x_d <= 0) {
+                        // Restrict x range to be not before the corner
+                        px_max = cx;
+                        is_before = false;
+                    }
+                    break;
+                case LEFT_UP:
+                case RIGHT_UP:
+                    if (y_d <= 0) {
+                        // Restrict y range to be not before the corner
+                        py_max = cy;
+                        is_before = false;
+                    }
+                    break;
+                case LEFT_DOWN:
+                case RIGHT_DOWN:
+                    if (y_d >= 0) {
+                        // Restrict y range to be not before the corner
+                        py_min = cy;
+                        is_before = false;
+                    }
+                    break;
+                case UP_RIGHT:
+                case DOWN_RIGHT:
+                    if (x_d >= 0) {
+                        // Restrict x range to be not before the corner
+                        px_min = cx;
+                        is_before = false;
+                    }
+                    break;
+                case TRINKET:
+                case WARP_TOKEN:
+                    if (x_d == 0 && y_d == 0) {
+                        // Restrict x and y ranges to the trinket hitbox
+                        px_min = cx_min;
+                        px_max = cx_max;
+                        py_min = cy_min;
+                        py_max = cy_max;
+                        is_before = false;
+                    }
+                    break;
+                }
+                if (!is_before) {
+                    state_ul.bound_x(px_min, px_min);
+                    state_dr.bound_x(px_max, px_max);
+                    state_ul.bound_y(py_min, py_min);
+                    state_dr.bound_y(py_max, py_max);
+                    next_corner++;
+                    continue;
+                }
+            }
+            
 
-            // First check: Could we possibly reach the corner without flipping?
-            // If not, we can add the time it takes to reach the nearest flippable surface
-            // TODO: handle gravity lines
-            bool do_flippable_surface_calc = false;
-            if (!can_flip) {
-                // TODO: handle velocity opposite to accel case
-                if (obj.entities[0].ay > 0.0f && obj.entities[0].vy >= 0.0f && y_d > 0) {
-                    // We are falling down, but the corner is above us
-                    do_flippable_surface_calc = true;
-                } else if (obj.entities[0].ay < 0.0f && obj.entities[0].vy <= 0.0f && y_d < 0) {
-                    // We are falling up, but the corner is below us
-                    do_flippable_surface_calc = true;
+            // Sanity check: at least one of x_d or y_d is non-zero
+            if (x_d == 0 && y_d == 0) {
+                VVV_exit(120971);
+            }
+
+            bool is_vertical_cut = c.dir == UP_LEFT || c.dir == UP_RIGHT || c.dir == DOWN_LEFT || c.dir == DOWN_RIGHT;
+            bool is_horizontal_cut = c.dir == LEFT_UP || c.dir == LEFT_DOWN || c.dir == RIGHT_UP || c.dir == RIGHT_DOWN;
+            bool is_limited_by_x_d = is_vertical_cut || trinket_or_warp;
+            bool is_limited_by_y_d = is_horizontal_cut || trinket_or_warp;
+
+            bool going_up    = y_d >= 0;
+            bool going_down  = y_d <= 0;
+            bool going_left  = x_d >= 0;
+            bool going_right = x_d <= 0;
+
+            bool reached_corner_x = !(is_limited_by_x_d && x_d != 0);
+            int x_frame_reached = (x_d == 0) ? state_ul.frame_count : INT_MAX;
+            bool reached_corner_y = !(is_limited_by_y_d && y_d != 0);
+            int y_frame_reached = (y_d == 0) ? state_ul.frame_count : INT_MAX;
+
+            bool ul_accel = (going_left && -state_ul.vx < MAX_X_SPEED) || (going_up && -state_ul.vy < MAX_Y_SPEED);
+            bool dr_accel = (going_right && state_dr.vx < MAX_X_SPEED) || (going_down && state_dr.vy < MAX_Y_SPEED);
+            while (!reached_corner_x || !reached_corner_y || state_ul.frame_count != state_dr.frame_count) {
+                // Advance UL state until it reaches top speed in both dimensions
+                if (ul_accel || dr_accel) {
+                    if (state_ul.frame_count > 0) {
+                        do_sim_step(state_ul, true, false, !state_ul.gravity && can_flip);
+                    } else {
+                        int prev_px = state_ul.px;
+                        int prev_rx = state_ul.rx;
+                        int prev_py = state_ul.py;
+                        int prev_ry = state_ul.ry;
+                        do_sim_step(state_ul, true, false, !state_ul.gravity && can_flip);
+                        if (state_ul.vx > 0.0f) {
+                            // If vx is in wrong direction, we have to account for hitting a wall to turn around faster
+                            // Note that we can check vx *after* the update because that's the speed that was applied 
+                            state_ul.vx = 0.0f;
+                            // We have to assume the wall is right was right in front of us from the beginning
+                            state_ul.px = prev_px;
+                            state_ul.rx = prev_rx;
+                            state_ul.x_dist = 0;
+                        }
+                        if (state_ul.vy > 0.0f) {
+                            // As above, we have to account for touching a floor to turn around faster
+                            state_ul.vy = 0.0f;
+                            state_ul.py = prev_py;
+                            state_ul.ry = prev_ry;
+                            state_ul.y_dist = 0;
+                        }
+                    }
+                }
+                // Advance DR state until it reaches top speed in both dimensions
+                if (ul_accel || dr_accel) {
+                    // Unfortunately we have to deal with double flips
+                    if (state_dr.vy < 4.0f && can_double_flip) {
+                        // I think this is sufficient?
+                        state_dr.gravity = true;
+                        if (!can_flip) {
+                            // Sanity check
+                            VVV_exit(209348);
+                        }
+                    }
+
+                    if (state_dr.frame_count > 0) {
+                        do_sim_step(state_dr, false, true, state_dr.gravity && can_flip);
+                    } else {
+                        int prev_px = state_dr.px;
+                        int prev_rx = state_dr.rx;
+                        int prev_py = state_dr.py;
+                        int prev_ry = state_dr.ry;
+                        do_sim_step(state_dr, false, true, state_dr.gravity && can_flip);
+                        if (state_dr.vx < 0.0f) {
+                            // If vx is in wrong direction, we have to account for hitting a wall to turn around faster
+                            // Note that we can check vx *after* the update because that's the speed that was applied 
+                            state_dr.vx = 0.0f;
+                            // We have to assume the wall is right was right in front of us from the beginning
+                            state_dr.px = prev_px;
+                            state_dr.rx = prev_rx;
+                            state_dr.x_dist = 0;
+                        }
+                        if (state_dr.vy < 0.0f) {
+                            // As above, we have to account for touching a floor to turn around faster
+                            state_dr.vy = 0.0f;
+                            state_dr.py = prev_py;
+                            state_dr.ry = prev_ry;
+                            state_dr.y_dist = 0;
+                        }
+                    }
+                }
+                // We have to assume we will be able to flip next frame
+                can_flip = true;
+                can_double_flip = true;
+                if (!ul_accel && !dr_accel) {
+                    state_ul.vx = -MAX_X_SPEED;
+                    state_dr.vx = MAX_X_SPEED;
+                    state_ul.vy = -MAX_Y_SPEED;
+                    state_dr.vy = MAX_Y_SPEED;
+                    // We've reached max speed in all relevant directions, so we don't have to worry about rounding anymore
+                    int l_dist = SDL_max(0, px_min + state_ul.x_dist - cx_max);
+                    int u_dist = SDL_max(0, py_min + state_ul.y_dist - cy_max);
+                    int r_dist = SDL_max(0, cx_min - (px_max + state_dr.x_dist));
+                    int d_dist = SDL_max(0, cy_min - (py_max + state_dr.y_dist));
+
+                    int l_frames = (l_dist + MAX_X_SPEED - 1) / MAX_X_SPEED;
+                    int u_frames = (u_dist + MAX_Y_SPEED - 1) / MAX_Y_SPEED;
+                    int r_frames = (r_dist + MAX_X_SPEED - 1) / MAX_X_SPEED;
+                    int d_frames = (d_dist + MAX_Y_SPEED - 1) / MAX_Y_SPEED;
+
+                    // On which frame do we reach the corner in the respective dimension?
+                    x_frame_reached = SDL_min(x_frame_reached, SDL_max(state_ul.frame_count + l_frames, state_dr.frame_count + r_frames));
+                    y_frame_reached = SDL_min(y_frame_reached, SDL_max(state_ul.frame_count + u_frames, state_dr.frame_count + d_frames));
+
+                    // This is unfortunately necessary to keep things consistent
+                    if (!is_limited_by_x_d) {
+                        l_frames = 0;
+                        r_frames = 0;
+                    }
+                    if (!is_limited_by_y_d) {
+                        u_frames = 0;
+                        d_frames = 0;
+                    }
+
+                    int ul_frames = SDL_max(l_frames, u_frames);
+                    int dr_frames = SDL_max(r_frames, d_frames);
+                    int total_frames = SDL_max(ul_frames + state_ul.frame_count, dr_frames + state_dr.frame_count);
+                    int extra_ul_frames = total_frames - state_ul.frame_count;
+                    int extra_dr_frames = total_frames - state_dr.frame_count;
+
+                    // Sanity check, at least one extra frame somewhere (even if it's just to catch up to the other state)
+                    if (SDL_max(extra_ul_frames, extra_dr_frames) <= 0) VVV_exit(203974);
+
+                    state_ul.frame_count += extra_ul_frames;
+                    state_dr.frame_count += extra_dr_frames;
+                    // Travel max distance in all directions so we have accurate min and max positions
+                    state_ul.x_dist -= extra_ul_frames * MAX_X_SPEED;
+                    state_ul.y_dist -= extra_ul_frames * MAX_Y_SPEED;
+                    state_ul.tapleft += extra_ul_frames;
+                    state_ul.tapright = 0;
+                    state_ul.gravity = true;
+
+                    state_dr.x_dist += extra_dr_frames * MAX_X_SPEED;
+                    state_dr.y_dist += extra_dr_frames * MAX_Y_SPEED;
+                    state_dr.tapright += extra_dr_frames;
+                    state_dr.tapleft = 0;
+                    state_dr.gravity = false;
+                    // We intentionally forgo updating px, rx and input_count here
+                    break;
+                }
+                
+                // We might reach the corner while still accelerating
+                if (x_frame_reached == INT_MAX && px_min + state_ul.x_dist <= cx_max && px_max + state_dr.x_dist >= cx_min) {
+                    reached_corner_x = true;
+                    x_frame_reached = SDL_max(state_ul.frame_count, state_dr.frame_count);
+                }
+                if (y_frame_reached == INT_MAX && py_min + state_ul.y_dist <= cy_max && py_max + state_dr.y_dist >= cy_min) {
+                    reached_corner_y = true;
+                    y_frame_reached = SDL_max(state_ul.frame_count, state_dr.frame_count);
+                }
+                ul_accel = (going_left && -state_ul.vx < MAX_X_SPEED) || (going_up  && -state_ul.vy < MAX_Y_SPEED);
+                dr_accel = (going_right && state_dr.vx < MAX_X_SPEED) || (going_down && state_dr.vy < MAX_Y_SPEED);
+            }
+
+            if (!reached_corner_x || !reached_corner_y || state_ul.frame_count != state_dr.frame_count) {
+                if (px_min + state_ul.x_dist <= cx_max && px_max + state_dr.x_dist >= cx_min) {
+                    reached_corner_x = true;
+                }
+                if (py_min + state_ul.y_dist <= cy_max && py_max + state_dr.y_dist >= cy_min) {
+                    reached_corner_y = true;
+                }
+                if (!reached_corner_x || !reached_corner_y || state_ul.frame_count != state_dr.frame_count) {
+                    // Sanity check
+                    VVV_exit(23705);
                 }
             }
 
-            // Skip if grav direction is unclear, or if we're already able to flip
-            if (do_flippable_surface_calc) {
-                /*
-                std::vector<HorizontalSurface>* surfaces;
-                if (obj.entities[0].ay > 0.0f) {
-                    // Falling down
-                    surfaces = &map.top_surfaces;
-                } else {
-                    // Falling up
-                    surfaces = map.bottom_surfaces;
-                }
-
-                int closest_surface_y;
-                int closest_surface_frames = -1;
-                // Find nearest (reachable) flippable surface
-                for (int i = 0; i < surfaces->size(); i++) {
-
-                }
-                */
-            }
+            px_min += state_ul.x_dist;
+            px_max += state_dr.x_dist;
+            py_min += state_ul.y_dist;
+            py_max += state_dr.y_dist;
 
             // Note that if we are "inside" the corner (e.g. x_d > 0 && y_d < 0 for UP_LEFT),
             //   then we just pretend we can walk through walls. The max corner cut distance constraint
@@ -3872,141 +4142,487 @@ namespace Solver {
             //   then we do nothing as we want to preserve min_x, max_x, min_y and max_y for the next corner
             switch (c.dir) {
             case UP_LEFT: // Limiting factor: leftwards movement
-                if (x_d > 0) {
-                    // What distance can we cover until we pass the corner?
-                    frame_count = (x_d + X_SPEED - 1) / X_SPEED;
-                    min_x = px - frame_count * X_SPEED;
-                    // Can't cut more than 10 pixels past the corner
-                    min_y = SDL_max(py - frame_count * Y_SPEED, cy - Y_SPEED);
-                    // In case we want to hug the corner
-                    max_x = cx;
-                    max_y = SDL_max(py - frame_count * Y_SPEED, cy);
-                }
+                if (x_d <= 0 || px_min > cx || cx > px_max)
+                    VVV_exit(57031);
+                // Can't cut more than 10 pixels past the corner vertically
+                px_min = px_min;
+                py_min = SDL_max(py_min, cy - Y_SPEED);
+                // In case we want to hug the corner
+                px_max = cx;
+                py_max = SDL_max(py_max, cy);
                 break;
             case UP_RIGHT: // Limiting factor: rightwards movement
-                if (x_d < 0) {
-                    // What distance can we cover until we pass the corner?
-                    frame_count = (-x_d + X_SPEED - 1) / X_SPEED;
-                    max_x = px + frame_count * X_SPEED;
-                    // Can't cut more than 10 pixels past the corner
-                    min_y = SDL_max(py - frame_count * Y_SPEED, cy - Y_SPEED);
-                    // In case we want to hug the corner
-                    min_x = cx;
-                    max_y = SDL_max(py - frame_count * Y_SPEED, cy);
-                }
+                if (x_d >= 0 || px_min > cx || cx > px_max)
+                    VVV_exit(57032);
+                // Can't cut more than 10 pixels past the corner vertically
+                px_max = px_max;
+                py_min = SDL_max(py_min, cy - Y_SPEED);
+                // In case we want to hug the corner
+                px_min = cx;
+                py_max = SDL_max(py_max, cy);
                 break;
             case LEFT_UP: // Limiting factor: upwards movement
-                if (y_d > 0) {
-                    // What distance can we cover until we pass the corner?
-                    frame_count = (y_d + Y_SPEED - 1) / Y_SPEED;
-                    // Can't cut more than 0 pixels past the corner
-                    min_x = SDL_max(px - frame_count * X_SPEED, cx);
-                    min_y = py - frame_count * Y_SPEED;
-                    // In case we want to hug the corner
-                    max_x = SDL_max(px - frame_count * X_SPEED, cx);
-                    max_y = cy;
-                }
+                if (y_d <= 0 || py_min > cy || cy > py_max)
+                    VVV_exit(57033);
+                // Can't cut more than 0 pixels past the corner horizontally
+                px_min = SDL_max(px_min, cx);
+                py_min = py_min;
+                // In case we want to hug the corner
+                px_max = SDL_max(px_max, cx);
+                py_max = cy;
                 break;
             case LEFT_DOWN: // Limiting factor: downwards movement
-                if (y_d < 0) {
-                    // What distance can we cover until we pass the corner?
-                    frame_count = (-y_d + Y_SPEED - 1) / Y_SPEED;
-                    // Can't cut more than 0 pixels past the corner
-                    min_x = SDL_max(px - frame_count * X_SPEED, cx);
-                    max_y = py + frame_count * Y_SPEED;
-                    // In case we want to hug the corner
-                    max_x = SDL_max(px - frame_count * X_SPEED, cx);
-                    min_y = cy;
+                if (y_d >= 0 || py_min > cy || cy > py_max)
+                    VVV_exit(57034);
+                // Can't cut more than 0 pixels past the corner horizontally
+                px_min = SDL_max(px_min, cx);
+                py_max = py_max;
+                // In case we want to hug the corner
+                px_max = SDL_max(px_max, cx);
+                py_min = cy;
+                break;
+            case DOWN_LEFT: // Limiting factor: leftwards movement
+                if (x_d <= 0 || px_min > cx || cx > px_max)
+                    VVV_exit(57035);
+                // Can't cut more than 10 pixels past the corner vertically
+                px_min = px_min;
+                py_max = SDL_min(py_max, cy + Y_SPEED);
+                // In case we want to hug the corner
+                px_max = cx;
+                py_min = SDL_min(py_min, cy);
+                break;
+            case DOWN_RIGHT: // Limiting factor: rightwards movement
+                if (x_d >= 0 || px_min > cx || cx > px_max)
+                    VVV_exit(57036);
+                // TODO: if py_min > cy, we might be forced to land on the corner
+                //       does that mean we can reduce the max corner cut distance?
+
+                // Can't cut more than 10 pixels past the corner vertically
+                px_max = px_max;
+                py_max = SDL_min(py_max, cy + Y_SPEED);
+                // In case we want to hug the corner
+                px_min = cx;
+                py_min = SDL_min(py_min, cy);
+                break;
+            case RIGHT_UP: // Limiting factor: upwards movement
+                if (y_d <= 0 || py_min > cy || cy > py_max)
+                    VVV_exit(57037);
+                // Can't cut more than 0 pixels past the corner horizontally
+                px_max = SDL_min(px_max, cx);
+                py_min = py_min;
+                // In case we want to hug the corner
+                px_min = SDL_min(px_min, cx);
+                py_max = cy;
+                break;
+            case RIGHT_DOWN: // Limiting factor: downwards movement
+                if (y_d >= 0 || py_min > cy || cy > py_max)
+                    VVV_exit(57038);
+                // Can't cut more than 0 pixels past the corner horizontally
+                px_max = SDL_min(px_max, cx);
+                py_max = py_max;
+                // In case we want to hug the corner
+                px_min = SDL_min(px_min, cx);
+                py_min = cy;
+                break;
+            case TRINKET:
+            case WARP_TOKEN:
+                // Could be in any direction
+                // What are the min and max positions reachable while still collecting the trinket?
+                // Note that we can collect the trinket in the range x [-17, 9], y [-22, 13]
+                px_min = SDL_max(px_min, cx - 17);
+                px_max = SDL_min(px_max, cx + 9);
+                py_min = SDL_max(py_min, cy - 22);
+                py_max = SDL_min(py_max, cy + 13);
+                break;
+            }
+
+            // TODO: we could also bound vx and vy here based on corner type
+            state_ul.bound_x(px_min, px_min);
+            state_dr.bound_x(px_max, px_max);
+            state_ul.bound_y(py_min, py_min);
+            state_dr.bound_y(py_max, py_max);
+
+            int spare_x_frames = SDL_max(0, y_frame_reached - x_frame_reached);
+            int spare_y_frames = SDL_max(0, x_frame_reached - y_frame_reached);
+
+            if (spare_x_frames == 0) {
+                if (x_d > 0) {
+                    state_ul.bound_vx(-MAX_X_SPEED, -X_RATE);
+                    state_dr.bound_vx(-MAX_X_SPEED, -X_RATE);
+                    if (px_min == px_max && state_ul.vx == -MAX_X_SPEED) {
+                        // We *exactly* reached the corner while going full speed
+                        // So vx must be minimal
+                        state_dr.vx = state_ul.vx;
+                        state_dr.tapright = SDL_min(state_dr.tapright, state_ul.tapleft);
+                        state_dr.tapleft = state_ul.tapleft;
+                    }
+                    else {
+                        // Assume the best case scenario, we can cancel leftward speed
+                        state_dr.tapleft = 1;
+                    }
+                } else if (x_d < 0) {
+                    state_ul.bound_vx(X_RATE, MAX_X_SPEED);
+                    state_dr.bound_vx(X_RATE, MAX_X_SPEED);
+                    // tapleft can't be more than 1 without having vx <= 0.0
+                    state_ul.tapleft = SDL_max(state_ul.tapleft, 1);
+                    if (px_min == px_max && state_dr.vx == MAX_X_SPEED) {
+                        // We *exactly* reached the corner while going full speed
+                        // So vx must be maximal
+                        state_ul.vx = state_dr.vx;
+                        state_ul.tapright = state_dr.tapright;
+                        state_ul.tapleft = state_dr.tapleft;
+                    }
+                    else {
+                        // Assume the best case scenario, we can cancel rightward speed
+                        state_ul.tapright = 1;
+                    }
+                }
+            }
+            else if (spare_x_frames <= 3) {
+                float accel_per_frame = 3.0f - X_RATE;
+                if (x_d > 0) {
+                    state_ul.bound_vx(-MAX_X_SPEED, spare_x_frames * accel_per_frame);
+                    state_dr.bound_vx(-MAX_X_SPEED, spare_x_frames * accel_per_frame);
+                    // Allow cancelling speed if we want to
+                    state_dr.tapleft = 1;
+                }
+                else if (x_d < 0) {
+                    state_ul.bound_vx(-spare_x_frames * accel_per_frame, MAX_X_SPEED);
+                    state_dr.bound_vx(-spare_x_frames * accel_per_frame, MAX_X_SPEED);
+                    // Allow cancelling speed if we want to
+                    state_ul.tapright = 1;
+                }
+            }
+
+
+            if (spare_y_frames == 0) {
+                if (y_d > 0) {
+                    state_ul.bound_vy(-MAX_Y_SPEED, -Y_RATE);
+                    state_dr.bound_vy(-MAX_Y_SPEED, -Y_RATE);
+                    state_dr.gravity = state_ul.gravity;
+                }
+                else if (y_d < 0) {
+                    state_ul.bound_vy(Y_RATE, MAX_Y_SPEED);
+                    state_dr.bound_vy(Y_RATE, MAX_Y_SPEED);
+                    state_ul.gravity = state_dr.gravity;
+                }
+            }
+            
+            total_frames += state_ul.frame_count;
+
+            state_ul.reset_counters();
+            state_dr.reset_counters();
+
+            next_corner++;
+        }
+
+        // We are now guaranteed not to be before the final corner
+        // But we want to know how long it takes to get past it
+        corner c = scenario.corners[next_corner - 1];
+        int cx = room_adjusted_x(c.rx, c.x);
+        int cy = room_adjusted_y(c.ry, c.y);
+
+        int px_min = room_adjusted_x(state_ul.rx, state_ul.px);
+        int px_max = room_adjusted_x(state_dr.rx, state_dr.px);
+        int py_min = room_adjusted_y(state_ul.ry, state_ul.py);
+        int py_max = room_adjusted_y(state_dr.ry, state_dr.py);
+
+        bool trinket_or_warp = c.dir == TRINKET || c.dir == WARP_TOKEN;
+
+        int cx_min = cx;
+        int cx_max = cx;
+        int cy_min = cy;
+        int cy_max = cy;
+        if (trinket_or_warp) {
+            // Note that we can collect the trinket in the range x [-17, 9], y [-22, 13]
+            cx_min = cx - 17;
+            cx_max = cx + 9;
+            cy_min = cy - 22;
+            cy_max = cy + 13;
+        }
+
+        // Subtract corner position from player position
+        int x_d = px_min > cx_max ? (px_min - cx_max) : (px_max < cx_min ? (px_max - cx_min) : 0);
+        int y_d = py_min > cy_max ? (py_min - cy_max) : (py_max < cy_min ? (py_max - cy_min) : 0);
+
+        // Skip this corner if we may no longer be before it
+        {
+            bool is_after = false;
+            switch (c.dir) {
+            case UP_LEFT:
+            case UP_RIGHT:
+                if (y_d <= 0) {
+                    is_after = true;
+                }
+                break;
+            case LEFT_UP:
+            case LEFT_DOWN:
+                if (x_d <= 0) {
+                    is_after = true;
                 }
                 break;
             case DOWN_LEFT:
-                if (x_d > 0) {
-                    // What distance can we cover until we pass the corner?
-                    frame_count = (x_d + X_SPEED - 1) / X_SPEED;
-                    min_x = px - frame_count * X_SPEED;
-                    // Can't cut more than 10 pixels past the corner
-                    max_y = SDL_min(py + frame_count * Y_SPEED, cy + Y_SPEED);
-                    // In case we want to hug the corner
-                    max_x = cx;
-                    min_y = SDL_min(py + frame_count * Y_SPEED, cy);
-                }
-                break;
             case DOWN_RIGHT:
-                if (x_d < 0) {
-                    // What distance can we cover until we pass the corner?
-                    frame_count = (-x_d + X_SPEED - 1) / X_SPEED;
-                    max_x = px + frame_count * X_SPEED;
-                    // Can't cut more than 10 pixels past the corner
-                    max_y = SDL_min(py + frame_count * Y_SPEED, cy + Y_SPEED);
-                    // In case we want to hug the corner
-                    min_x = cx;
-                    min_y = SDL_min(py + frame_count * Y_SPEED, cy);
+                if (y_d >= 0) {
+                    is_after = true;
                 }
                 break;
             case RIGHT_UP:
-                if (y_d > 0) {
-                    // What distance can we cover until we pass the corner?
-                    frame_count = (y_d + Y_SPEED - 1) / Y_SPEED;
-                    // Can't cut more than 0 pixels past the corner
-                    max_x = SDL_min(px + frame_count * X_SPEED, cx);
-                    min_y = py - frame_count * Y_SPEED;
-                    // In case we want to hug the corner
-                    min_x = SDL_min(px + frame_count * X_SPEED, cx);
-                    max_y = cy;
-                }
-                break;
             case RIGHT_DOWN:
-                if (y_d < 0) {
-                    // What distance can we cover until we pass the corner?
-                    frame_count = (-y_d + Y_SPEED - 1) / Y_SPEED;
-                    // Can't cut more than 0 pixels past the corner
-                    max_x = SDL_min(px + frame_count * X_SPEED, cx);
-                    max_y = py + frame_count * Y_SPEED;
-                    // In case we want to hug the corner
-                    min_x = SDL_min(px + frame_count * X_SPEED, cx);
-                    min_y = cy;
+                if (x_d >= 0) {
+                    is_after = true;
                 }
                 break;
             case TRINKET:
-                // Could be in any direction
-                // Note that we can collect the trinket in the range x [-17, 9], y [-22, 13]
-                // Modify distances accordingly
-                if (x_d < -17) {
-                    x_d += 17;
-                }
-                else if (x_d > 9) {
-                    x_d -= 9;
+            case WARP_TOKEN:
+                if (x_d == 0 && y_d == 0) {
+                    is_after = true;
                 }
                 else {
-                    x_d = 0;
+                    // This shouldn't happen
+                    VVV_exit(295493);
                 }
-                if (y_d < -22) {
-                    y_d += 22;
-                }
-                else if (y_d > 13) {
-                    y_d -= 13;
-                }
-                else {
-                    y_d = 0;
-                }
-
-                // At least how many frames will it take to reach the trinket?
-                int x_frames = (SDL_abs(x_d) + X_SPEED - 1) / X_SPEED;
-                int y_frames = (SDL_abs(y_d) + Y_SPEED - 1) / Y_SPEED;
-                frame_count = SDL_max(x_frames, y_frames);
-
-                // What are the min and max positions reachable while still collecting the trinket?
-                min_x = SDL_max(px - frame_count * X_SPEED, cx - 17);
-                max_x = SDL_min(px + frame_count * X_SPEED, cx + 9);
-
-                min_y = SDL_max(py - frame_count * Y_SPEED, cy - 22);
-                max_y = SDL_min(py + frame_count * Y_SPEED, cy + 13);
+                break;
             }
+            if (!is_after) {
+                if (x_d != 0 && y_d != 0) {
+                    // This shouldn't happen
+                    VVV_exit(295494);
+                }
 
-            total_frames += frame_count;
+                bool reached_corner_x = x_d == 0;
+                bool reached_corner_y = y_d == 0;
+                bool ul_accel = (x_d > 0 && -state_ul.vx < MAX_X_SPEED) || (y_d > 0 && -state_ul.vy < MAX_Y_SPEED);
+                bool dr_accel = (x_d < 0 && state_dr.vx < MAX_X_SPEED) || (y_d < 0 && state_dr.vy < MAX_Y_SPEED);
+                while ((!reached_corner_x || !reached_corner_y) && (ul_accel || dr_accel)) {
+                    if (ul_accel || dr_accel) {
+                        if (state_ul.frame_count > 0) {
+                            do_sim_step(state_ul, true, false, !state_ul.gravity && can_flip);
+                        }
+                        else {
+                            int prev_px = state_ul.px;
+                            int prev_rx = state_ul.rx;
+                            int prev_py = state_ul.py;
+                            int prev_ry = state_ul.ry;
+                            do_sim_step(state_ul, true, false, !state_ul.gravity && can_flip);
+                            if (state_ul.vx > 0.0f) {
+                                // If vx is in wrong direction, we have to account for hitting a wall to turn around faster
+                                // Note that we can check vx *after* the update because that's the speed that was applied 
+                                state_ul.vx = 0.0f;
+                                // We have to assume the wall is right was right in front of us from the beginning
+                                state_ul.px = prev_px;
+                                state_ul.rx = prev_rx;
+                                state_ul.x_dist = 0;
+                            }
+                            if (state_ul.vy > 0.0f) {
+                                // As above, we have to account for touching a floor to turn around faster
+                                state_ul.vy = 0.0f;
+                                state_ul.py = prev_py;
+                                state_ul.ry = prev_ry;
+                                state_ul.y_dist = 0;
+                            }
+                        }
+                        if (state_dr.frame_count > 0) {
+                            do_sim_step(state_dr, false, true, state_dr.gravity && can_flip);
+                        }
+                        else {
+                            int prev_px = state_dr.px;
+                            int prev_rx = state_dr.rx;
+                            int prev_py = state_dr.py;
+                            int prev_ry = state_dr.ry;
+                            do_sim_step(state_dr, false, true, state_dr.gravity && can_flip);
+                            if (state_dr.vx < 0.0f) {
+                                // If vx is in wrong direction, we have to account for hitting a wall to turn around faster
+                                // Note that we can check vx *after* the update because that's the speed that was applied 
+                                state_dr.vx = 0.0f;
+                                // We have to assume the wall is right was right in front of us from the beginning
+                                state_dr.px = prev_px;
+                                state_dr.rx = prev_rx;
+                                state_dr.x_dist = 0;
+                            }
+                            if (state_dr.vy < 0.0f) {
+                                // As above, we have to account for touching a floor to turn around faster
+                                state_dr.vy = 0.0f;
+                                state_dr.py = prev_py;
+                                state_dr.ry = prev_ry;
+                                state_dr.y_dist = 0;
+                            }
+                        }
+                    }
+
+                    can_flip = true;
+                    can_double_flip = true;
+                    if (!reached_corner_x && px_min + state_ul.x_dist <= cx_max && px_max + state_dr.x_dist >= cx_min) {
+                        reached_corner_x = true;
+                    }
+                    if (!reached_corner_y && py_min + state_ul.y_dist <= cy_max && py_max + state_dr.y_dist >= cy_min) {
+                        reached_corner_y = true;
+                    }
+                    ul_accel = (x_d > 0 && -state_ul.vx < MAX_X_SPEED) || (y_d > 0 && -state_ul.vy < MAX_Y_SPEED);
+                    dr_accel = (x_d < 0 && state_dr.vx < MAX_X_SPEED) || (y_d < 0 && state_dr.vy < MAX_Y_SPEED);
+                }
+
+                px_min += state_ul.x_dist;
+                px_max += state_dr.x_dist;
+                py_min += state_ul.y_dist;
+                py_max += state_dr.y_dist;
+                total_frames += state_ul.frame_count;
+
+                x_d = px_min > cx_max ? (px_min - cx_max) : (px_max < cx_min ? (px_max - cx_min) : 0);
+                y_d = py_min > cy_max ? (py_min - cy_max) : (py_max < cy_min ? (py_max - cy_min) : 0);
+
+                if (x_d != 0 || y_d != 0) {
+                    int x_frames = (SDL_abs(x_d) + MAX_X_SPEED - 1) / MAX_X_SPEED;
+                    int y_frames = (SDL_abs(y_d) + MAX_Y_SPEED - 1) / MAX_Y_SPEED;
+                    int extra_frames = SDL_max(x_frames, y_frames);
+                    total_frames += extra_frames;
+                }
+            }
         }
 
         return total_frames;
+    }
+
+    void do_sim_step(SimState& state, bool press_left, bool press_right, bool flip) {
+        state.frame_count++;
+
+        // Update acceleration and tap state
+        float ax = 0;
+        if (press_right) {
+            state.tapright++;
+            state.input_count++;
+            ax = 3;
+        }
+        else {
+            if (0 < state.tapright && state.tapright < 5 && state.vx > 0.0f) {
+                state.vx = 0;
+            }
+            state.tapright = 0;
+        }
+        // Left must come after right so that it overrides acceleration if both are pressed
+        if (press_left) {
+            state.tapleft++;
+            state.input_count++;
+            ax = -3;
+        }
+        else {
+            if (0 < state.tapleft && state.tapleft < 5 && state.vx < 0.0f) {
+                state.vx = 0;
+            }
+            state.tapleft = 0;
+        }
+        // Process flip input
+        if (flip) {
+            state.input_count++;
+            state.gravity = !state.gravity;
+            state.vy = state.gravity ? -4 : 4;
+        }
+
+        // Y accel is just gravity
+        float ay = state.gravity ? -3 : 3;
+
+        // Update X velocity
+        state.vx += ax;
+        if (state.vx >  0.00f) state.vx -= X_RATE;
+        if (state.vx <  0.00f) state.vx += X_RATE;
+        if (state.vx >  MAX_X_SPEED) state.vx =  MAX_X_SPEED;
+        if (state.vx < -MAX_X_SPEED) state.vx = -MAX_X_SPEED;
+        if (SDL_fabsf(state.vx) < X_RATE) state.vx = 0.0f;
+
+        // Update Y velocity
+        state.vy += ay;
+        if (state.vy > 0.00f) state.vy -= Y_RATE;
+        if (state.vy < 0.00f) state.vy += Y_RATE;
+        if (state.vy > 10.00f) state.vy = 10.0f;
+        if (state.vy < -10.00f) state.vy = -10.0f;
+        if (SDL_fabsf(state.vy) < Y_RATE) state.vy = 0.0f;
+
+        // Update X position
+        int delta_x = -state.px;
+        state.px += state.vx;
+        delta_x += state.px;
+        state.x_dist += delta_x;
+
+        // Update Y position
+        int delta_y = -state.py;
+        state.py += state.vy;
+        delta_y += state.py;
+        state.y_dist += delta_y;
+
+        // TODO: Warping rooms are not taken into account here!
+        // Note that Y room transition happens first!
+        if (state.py >= 238) {
+            state.py -= 240;
+            state.ry++;
+        }
+        else if (state.py < -2) {
+            state.py += 240;
+            state.ry--;
+        }
+        // X room transition second
+        if (state.px >= 308) {
+            state.px -= 320;
+            state.rx++;
+        }
+        else if (state.px < -14) {
+            state.px += 320;
+            state.rx--;
+        }
+    }
+
+    void SimState::reset_counters() {
+        this->frame_count = 0;
+        this->input_count = 0;
+        this->x_dist = 0;
+        this->y_dist = 0;
+    }
+    void SimState::bound_x(int min_x, int max_x) {
+        int self_x = room_adjusted_x(this->rx, this->px);
+        int new_x = SDL_clamp(self_x, min_x, max_x);
+        int x_diff = new_x - self_x;
+        int rx_diff = x_diff / 320;
+        x_diff = x_diff - (rx_diff * 320);
+        this->px += x_diff;
+        this->rx += rx_diff;
+        if (this->px >= 308) {
+            this->px -= 320;
+            this->rx++;
+        }
+        else if (this->px < -14) {
+            this->px += 320;
+            this->rx--;
+        }
+        if (this->px >= 308 || this->px < -14) {
+            // Sanity check
+            VVV_exit(275902);
+        }
+    }
+    void SimState::bound_y(int min_y, int max_y) {
+        int self_y = room_adjusted_y(this->ry, this->py);
+        int new_y = SDL_clamp(self_y, min_y, max_y);
+        int y_diff = new_y - self_y;
+        int ry_diff = y_diff / 240;
+        y_diff = y_diff - (ry_diff * 240);
+        this->py += y_diff;
+        this->ry += ry_diff;
+        if (this->py >= 238) {
+            this->py -= 240;
+            this->ry++;
+        }
+        else if (this->py < -2) {
+            this->py += 240;
+            this->ry--;
+        }
+        if (this->py >= 238 || this->py < -2) {
+            // Sanity check
+            VVV_exit(275903);
+        }
+    }
+    void SimState::bound_vx(float min_vx, float max_vx) {
+        this->vx = SDL_clamp(this->vx, min_vx, max_vx);
+    }
+    void SimState::bound_vy(float min_vy, float max_vy) {
+        this->vy = SDL_clamp(this->vy, min_vy, max_vy);
     }
 
     std::hash<bool> h_b;

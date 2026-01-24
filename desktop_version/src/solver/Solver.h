@@ -217,6 +217,29 @@ namespace Solver {
         uint16_t input_count;
     };
 
+    struct SimState {
+        int frame_count;
+        int input_count;
+        int px;
+        int py;
+        int rx;
+        int ry;
+        float vx;
+        float vy;
+        bool gravity; // 0 = down, 1 = up
+        int tapleft;
+        int tapright;
+        int x_dist;
+        int y_dist;
+        SimState(int px, int py, int rx, int ry, float vx, float vy, bool gravity, int tapleft, int tapright) : frame_count(0), input_count(0), px(px), py(py), rx(rx), ry(ry), vx(vx), vy(vy), gravity(gravity), tapleft(tapleft), tapright(tapright), x_dist(0), y_dist(0) {}
+
+        void reset_counters();
+        void bound_x(int min_x, int max_x);
+        void bound_y(int min_y, int max_y);
+        void bound_vx(float min_vx, float max_vx);
+        void bound_vy(float min_vy, float max_vy);
+    };
+
 	void entrypoint();
 
     void squish_test();
@@ -253,6 +276,7 @@ namespace Solver {
     std::vector<std::size_t> get_cached_block_set(std::size_t hash);
 
 	void do_game_step(bool render);
+    void do_game_render();
 
     bool compare_naive_states(naivestate a, naivestate b);
     bool compare_cached_naivestates(cachednaivestate a, cachednaivestate b);
@@ -269,10 +293,12 @@ namespace Solver {
     int room_adjusted_y(int ry, int y);
     bool passed_next_corner(int next_corner, int room_x, int room_y, int player_x, int player_y);
     bool before_next_corner(int next_corner, int room_x, int room_y, int player_x, int player_y);
-    uint16_t get_heuristic(int next_corner, int room_x, int room_y, int player_x, int player_y);
+    uint16_t get_heuristic(int next_corner, int room_x, int room_y, int player_x, int player_y, int gravity, float vx, float vy, int tapleft, int tapright);
     uint16_t get_input_frames_heuristic(int next_corner, int room_x, int room_y, int player_x, int player_y, int gravity, float vx, float vy, int tapleft, int tapright);
     uint16_t get_input_frames_heuristic_x(int next_corner, int room_x, int room_y, int player_x, int player_y, int gravity, float vx, float vy, int tapleft, int tapright);
     uint16_t get_input_frames_heuristic_y(int next_corner, int room_x, int room_y, int player_x, int player_y, int gravity, float vx, float vy, int tapleft, int tapright);
+
+    void do_sim_step(SimState &state, bool press_left, bool press_right, bool flip);
 
     std::size_t hash_naivestate(naivestate s);
     std::size_t hash_cached_naivestate(cachednaivestate s);
