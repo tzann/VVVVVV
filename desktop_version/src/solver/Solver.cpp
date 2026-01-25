@@ -9,6 +9,7 @@
 #include "Entity.h"
 #include "Exit.h"
 #include "FileSystemUtils.h"
+#include "Font.h"
 #include "Game.h"
 #include "Graphics.h"
 #include "Input.h"
@@ -25,6 +26,7 @@
 #include "Screen.h"
 #include "Script.h"
 #include "UtilityClass.h"
+#include "VFormat.h"
 #include "Vlogging.h"
 
 #include <queue>
@@ -482,7 +484,9 @@ namespace Solver {
                 const int rx = 103;
                 const int ry = 118;
                 const corner DROP_DOWN(rx, ry, 238, 89, DOWN_LEFT);
-                const corner FALL_UP(rx, ry, 126, 86, UP_LEFT);
+                const corner SPIKE_DOWN(rx, ry, 154, 102, LEFT_DOWN);
+                const corner FALL_UP_1(rx, ry, 142, 102, UP_LEFT);
+                const corner FALL_UP_2(rx, ry, 126, 86, UP_LEFT);
             }
             namespace THORNY_EXCHANGE {
                 const int rx = 103;
@@ -817,7 +821,9 @@ namespace Solver {
                 CORNERS::HITTING_THE_APEX::TURNAROUND_1,
                 CORNERS::HITTING_THE_APEX::TURNAROUND_2,
                 CORNERS::SQUARE_ROOT::DROP_DOWN,
-                CORNERS::SQUARE_ROOT::FALL_UP,
+                CORNERS::SQUARE_ROOT::SPIKE_DOWN,
+                CORNERS::SQUARE_ROOT::FALL_UP_1,
+                CORNERS::SQUARE_ROOT::FALL_UP_2,
                 CORNERS::THORNY_EXCHANGE::GO_RIGHT,
                 CORNERS::THORNY_EXCHANGE::FALL_UP,
                 CORNERS::LETTER_G::ENTRY_LEFT,
@@ -831,7 +837,9 @@ namespace Solver {
                 CORNERS::HITTING_THE_APEX::TURNAROUND_1,
                 CORNERS::HITTING_THE_APEX::TURNAROUND_2,
                 CORNERS::SQUARE_ROOT::DROP_DOWN,
-                CORNERS::SQUARE_ROOT::FALL_UP,
+                CORNERS::SQUARE_ROOT::SPIKE_DOWN,
+                CORNERS::SQUARE_ROOT::FALL_UP_1,
+                CORNERS::SQUARE_ROOT::FALL_UP_2,
                 CORNERS::THORNY_EXCHANGE::GO_RIGHT,
                 CORNERS::THORNY_EXCHANGE::FALL_UP,
                 CORNERS::LETTER_G::ENTRY_LEFT,
@@ -847,7 +855,9 @@ namespace Solver {
                 CORNERS::HITTING_THE_APEX::TURNAROUND_1,
                 CORNERS::HITTING_THE_APEX::TURNAROUND_2,
                 CORNERS::SQUARE_ROOT::DROP_DOWN,
-                CORNERS::SQUARE_ROOT::FALL_UP,
+                CORNERS::SQUARE_ROOT::SPIKE_DOWN,
+                CORNERS::SQUARE_ROOT::FALL_UP_1,
+                CORNERS::SQUARE_ROOT::FALL_UP_2,
                 CORNERS::THORNY_EXCHANGE::GO_RIGHT,
                 CORNERS::THORNY_EXCHANGE::FALL_UP,
                 CORNERS::LETTER_G::SKIP_LINE,
@@ -1229,7 +1239,7 @@ namespace Solver {
     // Current Benchmarks:
     // The Yes Men: 4630052 states visited, ~1:30 runtime (cached_stateful)
     // It's a Secret to Nobody: 1372903, 19s runtime
-    static Scenario scenario = LAB::SCENARIOS::HITTING_THE_APEX_TO_IN_A_SINGLE_BOUND;
+    static Scenario scenario = LAB::SCENARIOS::MERGE_TO_IM_SORRY;
     // static Scenario scenario = SS1::SCENARIOS::START;
     // 0: Don't minimize inputs
     // 1: Minimize total number of presses / releases
@@ -1675,12 +1685,10 @@ namespace Solver {
                 }
 
                 // Some debug info, very primitive
-                game.hours = s.h;
-                game.minutes = 0;
-                game.seconds = 0;
-                game.frames = int(hash_set.size() * 3 / 10);
+                game.timetrialresultdeaths = hash_set.size();
 
-                game.deathcounts = int(entity_set_cache.size());
+                game.timetrialresulttrinkets = SDL_max(s.f_count, game.timetrialresulttrinkets);
+                game.timetrialresultshinytarget = s.h;
 
                 // bool has_control = (s.game.hascontrol && s.game.deathseq == -1 && s.game.lifeseq <= 5);
                 // TODO: does this work for line clips? I think so
@@ -2990,7 +2998,42 @@ namespace Solver {
         graphics.clear();
         graphics.set_render_target(graphics.gameTexture);
         gamerender();
+
+        // Clear previous HUD text so we can just display debug info
+        graphics.set_render_target(graphics.gameTexture);
+        graphics.clear();
+        graphics.copy_texture(graphics.gameplayTexture, NULL, NULL);
+
+        render_debug_info();
+
+        graphics.render();
+
         gameScreen.RenderPresent();
+    }
+
+    void render_debug_info() {
+        const char* tempstring = "DEPTH:";
+        int label_len = font::len(0, tempstring);
+        font::print(PR_BOR, 6, 18, tempstring, 255, 255, 255);
+
+        char buffer[SCREEN_WIDTH_CHARS + 1];
+        vformat_buf(
+            buffer, sizeof(buffer),
+            "{n_trinkets} of {max_trinkets}",
+            "n_trinkets:int, max_trinkets:int",
+            game.timetrialresulttrinkets, game.timetrialresultshinytarget
+        );
+        font::print(PR_BOR, 8 + label_len, 18, buffer, 196, 196, 196);
+
+        tempstring = "STATE:";
+        label_len = font::len(0, tempstring);
+        font::print(PR_BOR, 6, 30, tempstring, 255, 255, 255);
+        font::print(PR_BOR, 8 + label_len, 30, help.String(game.timetrialresultdeaths), 196, 196, 196);
+
+        tempstring = "CACHE:";
+        label_len = font::len(0, tempstring);
+        font::print(PR_BOR, 6, 42, tempstring, 255, 255, 255);
+        font::print(PR_BOR, 8 + label_len, 42, help.String(entitycache.size()), 196, 196, 196);
     }
 
     bool compare_naive_states(naivestate a, naivestate b) {
@@ -4004,6 +4047,10 @@ namespace Solver {
                     else if (y_d < 0) {
                         is_inside = true;
                         inside_fix_dir = LEFT_DOWN;
+                        // Account for player width in pos of "fake" corner
+                        cx += VIRIDIAN_W;
+                        cx_min = cx;
+                        cx_max = cx;
                     }
                     break;
                 case DOWN_LEFT:
@@ -4015,6 +4062,10 @@ namespace Solver {
                     else if (y_d > 0) {
                         is_inside = true;
                         inside_fix_dir = LEFT_UP;
+                        // Account for player width in pos of "fake" corner
+                        cx_max += VIRIDIAN_W;
+                        cx_min = cx;
+                        cx_max = cx;
                     }
                     break;
                 case LEFT_UP:
@@ -4026,6 +4077,10 @@ namespace Solver {
                     else if (x_d < 0) {
                         is_inside = true;
                         inside_fix_dir = UP_RIGHT;
+                        // Account for player height in pos of "fake" corner
+                        cy += VIRIDIAN_H;
+                        cy_min = cy;
+                        cy_max = cy;
                     }
                     break;
                 case RIGHT_UP:
@@ -4037,6 +4092,10 @@ namespace Solver {
                     else if (x_d > 0) {
                         is_inside = true;
                         inside_fix_dir = UP_LEFT;
+                        // Account for player height in pos of "fake" corner
+                        cy += VIRIDIAN_H;
+                        cy_min = cy;
+                        cy_max = cy;
                     }
                     break;
                 case LEFT_DOWN:
@@ -4048,6 +4107,10 @@ namespace Solver {
                     else if (x_d < 0) {
                         is_inside = true;
                         inside_fix_dir = DOWN_RIGHT;
+                        // Account for player height in pos of "fake" corner
+                        cy -= VIRIDIAN_H;
+                        cy_min = cy;
+                        cy_max = cy;
                     }
                     break;
                 case RIGHT_DOWN:
@@ -4059,6 +4122,10 @@ namespace Solver {
                     else if (x_d > 0) {
                         is_inside = true;
                         inside_fix_dir = DOWN_LEFT;
+                        // Account for player height in pos of "fake" corner
+                        cy -= VIRIDIAN_H;
+                        cy_min = cy;
+                        cy_max = cy;
                     }
                     break;
                 case UP_RIGHT:
@@ -4070,6 +4137,10 @@ namespace Solver {
                     else if (y_d < 0) {
                         is_inside = true;
                         inside_fix_dir = RIGHT_DOWN;
+                        // Account for player width in pos of "fake" corner
+                        cx_max -= VIRIDIAN_W;
+                        cx_min = cx;
+                        cx_max = cx;
                     }
                     break;
                 case DOWN_RIGHT:
@@ -4081,6 +4152,10 @@ namespace Solver {
                     else if (y_d > 0) {
                         is_inside = true;
                         inside_fix_dir = RIGHT_UP;
+                        // Account for player width in pos of "fake" corner
+                        cx -= VIRIDIAN_W;
+                        cx_min = cx;
+                        cx_max = cx;
                     }
                     break;
                 case TRINKET:
@@ -4105,12 +4180,16 @@ namespace Solver {
                 }
                 else if (is_inside) {
                     if (next_corner != next_corner_orig || trinket_or_warp) {
-                        // This shouldn't really ever happen
+                        // This shouldn't really ever happen with well-formed corner sequences
+                        do_game_render();
                         VVV_exit(782976);
                     }
                     // We "add" another corner so as not to be inside the next one
                     next_corner--;
                     c_dir = inside_fix_dir;
+                    // Re-calculate corner deltas
+                    x_d = px_min > cx_max ? (px_min - cx_max) : (px_max < cx_min ? (px_max - cx_min) : 0);
+                    y_d = py_min > cy_max ? (py_min - cy_max) : (py_max < cy_min ? (py_max - cy_min) : 0);
                 }
             }
             

@@ -282,6 +282,7 @@ namespace Solver {
 
 	void do_game_step(bool render);
     void do_game_render();
+    void render_debug_info();
 
     bool compare_naive_states(naivestate a, naivestate b);
     bool compare_cached_naivestates(cachednaivestate a, cachednaivestate b);
