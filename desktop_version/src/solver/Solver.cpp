@@ -451,20 +451,30 @@ namespace Solver {
             namespace YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_ENTER {
                 const int rx = 102;
                 const int ry = 118;
-                const corner A(rx, ry, 95, 185, RIGHT_UP);
+                const corner A(rx, ry, 94, 185, RIGHT_UP);
                 const corner B(rx, ry, 250, 174, UP_RIGHT);
                 const corner C(rx, ry, 250, 65, LEFT_UP);
-                const corner D(rx, ry, 22, 46, UP_LEFT);
+                const corner D(rx, ry, 190, 65, DOWN_LEFT);
+                const corner E(rx, ry, 50, 46, LEFT_DOWN);
+                const corner F(rx, ry, 22, 46, UP_LEFT);
 
                 const corner TRINKET(rx, ry, 16, 24, TRINKET);
             }
             namespace YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_LEAVE {
                 const int rx = 102;
                 const int ry = 118;
-                const corner A(rx, ry, 95, 185, DOWN_LEFT);
+                const corner A(rx, ry, 94, 185, DOWN_LEFT);
                 const corner B(rx, ry, 250, 174, LEFT_DOWN);
                 const corner C(rx, ry, 250, 65, DOWN_RIGHT);
-                const corner D(rx, ry, 22, 46, RIGHT_DOWN);
+                const corner D(rx, ry, 190, 65, RIGHT_UP);
+                const corner E(rx, ry, 50, 46, UP_RIGHT);
+                const corner F(rx, ry, 22, 46, RIGHT_DOWN);
+            }
+            namespace THEY_CALL_HIM_FLIPPER {
+                const int rx = 103;
+                const int ry = 119;
+                const corner ENTRY_SPIKE_CORNER(rx, ry, 130, 110, UP_RIGHT);
+                const corner EXIT_SPIKE_CORNER(rx, ry, 166, 97, RIGHT_UP);
             }
             namespace THREES_A_CROWD {
                 const int rx = 104;
@@ -811,6 +821,8 @@ namespace Solver {
 
             const Scenario DONT_FLIP_OUT_TO_LINECLIP(100, 119, 61, 21, 0, 0, {
                 CORNERS::DONT_FLIP_OUT::GO_RIGHT,
+                CORNERS::THEY_CALL_HIM_FLIPPER::ENTRY_SPIKE_CORNER,
+                CORNERS::THEY_CALL_HIM_FLIPPER::EXIT_SPIKE_CORNER,
                 CORNERS::THREES_A_CROWD::ENTRY_DROP,
                 CORNERS::THREES_A_CROWD::LINE_CLIP_CORNER,
                 CORNERS::HITTING_THE_APEX::ENTRY_CUT,
@@ -977,16 +989,39 @@ namespace Solver {
                 CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_ENTER::B,
                 CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_ENTER::C,
                 CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_ENTER::D,
+                CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_ENTER::E,
+                CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_ENTER::F,
                 CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_ENTER::TRINKET,
+                CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_LEAVE::F,
+                CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_LEAVE::E,
                 CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_LEAVE::D,
                 CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_LEAVE::C,
                 CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_LEAVE::B,
                 CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_LEAVE::A,
                 CORNERS::DOUBLE_SLIT_EXPERIMENT::TOP_SHAFT_CORNER,
                 CORNERS::DOUBLE_SLIT_EXPERIMENT::EXIT_CORNER,
+                CORNERS::THEY_CALL_HIM_FLIPPER::ENTRY_SPIKE_CORNER,
+                CORNERS::THEY_CALL_HIM_FLIPPER::EXIT_SPIKE_CORNER,
                 CORNERS::THREES_A_CROWD::ENTRY_DROP,
                 CORNERS::THREES_A_CROWD::SPIKE_CUT,
             });
+            const Scenario YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_LEAVE(102, 118, 50, 26, 0, 4, {
+                CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_ENTER::E,
+                CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_ENTER::F,
+                CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_ENTER::TRINKET,
+                CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_LEAVE::F,
+                CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_LEAVE::E,
+                CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_LEAVE::D,
+                CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_LEAVE::C,
+                CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_LEAVE::B,
+                CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_LEAVE::A,
+                CORNERS::DOUBLE_SLIT_EXPERIMENT::TOP_SHAFT_CORNER,
+                CORNERS::DOUBLE_SLIT_EXPERIMENT::EXIT_CORNER,
+                CORNERS::THEY_CALL_HIM_FLIPPER::ENTRY_SPIKE_CORNER,
+                CORNERS::THEY_CALL_HIM_FLIPPER::EXIT_SPIKE_CORNER,
+                CORNERS::THREES_A_CROWD::ENTRY_DROP,
+                CORNERS::THREES_A_CROWD::SPIKE_CUT,
+                });
 
             const Scenario GARBAGE_ROOM_TRINKET(107, 115, 233, 201, 1, 0, {
                 CORNERS::ENTANGLEMENT_GENERATOR::DROP_UP,
@@ -1239,7 +1274,7 @@ namespace Solver {
     // Current Benchmarks:
     // The Yes Men: 4630052 states visited, ~1:30 runtime (cached_stateful)
     // It's a Secret to Nobody: 1372903, 19s runtime
-    static Scenario scenario = LAB::SCENARIOS::MERGE_TO_IM_SORRY;
+    static Scenario scenario = LAB::SCENARIOS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_LEAVE;
     // static Scenario scenario = SS1::SCENARIOS::START;
     // 0: Don't minimize inputs
     // 1: Minimize total number of presses / releases
@@ -1763,8 +1798,14 @@ namespace Solver {
 
                     if (new_state.h < s.h) {
                         naivestate b = create_naive_state();
+                        b.f_count = new_state.f_count;
+                        b.next_corner = new_state.next_corner;
+                        b.h = new_state.h;
                         load_cached_naivestate(s);
                         naivestate a = create_naive_state();
+                        a.f_count = s.f_count;
+                        a.next_corner = s.next_corner;
+                        a.h = s.h;
 
                         int num_states = hash_set.size();
 
@@ -1913,15 +1954,13 @@ namespace Solver {
             load_naive_state(a);
             game.hours = a.h;
             do_game_render();
-            uint16_t a_h = get_heuristic(a.next_corner, a.game.roomx, a.game.roomy, a.player.x, a.player.y, a.game.gravitycontrol, a.player.vx, a.player.vy, a.game.tapleft, a.game.tapright);
-            a.h = a_h;
+            uint16_t a_h = a.f_count + get_heuristic(a.next_corner, a.game.roomx, a.game.roomy, a.player.x, a.player.y, a.game.gravitycontrol, a.player.vx, a.player.vy, a.game.tapleft, a.game.tapright);
             SDL_Delay(170);
 
             load_naive_state(b);
             game.hours = b.h;
             do_game_render();
-            uint16_t b_h = 1 + get_heuristic(b.next_corner, b.game.roomx, b.game.roomy, b.player.x, b.player.y, b.game.gravitycontrol, b.player.vx, b.player.vy, b.game.tapleft, b.game.tapright);
-            b.h = b_h;
+            uint16_t b_h = b.f_count + get_heuristic(b.next_corner, b.game.roomx, b.game.roomy, b.player.x, b.player.y, b.game.gravitycontrol, b.player.vx, b.player.vy, b.game.tapleft, b.game.tapright);
             SDL_Delay(170);
         }
     }
@@ -3995,7 +4034,8 @@ namespace Solver {
     // TODO: maybe we can cache results starting from next_corner
     uint16_t get_heuristic(int next_corner_orig, int room_x, int room_y, int player_x, int player_y, int gravity, float vx, float vy, int tapleft, int tapright) {
         int total_frames = 0;
-        int next_corner = next_corner_orig;
+        int next_corner_base = next_corner_orig;
+        int next_corner = next_corner_base;
         bool can_flip = (!game.jumpheld || game.jumppressed > 0) && (obj.entities[0].onground > 0 && game.gravitycontrol == 0 || obj.entities[0].onroof > 0 && game.gravitycontrol == 1);
         bool can_double_flip = (!game.jumpheld || game.jumppressed > 0) && (obj.entities[0].onground > 0 && game.gravitycontrol == 0 && obj.entities[0].onroof > 0);
 
@@ -4041,7 +4081,7 @@ namespace Solver {
                 case UP_LEFT:
                     if (x_d <= 0) {
                         // Restrict x range to be not before the corner
-                        px_max = SDL_max(px_max, cx);
+                        px_max = SDL_min(px_max, cx);
                         is_before = false;
                     }
                     else if (y_d < 0) {
@@ -4056,7 +4096,7 @@ namespace Solver {
                 case DOWN_LEFT:
                     if (x_d <= 0) {
                         // Restrict x range to be not before the corner
-                        px_max = SDL_max(px_max, cx);
+                        px_max = SDL_min(px_max, cx);
                         is_before = false;
                     }
                     else if (y_d > 0) {
@@ -4131,7 +4171,7 @@ namespace Solver {
                 case UP_RIGHT:
                     if (x_d >= 0) {
                         // Restrict x range to be not before the corner
-                        px_min = cx;
+                        px_min = SDL_max(px_min, cx);
                         is_before = false;
                     }
                     else if (y_d < 0) {
@@ -4146,7 +4186,7 @@ namespace Solver {
                 case DOWN_RIGHT:
                     if (x_d >= 0) {
                         // Restrict x range to be not before the corner
-                        px_min = cx;
+                        px_min = SDL_max(px_min, cx);
                         is_before = false;
                     }
                     else if (y_d > 0) {
@@ -4162,10 +4202,10 @@ namespace Solver {
                 case WARP_TOKEN:
                     if (x_d == 0 && y_d == 0) {
                         // Restrict x and y ranges to the trinket hitbox
-                        px_min = cx_min;
-                        px_max = cx_max;
-                        py_min = cy_min;
-                        py_max = cy_max;
+                        px_min = SDL_max(px_min, cx_min);
+                        px_max = SDL_min(px_max, cx_max);
+                        py_min = SDL_max(py_min, cy_min);
+                        py_max = SDL_min(py_max, cy_max);
                         is_before = false;
                     }
                     break;
@@ -4175,18 +4215,62 @@ namespace Solver {
                     state_dr.bound_x(px_max, px_max);
                     state_ul.bound_y(py_min, py_min);
                     state_dr.bound_y(py_max, py_max);
+                    if (next_corner == next_corner_base) {
+                        // Pretend we started a corner later
+                        next_corner_base++;
+                    }
                     next_corner++;
                     continue;
                 }
                 else if (is_inside) {
-                    if (next_corner != next_corner_orig || trinket_or_warp) {
+                    if (trinket_or_warp) {
+                        // This should never happen
+                        VVV_exit(702737);
+                    } else if (next_corner != next_corner_base) {
                         // This shouldn't really ever happen with well-formed corner sequences
-                        do_game_render();
-                        VVV_exit(782976);
+                        // Edit: It actually does, because trinket hitboxes can overlap with corners
+                        // If the touched part of the trinket is fully within the corner, we end up here
+                        // We actually don't want to make the player retrace their steps,
+                        // instead we should probably just pretend they're not inside the corner and move them back a bit
+                        if (scenario.corners[next_corner - 1].dir != TRINKET && scenario.corners[next_corner - 1].dir != WARP_TOKEN) {
+                            // This should never happen?
+                            VVV_exit(702738);
+                        }
+                        switch (c_dir) {
+                        case UP_LEFT:
+                        case UP_RIGHT:
+                        case DOWN_LEFT:
+                        case DOWN_RIGHT:
+                            py_min = cy;
+                            py_max = cy;
+                            break;
+                        case LEFT_UP:
+                        case LEFT_DOWN:
+                        case RIGHT_UP:
+                        case RIGHT_DOWN:
+                            px_min = cx;
+                            px_max = cx;
+                            break;
+                        default:
+                        case TRINKET:
+                        case WARP_TOKEN:
+                            // This should never happen
+                            VVV_exit(702739);
+                            break;
+                        }
+                        // Hack: Restore corner position from "fake" corner
+                        cx = room_adjusted_x(c.rx, c.x);
+                        cy = room_adjusted_y(c.ry, c.y);
+                        cx_min = cx;
+                        cx_max = cx;
+                        cy_min = cy;
+                        cy_max = cy;
                     }
-                    // We "add" another corner so as not to be inside the next one
-                    next_corner--;
-                    c_dir = inside_fix_dir;
+                    else {
+                        // We "add" another corner so as not to be inside the next one
+                        next_corner--;
+                        c_dir = inside_fix_dir;
+                    }
                     // Re-calculate corner deltas
                     x_d = px_min > cx_max ? (px_min - cx_max) : (px_max < cx_min ? (px_max - cx_min) : 0);
                     y_d = py_min > cy_max ? (py_min - cy_max) : (py_max < cy_min ? (py_max - cy_min) : 0);
@@ -4491,8 +4575,10 @@ namespace Solver {
                         // We *exactly* reached the corner while going full speed
                         // So vx must be minimal
                         state_dr.vx = state_ul.vx;
-                        state_dr.tapright = SDL_min(state_dr.tapright, state_ul.tapleft);
-                        state_dr.tapleft = state_ul.tapleft;
+                        state_dr.tapright = 0;
+                        // state_dr.tapleft = state_ul.tapleft;
+                        // TODO: when exactly is it worth losing a frame to turn around faster?
+                        state_dr.tapleft = 1;
                     }
                     else {
                         // Assume the best case scenario, we can cancel leftward speed
@@ -4507,8 +4593,10 @@ namespace Solver {
                         // We *exactly* reached the corner while going full speed
                         // So vx must be maximal
                         state_ul.vx = state_dr.vx;
-                        state_ul.tapright = state_dr.tapright;
-                        state_ul.tapleft = state_dr.tapleft;
+                        //state_ul.tapright = state_dr.tapright;
+                        // TODO: when exactly is it worth losing a frame to turn around faster?
+                        state_ul.tapright = 1;
+                        state_ul.tapleft = 0;
                     }
                     else {
                         // Assume the best case scenario, we can cancel rightward speed
