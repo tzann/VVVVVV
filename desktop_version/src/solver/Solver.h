@@ -20,6 +20,10 @@ namespace Solver {
         WARP_TOKEN,
     };
 
+    // To get "canonical" previous corner direction
+    // 0 -> 3 -> 5 -> 6
+    // 7 -> 4 -> 2 -> 1
+
     struct corner {
         int rx;
         int ry;
@@ -247,6 +251,7 @@ namespace Solver {
     void stateful_solver();
 
     void cached_stateful_solver();
+    void playback_inadmissibility(naivestate& a, naivestate& b);
     void playback_ref();
 
     void stateless_solver(bool debug_checks);
@@ -257,10 +262,10 @@ namespace Solver {
 	void load_scenario();
 
     naivestate create_naive_state();
-	void load_naive_state(naivestate s);
+	void load_naive_state(naivestate& s);
 
     cachednaivestate create_cached_naivestate();
-    void load_cached_naivestate(cachednaivestate s);
+    void load_cached_naivestate(cachednaivestate& s);
 
     cacheentry fill_cache_entry();
     void load_cache_entry(cacheentry cache_entry);
