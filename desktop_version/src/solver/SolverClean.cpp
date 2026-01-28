@@ -32,7 +32,6 @@
 #include <unordered_set>
 #include <algorithm>
 #include <iostream>
-#include "SolverClean.h"
 
 namespace Solver {
     using namespace Geometry;
@@ -52,17 +51,17 @@ namespace Solver {
             assert(0 <= next_corner && next_corner <= scenario.corners.size());
             if (next_corner < scenario.corners.size()) {
                 CheckedCorner& next = scenario.corners[next_corner];
-                assert(!pos.isAfter(next));
+                assert(!next.isPosAfter(pos));
             }
             if (next_corner >= 1) {
                 CheckedCorner& last = scenario.corners[next_corner - 1];
-                assert(!pos.isBefore(last));
+                assert(!last.isPosBefore(pos));
             }
         }
 
         // Advance to the next corner that we are strictly before
         int c_start_idx = next_corner;
-        while (c_start_idx < scenario.corners.size() && !pos.isBefore(scenario.corners[c_start_idx])) {
+        while (c_start_idx < scenario.corners.size() && !scenario.corners[c_start_idx].isPosBefore(pos)) {
             c_start_idx++;
         }
 
@@ -85,26 +84,35 @@ namespace Solver {
         for (int c_idx = next_corner; c_idx < scenario.corners.size(); c_idx++) {
             CheckedCorner& c = scenario.corners[c_idx];
 
-            IntVector& c_min = IntVector(room_adjusted_x(c.room.rx, c.min.x), room_adjusted_y(c.room.ry, c.min.y));
-            IntVector& c_max = IntVector(room_adjusted_x(c.room.rx, c.max.x), room_adjusted_y(c.room.ry, c.max.y));
-            IntVector c_pos = c.isRegular() ? c.getRegularPos() : c_min;
+            Region& c_r = c.region;
 
-            int px = max_x;
-            int py = max_y;
-            if (c.dir == UP_LEFT || c.dir == LEFT_UP || c.dir == LEFT_DOWN || c.dir == DOWN_LEFT) {
-                // Going left, take smaller x
-                px = min_x;
-            }
-            if (c.dir == UP_LEFT || c.dir == UP_RIGHT || c.dir == LEFT_UP || c.dir == RIGHT_UP) {
-                // Going up, take smaller y
-                py = min_y;
-            }
+            IntInterval x_diff = pos.x - c_r.x;
+            IntInterval y_diff = pos.y - c_r.y;
 
-            // Subtract corner position from player position
-            int x_d = px - cx;
-            int y_d = py - cy;
+            int x_d = 0;
+            if (x_diff.contains(0)) {
+                x_d = 0;
+            }
+            else if (x_diff.is_negative()) {
+                x_d = x_diff.getUpperBound();
+            }
+            else if (x_diff.is_positive()) {
+                x_d = x_diff.getLowerBound();
+            }
+            int y_d = 0;
+            if (y_diff.contains(0)) {
+                y_d = 0;
+            }
+            else if (y_diff.is_negative()) {
+                y_d = y_diff.getUpperBound();
+            }
+            else if (y_diff.is_positive()) {
+                y_d = y_diff.getLowerBound();
+            }
 
             int frame_count = 0;
+            IntInterval x_dist = VX_INT_RANGE;
+            IntInterval y_dist = VY_INT_RANGE; 
 
             // Note that if we are "inside" the corner (e.g. x_d > 0 && y_d < 0 for UP_LEFT),
             //   then we just pretend we can walk through walls. The max corner cut distance constraint
@@ -114,144 +122,128 @@ namespace Solver {
             switch (c.dir) {
             case UP_LEFT: // Limiting factor: leftwards movement
                 if (x_d > 0) {
-                    // What distance can we cover until we pass the corner?
-                    frame_count = (x_d + X_SPEED - 1) / X_SPEED;
-                    min_x = px - frame_count * X_SPEED;
-                    // Can't cut more than 10 pixels past the corner
-                    min_y = SDL_max(py - frame_count * Y_SPEED, cy - Y_SPEED);
-                    // In case we want to hug the corner
-                    max_x = cx;
-                    max_y = SDL_max(py - frame_count * Y_SPEED, cy);
+                    // How long until we pass the corner?
+                    frame_count = div_ceil(x_d, MAX_VX);
+                    pos.x += x_dist * frame_count;
+                    pos.y += y_dist * frame_count;
+
+                    // Corner pos is upper bound (we need to be to the left)
+                    pos.x.intersect(c_r.x);
+                    // Can't cut more than 10 pixels past the corner vertically
+                    pos.y.intersect(c_r.y - MAX_VY);
                 }
                 break;
             case UP_RIGHT: // Limiting factor: rightwards movement
                 if (x_d < 0) {
                     // What distance can we cover until we pass the corner?
-                    frame_count = (-x_d + X_SPEED - 1) / X_SPEED;
-                    max_x = px + frame_count * X_SPEED;
-                    // Can't cut more than 10 pixels past the corner
-                    min_y = SDL_max(py - frame_count * Y_SPEED, cy - Y_SPEED);
-                    // In case we want to hug the corner
-                    min_x = cx;
-                    max_y = SDL_max(py - frame_count * Y_SPEED, cy);
+                    frame_count = div_ceil(-x_d, MAX_VX);
+                    pos.x += x_dist * frame_count;
+                    pos.y += y_dist * frame_count;
+
+                    // Corner pos is lower bound (we need to be to the right)
+                    pos.x.intersect(c_r.x);
+                    // Can't cut more than 10 pixels past the corner vertically
+                    pos.y.intersect(c_r.y - MAX_VY);
                 }
                 break;
             case LEFT_UP: // Limiting factor: upwards movement
                 if (y_d > 0) {
                     // What distance can we cover until we pass the corner?
-                    frame_count = (y_d + Y_SPEED - 1) / Y_SPEED;
-                    // Can't cut more than 0 pixels past the corner
-                    min_x = SDL_max(px - frame_count * X_SPEED, cx);
-                    min_y = py - frame_count * Y_SPEED;
-                    // In case we want to hug the corner
-                    max_x = SDL_max(px - frame_count * X_SPEED, cx);
-                    max_y = cy;
+                    frame_count = div_ceil(y_d, MAX_VY);
+                    pos.x += x_dist * frame_count;
+                    pos.y += y_dist * frame_count;
+
+                    // Can't cut past the corner horizontally
+                    pos.x.intersect(c_r.x);
+                    // Corner pos is upper bound (we need to be above)
+                    pos.y.intersect(c_r.y);
                 }
                 break;
             case LEFT_DOWN: // Limiting factor: downwards movement
                 if (y_d < 0) {
                     // What distance can we cover until we pass the corner?
-                    frame_count = (-y_d + Y_SPEED - 1) / Y_SPEED;
-                    // Can't cut more than 0 pixels past the corner
-                    min_x = SDL_max(px - frame_count * X_SPEED, cx);
-                    max_y = py + frame_count * Y_SPEED;
-                    // In case we want to hug the corner
-                    max_x = SDL_max(px - frame_count * X_SPEED, cx);
-                    min_y = cy;
+                    frame_count = div_ceil(-y_d, MAX_VY);
+                    pos.x += x_dist * frame_count;
+                    pos.y += y_dist * frame_count;
+
+                    // Can't cut past the corner horizontally
+                    pos.x.intersect(c_r.x);
+                    // Corner pos is lower bound (we need to be above)
+                    pos.y.intersect(c_r.y);
                 }
                 break;
             case DOWN_LEFT:
                 if (x_d > 0) {
-                    // What distance can we cover until we pass the corner?
-                    frame_count = (x_d + X_SPEED - 1) / X_SPEED;
-                    min_x = px - frame_count * X_SPEED;
-                    // Can't cut more than 10 pixels past the corner
-                    max_y = SDL_min(py + frame_count * Y_SPEED, cy + Y_SPEED);
-                    // In case we want to hug the corner
-                    max_x = cx;
-                    min_y = SDL_min(py + frame_count * Y_SPEED, cy);
+                    // How long until we pass the corner?
+                    frame_count = div_ceil(x_d, MAX_VX);
+                    pos.x += x_dist * frame_count;
+                    pos.y += y_dist * frame_count;
+
+                    // Corner pos is upper bound (we need to be to the left)
+                    pos.x.addUpperBound(c_r.x.max);
+                    // Can't cut more than 10 pixels past the corner vertically
+                    pos.y.addLowerBound(c_r.y.min + MAX_VY);
                 }
                 break;
             case DOWN_RIGHT:
                 if (x_d < 0) {
-                    // What distance can we cover until we pass the corner?
-                    frame_count = (-x_d + X_SPEED - 1) / X_SPEED;
-                    max_x = px + frame_count * X_SPEED;
-                    // Can't cut more than 10 pixels past the corner
-                    max_y = SDL_min(py + frame_count * Y_SPEED, cy + Y_SPEED);
-                    // In case we want to hug the corner
-                    min_x = cx;
-                    min_y = SDL_min(py + frame_count * Y_SPEED, cy);
+                    // How long until we pass the corner?
+                    frame_count = div_ceil(-x_d, MAX_VX);
+                    pos.x += x_dist * frame_count;
+                    pos.y += y_dist * frame_count;
+
+                    // Corner pos is upper bound (we need to be to the left)
+                    pos.x.addUpperBound(c_r.x.max);
+                    // Can't cut more than 10 pixels past the corner vertically
+                    pos.y.addLowerBound(c_r.y.min + MAX_VY);
                 }
                 break;
             case RIGHT_UP:
                 if (y_d > 0) {
                     // What distance can we cover until we pass the corner?
-                    frame_count = (y_d + Y_SPEED - 1) / Y_SPEED;
-                    // Can't cut more than 0 pixels past the corner
-                    max_x = SDL_min(px + frame_count * X_SPEED, cx);
-                    min_y = py - frame_count * Y_SPEED;
-                    // In case we want to hug the corner
-                    min_x = SDL_min(px + frame_count * X_SPEED, cx);
-                    max_y = cy;
+                    frame_count = div_ceil(y_d, MAX_VY);
+                    pos.x += x_dist * frame_count;
+                    pos.y += y_dist * frame_count;
+
+                    // Can't cut past the corner horizontally
+                    pos.x.intersect(c_r.x);
+                    // Corner pos is upper bound (we need to be above)
+                    pos.y.intersect(c_r.y);
                 }
                 break;
             case RIGHT_DOWN:
                 if (y_d < 0) {
                     // What distance can we cover until we pass the corner?
-                    frame_count = (-y_d + Y_SPEED - 1) / Y_SPEED;
-                    // Can't cut more than 0 pixels past the corner
-                    max_x = SDL_min(px + frame_count * X_SPEED, cx);
-                    max_y = py + frame_count * Y_SPEED;
-                    // In case we want to hug the corner
-                    min_x = SDL_min(px + frame_count * X_SPEED, cx);
-                    min_y = cy;
+                    frame_count = div_ceil(-y_d, MAX_VY);
+                    pos.x += x_dist * frame_count;
+                    pos.y += y_dist * frame_count;
+
+                    // Can't cut past the corner horizontally
+                    pos.x.intersect(c_r.x);
+                    // Corner pos is upper bound (we need to be above)
+                    pos.y.intersect(c_r.y);
                 }
                 break;
             case TRINKET:
                 // Could be in any direction
-                // Note that we can collect the trinket in the range x [-17, 9], y [-22, 13]
-                // Modify distances accordingly
-                if (x_d < -17) {
-                    x_d += 17;
-                }
-                else if (x_d > 9) {
-                    x_d -= 9;
-                }
-                else {
-                    x_d = 0;
-                }
-                if (y_d < -22) {
-                    y_d += 22;
-                }
-                else if (y_d > 13) {
-                    y_d -= 13;
-                }
-                else {
-                    y_d = 0;
-                }
-
                 // At least how many frames will it take to reach the trinket?
-                int x_frames = (SDL_abs(x_d) + X_SPEED - 1) / X_SPEED;
-                int y_frames = (SDL_abs(y_d) + Y_SPEED - 1) / Y_SPEED;
+                int x_frames = div_ceil(SDL_abs(x_d), MAX_VX);
+                int y_frames = div_ceil(SDL_abs(y_d), MAX_VY);
                 frame_count = SDL_max(x_frames, y_frames);
+                pos.x += x_dist * frame_count;
+                pos.y += y_dist * frame_count;
 
                 // What are the min and max positions reachable while still collecting the trinket?
-                min_x = SDL_max(px - frame_count * X_SPEED, cx - 17);
-                max_x = SDL_min(px + frame_count * X_SPEED, cx + 9);
-
-                min_y = SDL_max(py - frame_count * Y_SPEED, cy - 22);
-                max_y = SDL_min(py + frame_count * Y_SPEED, cy + 13);
+                pos.x.intersect(c_r.x);
+                pos.y.intersect(c_r.y);
             }
 
             total_frames += frame_count;
         }
 
+        // TODO: account for final distance to get past the last corner, not just no longer be before it
+
         return total_frames;
-
-
-
-        Exceptions::todo();
     }
 
     CheckedScenario checkScenario(RawScenario& raw_scenario) {
@@ -360,38 +352,45 @@ namespace Solver {
                 int x_increment = left_occupied ? 1 : -1;
                 int y_increment = above_occupied ? 1 : -1;
                 int x_gap = c.x;
-                for (; x_gap < max.x; x_gap += x_increment) {
+                for (; min.x < x_gap && x_gap < max.x; x_gap += x_increment) {
                     int y = c.y - y_increment;
                     if (collision_bitmap[bitmap_width * (y - min.y - 1) + (x_gap - min.x - 1)]) {
                         // Cell is occupied, gap ends here
                         break;
                     }
                 }
-                if (x_gap >= max.x) {
-                    x_gap = x_increment * INT_MAX;
+                IntInterval x_ival = IntInterval(SDL_min(c.x, x_gap), SDL_max(c.x, x_gap));
+                if (x_gap <= min.x) {
+                    x_ival.removeLowerBound();
+                }
+                else if (x_gap >= max.x) {
+                    x_ival.removeUpperBound();
                 }
                 int y_gap = c.y;
-                for (; y_gap < max.y; y_gap += y_increment) {
+                for (; min.y < y_gap && y_gap < max.y; y_gap += y_increment) {
                     int x = c.x - x_increment;
                     if (collision_bitmap[bitmap_width * (y_gap - min.y - 1) + (x - min.x - 1)]) {
                         // Cell is occupied, gap ends here
                         break;
                     }
                 }
+                IntInterval y_ival = IntInterval(SDL_min(c.y, y_gap), SDL_max(c.y, y_gap));
+                if (y_gap <= min.y) {
+                    y_ival.removeLowerBound();
+                }
                 if (y_gap >= max.y) {
-                    y_gap = y_increment * INT_MAX;
+                    y_ival.removeUpperBound();
                 }
 
-                IntVector c_min = IntVector(SDL_min(c.x, x_gap), SDL_min(c.y, y_gap));
-                IntVector c_max = IntVector(SDL_max(c.x, x_gap), SDL_max(c.y, y_gap));
-                checked_corners.emplace_back(std::forward_as_tuple(c_room, c_min, c_max, c.dir));
+                Region reg = Region(x_ival, y_ival);
+
+                checked_corners.emplace_back(std::forward_as_tuple(c_room, reg, c.dir));
             }
             else {
                 // Trinket or warp token - let's see if the hitbox is partially OoB and update it
                 // In some cases, the trinket even overlaps with a corner of terrain, but in these cases we should probably just leave it as is
                 // So just find the smallest AABB that contains the entire trinket hitbox (i.e. the range of positions the player can be at while collecting it)
-                IntVector c_min = IntVector(c.x + TRINKET_X_MAX, c.y + TRINKET_Y_MAX);
-                IntVector c_max = IntVector(c.x + TRINKET_X_MIN, c.y + TRINKET_Y_MIN);
+                Region box = Region::bottom();
 
                 // This isn't efficient but it's a one-time cost at the start of execution so who cares
                 // TODO: do we have to worry about warping trinket hitboxes around? hopefully not
@@ -401,18 +400,16 @@ namespace Solver {
                         if (min.y > py || py > max.y) continue;
                         if (!collision_bitmap[bitmap_width * (py - min.y - 1) + (px - min.x - 1)]) {
                             // The trinket can be collected, i.e. this pos is not OoB
-                            c_min.x = SDL_min(c_min.x, px);
-                            c_min.y = SDL_min(c_min.y, py);
-                            c_max.x = SDL_max(c_max.x, px);
-                            c_max.y = SDL_max(c_max.y, py);
+                            Region point = Region(IntVector(px, py));
+                            box.join(point);
                         }
                     }
                 }
 
                 // Sanity check: At least one pixel of the trinket is not OoB
-                VVV_assert(c_min.x <= c_max.x && c_min.y <= c_max.y, 573000 + c_idx);
+                VVV_assert(!box.is_bottom() && box.is_bounded(), 573000 + c_idx);
 
-                checked_corners.emplace_back(std::forward_as_tuple(c_room, c_min, c_max, c.dir));
+                checked_corners.emplace_back(std::forward_as_tuple(c_room, box, c.dir));
             }
 
             // Free the collision bitmap
@@ -797,7 +794,7 @@ namespace Solver {
         if (this->isTrinketOrWarp()) {
             int glob_x = ROOM_W * (pos.room.rx - room.rx) + pos.pos.x;
             int glob_y = ROOM_H * (pos.room.ry - room.ry) + pos.pos.y;
-            return Region(min, max).contains(IntVector(glob_x, glob_y));
+            return region.contains(IntVector(glob_x, glob_y));
         }
         else if (this->isRegular()) {
             int rx_delta = ROOM_W * (pos.room.rx - room.rx);

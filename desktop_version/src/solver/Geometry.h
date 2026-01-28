@@ -81,6 +81,10 @@ namespace Geometry {
 		return x / y;
 	}
 
+	inline static int div_ceil(int x, int y) {
+		return (x + y - 1) / y;
+	}
+
 	struct IntVector {
 		int x, y;
 
@@ -574,6 +578,9 @@ namespace Geometry {
 			regularize();
 		}
 		Region(const IntInterval& x, const IntInterval& y) : x(x), y(y) {
+			regularize();
+		}
+		Region(const IntVector& point) : x(point.x), y(point.y) {
 			regularize();
 		}
 		Region(const IntVector& from, const IntVector& to): x(SDL_min(from.x, to.x), SDL_max(from.x, to.x)), y(SDL_min(from.y, to.y), SDL_max(from.y, to.y)) {

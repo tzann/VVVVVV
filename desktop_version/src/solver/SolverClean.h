@@ -1,9 +1,9 @@
 #ifndef SOLVER_CLEAN_H
 #define SOLVER_CLEAN_H
 
-#include "Exceptions.h"
-#include "Geometry.h"
-#include "Terrain.h"
+#include "solver/Exceptions.h"
+#include "solver/Geometry.h"
+#include "solver/Terrain.h"
 
 #include <SDL.h>
 
@@ -11,8 +11,9 @@
 #include <unordered_map>
 #include <vector>
 
+using namespace Geometry;
+
 namespace Solver {
-    using namespace Geometry;
 
     // Hash functions for various data types
     std::hash<bool> h_b;
@@ -60,11 +61,10 @@ namespace Solver {
 
     struct CheckedCorner {
         Terrain::RoomPosition room;
-        IntVector min;
-        IntVector max;
+        Region region;
         CornerDir dir;
 
-        CheckedCorner(Terrain::RoomPosition room, IntVector min, IntVector max, CornerDir dir) : room(room), min(min), max(max), dir(dir) {}
+        CheckedCorner(Terrain::RoomPosition room, Region region, CornerDir dir) : room(room), region(region), dir(dir) {}
     
         bool isRegular() {
             switch (dir) {
@@ -110,13 +110,13 @@ namespace Solver {
         IntVector getRegularPos() {
             switch (this->getType()) {
             case Terrain::CornerType::BottomRight:
-                return min;
+                return region.getMin();
             case Terrain::CornerType::BottomLeft:
-                return IntVector(max.x, min.y);
+                return IntVector(region.x.max, region.y.min);
             case Terrain::CornerType::TopRight:
-                return IntVector(min.x, max.y);
+                return IntVector(region.x.min, region.y.max);
             case Terrain::CornerType::TopLeft:
-                return max;
+                return region.getMax();
             default:
                 Exceptions::unreachable();
             }
@@ -139,7 +139,7 @@ namespace Solver {
 
     // TODO: does this belong in scenario or in solver config?
     enum PlayerTileMode {
-        DEFAULT,
+        REGULAR,
         SAD,
         TERMINAL,
         PACMAN,
@@ -654,7 +654,7 @@ namespace Solver {
         DebugInfo debug_info;
         SolutionInfo solution_info;
 
-        SolverConfig() : mode(SolverMode::DEFAULT), minimize_frames(false), debug_checks(false) {}
+        SolverConfig() : mode(SolverMode::SIMPLE), minimize_frames(false), debug_checks(false) {}
         SolverConfig(SolverMode mode) : mode(mode), minimize_frames(false), debug_checks(false) {}
         SolverConfig(SolverMode mode, bool minimize_frames) : mode(mode), minimize_frames(minimize_frames), debug_checks(false) {}
         SolverConfig(SolverMode mode, bool minimize_frames, bool debug_checks) : mode(mode), minimize_frames(minimize_frames), debug_checks(debug_checks) {}
@@ -666,7 +666,8 @@ namespace Solver {
     static void loadScenario(CheckedScenario& scenario);
     static void solveScenario(SolverConfig& sovler, CheckedScenario& scenario);
 
-    static uint16_t calcHeuristic(CheckedScenario& scenario, int next_corner, PlayerState& player, GameState& game);
+    static uint16_t calcHeuristic(SolverConfig& solver, CheckedScenario& scenario, int next_corner, PlayerState& player, GameState& game);
+    static uint16_t calcSimpleHeuristic(SolverConfig& solver, CheckedScenario& scenario, int next_corner, PlayerState& player, GameState& game);
 
     /// Creates an instance which contains the current game state
     static CachedSolverState cacheCurrentState(SolverConfig& solver);

@@ -1003,7 +1003,7 @@ namespace Solver {
                 CORNERS::DOUBLE_SLIT_EXPERIMENT::TOP_SHAFT_CORNER,
             });
 
-            const Scenario YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_TO_LINECLIP(102, 118, 50, 26, 0, 4, {
+            const RawScenario YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_TO_LINECLIP(102, 118, 50, 26, 0, 4, {
                 CORNERS::DOUBLE_SLIT_EXPERIMENT::ENTRY_SPIKE_CORNER,
                 CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_ENTER::A,
                 CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_ENTER::B,
@@ -1855,8 +1855,8 @@ namespace Solver {
                                 if (skip_first_corner_h > new_state.h) {
                                     // I wouldn't expect this to happen with an admissible heuristic
                                     // Edit: It can happen with OoB trinkets, this happens for example in YMIWTC
-                                    corner& next_corner = scenario.corners[new_state.next_corner];
-                                    corner& next_next_corner = scenario.corners[new_state.next_corner + 1];
+                                    RawCorner& next_corner = scenario.corners[new_state.next_corner];
+                                    RawCorner& next_next_corner = scenario.corners[new_state.next_corner + 1];
                                     if (next_corner.dir != TRINKET && next_corner.dir != WARP_TOKEN && (next_next_corner.dir == TRINKET || next_next_corner.dir == WARP_TOKEN)) {
                                         if (next_corner.rx == next_next_corner.rx && next_corner.ry == next_next_corner.ry) {
                                             if (next_corner.rx == LAB::CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_ENTER::rx && next_corner.ry == LAB::CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_ENTER::ry) {
@@ -3735,7 +3735,7 @@ namespace Solver {
         int px = room_adjusted_x(room_x, player_x);
         int py = room_adjusted_y(room_y, player_y);
 
-        corner c = scenario.corners[next_corner - 1];
+        RawCorner c = scenario.corners[next_corner - 1];
         int cx = room_adjusted_x(c.rx, c.x);
         int cy = room_adjusted_y(c.ry, c.y);
 
@@ -3827,7 +3827,7 @@ namespace Solver {
         bool last_gravity = gravity;
         bool isFirstSegment = true;
         for (int c_idx = next_corner; c_idx < scenario.corners.size(); c_idx++) {
-            corner c = scenario.corners[c_idx];
+            RawCorner c = scenario.corners[c_idx];
             int cy = room_adjusted_y(c.ry, c.y);
             int c_ry = c.ry;
 
@@ -3945,7 +3945,7 @@ namespace Solver {
         int last_crx = room_x;
         bool isFirstSegment = true;
         /*for (int c_idx = next_corner; c_idx < scenario.corners.size(); c_idx++) {
-            corner c = scenario.corners[c_idx];
+            RawCorner c = scenario.corners[c_idx];
             int cx = room_adjusted_x(c.rx, c.x);
             int c_rx = c.rx;
 
@@ -5152,7 +5152,7 @@ namespace Solver {
         int max_y = min_y;
 
         for (int c_idx = next_corner; c_idx < scenario.corners.size(); c_idx++) {
-            corner c = scenario.corners[c_idx];
+            RawCorner c = scenario.corners[c_idx];
             int cx = room_adjusted_x(c.rx, c.x);
             int cy = room_adjusted_y(c.ry, c.y);
 

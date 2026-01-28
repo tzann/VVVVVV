@@ -19,3 +19,5 @@ data.zip
 .DS_Store
 
 .vs/
+
+CMakeSettings.json
