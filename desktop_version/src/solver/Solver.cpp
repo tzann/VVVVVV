@@ -454,7 +454,7 @@ namespace Solver {
                 const corner A(rx, ry, 94, 185, RIGHT_UP);
                 const corner B(rx, ry, 250, 174, UP_RIGHT);
                 const corner C(rx, ry, 250, 65, LEFT_UP);
-                const corner D(rx, ry, 190, 65, DOWN_LEFT);
+
                 const corner E(rx, ry, 50, 46, LEFT_DOWN);
                 const corner F(rx, ry, 22, 46, UP_LEFT);
 
@@ -467,7 +467,7 @@ namespace Solver {
                 const corner B(rx, ry, 250, 174, LEFT_DOWN);
                 const corner C(rx, ry, 250, 65, DOWN_RIGHT);
                 const corner D(rx, ry, 190, 65, RIGHT_UP);
-                const corner E(rx, ry, 50, 46, UP_RIGHT);
+
                 const corner F(rx, ry, 22, 46, RIGHT_DOWN);
             }
             namespace THEY_CALL_HIM_FLIPPER {
@@ -988,29 +988,29 @@ namespace Solver {
                 CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_ENTER::A,
                 CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_ENTER::B,
                 CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_ENTER::C,
-                CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_ENTER::D,
+                // CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_ENTER::D,
                 CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_ENTER::E,
                 CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_ENTER::F,
                 CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_ENTER::TRINKET,
                 CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_LEAVE::F,
-                CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_LEAVE::E,
+                // CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_LEAVE::E,
                 CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_LEAVE::D,
                 CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_LEAVE::C,
                 CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_LEAVE::B,
                 CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_LEAVE::A,
                 CORNERS::DOUBLE_SLIT_EXPERIMENT::TOP_SHAFT_CORNER,
-                CORNERS::DOUBLE_SLIT_EXPERIMENT::EXIT_CORNER,
-                CORNERS::THEY_CALL_HIM_FLIPPER::ENTRY_SPIKE_CORNER,
-                CORNERS::THEY_CALL_HIM_FLIPPER::EXIT_SPIKE_CORNER,
-                CORNERS::THREES_A_CROWD::ENTRY_DROP,
-                CORNERS::THREES_A_CROWD::SPIKE_CUT,
             });
-            const Scenario YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_LEAVE(102, 118, 50, 26, 0, 4, {
+            const Scenario YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_TO_LINECLIP(102, 118, 50, 26, 0, 4, {
+                CORNERS::DOUBLE_SLIT_EXPERIMENT::ENTRY_SPIKE_CORNER,
+                CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_ENTER::A,
+                CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_ENTER::B,
+                CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_ENTER::C,
+                // CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_ENTER::D,
                 CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_ENTER::E,
                 CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_ENTER::F,
                 CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_ENTER::TRINKET,
                 CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_LEAVE::F,
-                CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_LEAVE::E,
+                // CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_LEAVE::E,
                 CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_LEAVE::D,
                 CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_LEAVE::C,
                 CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_LEAVE::B,
@@ -1274,13 +1274,24 @@ namespace Solver {
     // Current Benchmarks:
     // The Yes Men: 4630052 states visited, ~1:30 runtime (cached_stateful)
     // It's a Secret to Nobody: 1372903, 19s runtime
-    static Scenario scenario = LAB::SCENARIOS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_LEAVE;
+    // TODO: not finding optimal solution for YMIWTC
+    static Scenario scenario = LAB::SCENARIOS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE;
     // static Scenario scenario = SS1::SCENARIOS::START;
+
+    // Makes sure that every state can be accurately reconstructed when it is processed
+    static bool CHECK_CONSISTENCY = false;
+
     // 0: Don't minimize inputs
     // 1: Minimize total number of presses / releases
     // 2: Minimize total number of frames held per button
     static int MIN_INPUT_MODE = 0;
-    static bool CHECK_CONSISTENCY = false;
+
+    // Only valid for MIN_INPUT_MODE == 0
+    static bool SIMPLE_HEURISTIC = false;
+    static bool CHECK_HEURISTIC_CONSISTENCY = false;
+    // Prioritize minimal changes in input, yielding "cleanest" solution
+    static bool CLEAN_SOLUTION = false;
+    
     // This only works for MIN_INPUT_MODE == 2 for now
     static bool SOLVE_MIN_FRAMES = false;
 
@@ -1525,7 +1536,7 @@ namespace Solver {
     void stateful_solver() {
         load_scenario();
         naivestate initial_state = create_naive_state();
-        initial_state.h = get_heuristic(initial_state.next_corner, initial_state.game.roomx, initial_state.game.roomy, initial_state.player.x, initial_state.player.y, initial_state.game.gravitycontrol, initial_state.player.vx, initial_state.player.vy, initial_state.game.tapleft, initial_state.game.tapright);
+        initial_state.h = get_heuristic(initial_state.next_corner, initial_state.game, initial_state.player);
 
         std::size_t initial_hash = hash_naivestate(initial_state);
 
@@ -1560,7 +1571,7 @@ namespace Solver {
                 game.hours = s.h;
                 game.minutes = 0;
                 game.seconds = 0;
-                game.frames = int(hash_set.size() * 3 / 10);
+                game.frames = int(prev_state_map.size() * 3 / 10);
 
                 bool can_flip = (!game.jumpheld || game.jumppressed > 0) && (obj.entities[0].onground > 0 && game.gravitycontrol == 0 || obj.entities[0].onroof > 0 && game.gravitycontrol == 1);
                 int max = can_flip ? 8 : 4;
@@ -1575,7 +1586,6 @@ namespace Solver {
                     key.setKey(KEYBOARD_RIGHT, right);
                     key.setKey(KEYBOARD_v, flip);
                     do_game_step(i == 0 && hash_set.size() % 10000 == 0);
-                    //do_game_step(true);
 
                     // TODO when is dying useful and how can we tell
                     // Oops we died, skip this branch then
@@ -1597,7 +1607,7 @@ namespace Solver {
                         new_state.num_frames_in_room = s.num_frames_in_room + 1;
                     }
 
-                    new_state.h = new_state.f_count + get_heuristic(new_state.next_corner, new_state.game.roomx, new_state.game.roomy, new_state.player.x, new_state.player.y, new_state.game.gravitycontrol, new_state.player.vx, new_state.player.vy, new_state.game.tapleft, new_state.game.tapright);
+                    new_state.h = new_state.f_count + get_heuristic(new_state.next_corner, new_state.game, new_state.player);
                     if (new_state.h < s.h) {
                         VVV_exit(69420); // Should hopefully not happen, means heuristic might be inadmissible
                     }
@@ -1607,8 +1617,8 @@ namespace Solver {
                     // Remove previous state_map entry if it's worse
                     std::size_t new_state_hash = hash_naivestate(new_state);
                     if (prev_state_map.find(new_state_hash) != prev_state_map.end()) {
-                        uint16_t prev_heuristic = prev_state_map.at(new_state_hash).heuristic;
-                        if (new_state.h < prev_heuristic) {
+                        uint16_t prev_f_count = prev_state_map.at(new_state_hash).f_count;
+                        if (new_state.f_count < prev_f_count) {
                             prev_state_map.erase(new_state_hash);
                         }
                     }
@@ -1616,7 +1626,7 @@ namespace Solver {
                     if (prev_state_map.find(new_state_hash) == prev_state_map.end()) {
                         prev_state_map.emplace(std::piecewise_construct,
                             std::forward_as_tuple(new_state_hash),
-                            std::forward_as_tuple(s_hash, i, new_state.h));
+                            std::forward_as_tuple(s_hash, i, new_state.f_count, new_state.h, new_state.next_corner));
                     }
                 }
             }
@@ -1676,8 +1686,13 @@ namespace Solver {
         cachednaivestate initial_state = create_cached_naivestate();
         
         switch (MIN_INPUT_MODE) {
-        case 0: 
-            initial_state.h = get_heuristic(initial_state.next_corner, initial_state.game.roomx, initial_state.game.roomy, initial_state.player.x, initial_state.player.y, initial_state.game.gravitycontrol, initial_state.player.vx, initial_state.player.vy, initial_state.game.tapleft, initial_state.game.tapright);
+        case 0:
+            if (SIMPLE_HEURISTIC) {
+                initial_state.h = get_simple_heuristic(initial_state.next_corner, initial_state.game.roomx, initial_state.game.roomy, initial_state.player.x, initial_state.player.y);
+            }
+            else {
+                initial_state.h = get_heuristic(initial_state.next_corner, initial_state.game, initial_state.player);
+            }
             break;
         case 1:
             // TODO
@@ -1710,6 +1725,32 @@ namespace Solver {
                     // State already exists (with lower or equal h), so we can ignore this one
                     continue;
                 }
+                if (prev_state_map.find(s_hash) != prev_state_map.end()) {
+                    // Another state achieves the same conditions with a lower frame count?
+                    uint16_t prev_f_count = prev_state_map.at(s_hash).f_count;
+                    uint16_t prev_h = prev_state_map.at(s_hash).heuristic;
+                    uint16_t prev_nc = prev_state_map.at(s_hash).next_corner;
+                    if (s.f_count != prev_f_count || s.h != prev_h || s.next_corner != prev_nc) {
+                        if (s.h > prev_h || s.next_corner <= prev_nc) {
+                            VVV_exit(100000);
+                        } else if (s.next_corner > prev_nc) {
+                            // prev_nc must have been updated after the fact by a later state
+                            // But this should be sound, so simply fix s.next_corner and s.h
+                            s.next_corner = prev_nc;
+                            s.h = s.f_count + get_heuristic(s.next_corner, s.game, s.player);
+                        }
+                        
+                        if (s.f_count - prev_f_count != s.h - prev_h) {
+                            VVV_exit(200000);
+                        }
+                        else if (s.h < prev_h) {
+                            VVV_exit(300000);
+                        }
+                        // Requeue with fixed heuristic
+                        q.push(s);
+                    }
+                }
+
                 // Store state hash for future comparisons
                 hash_set.insert(s_hash);
 
@@ -1740,7 +1781,7 @@ namespace Solver {
                     key.setKey(KEYBOARD_LEFT, left);
                     key.setKey(KEYBOARD_RIGHT, right);
                     key.setKey(KEYBOARD_v, flip);
-                    do_game_step(i == 0 && hash_set.size() % 10000 == 0);
+                    do_game_step((i == 0) && (hash_set.size() % 10000 == 0));
                     // do_game_step(true); SDL_Delay(34);
                     // do_game_step(true);
 
@@ -1752,8 +1793,14 @@ namespace Solver {
 
                     cachednaivestate new_state = create_cached_naivestate();
                     new_state.f_count = s.f_count + 1;
-                    new_state.num_l_plus_r = s.num_l_plus_r + (left && right ? 1 : 0);
                     new_state.next_corner = s.next_corner;
+                    int16_t num_inputs = (i & 1) + ((i >> 1) & 1) + ((i >> 2) & 1);
+                    new_state.input_count = s.input_count + num_inputs;
+                    int8_t prev_inputs = s_hash == initial_hash ? 0 : prev_state_map.at(s_hash).input;
+                    int8_t changed_inputs = prev_inputs ^ i;
+                    int16_t num_changed_inputs = (changed_inputs & 1) + ((changed_inputs >> 1) & 1) + ((changed_inputs >> 2) & 1);
+                    new_state.input_changes = s.input_changes + num_changed_inputs;
+                    new_state.num_l_plus_r = s.num_l_plus_r + (left && right ? 1 : 0);
                     
                     if (passed_next_corner(new_state.next_corner, new_state.game.roomx, new_state.game.roomy, new_state.player.x, new_state.player.y)) {
                         new_state.next_corner++;
@@ -1765,27 +1812,63 @@ namespace Solver {
                     }
 
                     switch (MIN_INPUT_MODE) {
-                    case 0: break;
-                    case 1: {
-                        int16_t prev_count = s.input_count >> 3;
-                        int8_t prev_inputs = int8_t(s.input_count & 0b111);
-                        int8_t changed_inputs = prev_inputs ^ i;
-                        int16_t num_inputs = (changed_inputs & 1) + ((changed_inputs >> 1) & 1) + ((changed_inputs >> 2) & 1);
-
-                        new_state.input_count = ((prev_count + num_inputs) << 3) | i;
-                        break;
-                    }
-                    case 2: {
-                        new_state.input_count = s.input_count;
-                        int16_t num_inputs = (int16_t)left + (int16_t)right + (int16_t)flip;
-                        new_state.input_count += num_inputs;
-                        break;
-                    }
-                    }
-
-                    switch (MIN_INPUT_MODE) {
                     case 0:
-                        new_state.h = new_state.f_count + get_heuristic(new_state.next_corner, new_state.game.roomx, new_state.game.roomy, new_state.player.x, new_state.player.y, new_state.game.gravitycontrol, new_state.player.vx, new_state.player.vy, new_state.game.tapleft, new_state.game.tapright);
+                        if (SIMPLE_HEURISTIC) {
+                            new_state.h = new_state.f_count + get_simple_heuristic(new_state.next_corner, new_state.game.roomx, new_state.game.roomy, new_state.player.x, new_state.player.y);
+                            if (CHECK_HEURISTIC_CONSISTENCY) {
+                                int s_h = s.h;
+                                int s_h2 = s.f_count + get_heuristic(s.next_corner, s.game, s.player);
+                                int ns_h = new_state.h;
+                                int ns_h2 = new_state.f_count + get_heuristic(new_state.next_corner, new_state.game, new_state.player);
+                            
+                                if (ns_h2 < s_h2) {
+                                    naivestate b = create_naive_state();
+                                    b.f_count = new_state.f_count;
+                                    b.next_corner = new_state.next_corner;
+                                    b.h = new_state.h;
+                                    load_cached_naivestate(s);
+                                    naivestate a = create_naive_state();
+                                    a.f_count = s.f_count;
+                                    a.next_corner = s.next_corner;
+                                    a.h = s.h;
+
+                                    int num_states = hash_set.size();
+
+                                    // Clear q by assigning a new empty queue
+                                    q = std::priority_queue<cachednaivestate, std::vector<cachednaivestate>, std::function<bool(cachednaivestate, cachednaivestate)>>(compare_cached_naivestates);
+                                    hash_set.clear();
+                                    prev_state_map.clear();
+
+                                    playback_inadmissibility(a, b);
+                                    VVV_exit(69420); // Should hopefully not happen, means heuristic might be inadmissible
+                                }
+                            }
+                        }
+                        else {
+                            // Fancy accel-based heuristic
+                            new_state.h = new_state.f_count + get_heuristic(new_state.next_corner, new_state.game, new_state.player);
+                            if (CHECK_HEURISTIC_CONSISTENCY && new_state.next_corner < scenario.corners.size()) {
+                                uint16_t skip_first_corner_h = new_state.f_count + get_heuristic(new_state.next_corner + 1, new_state.game, new_state.player);
+                                if (skip_first_corner_h > new_state.h) {
+                                    // I wouldn't expect this to happen with an admissible heuristic
+                                    // Edit: It can happen with OoB trinkets, this happens for example in YMIWTC
+                                    corner& next_corner = scenario.corners[new_state.next_corner];
+                                    corner& next_next_corner = scenario.corners[new_state.next_corner + 1];
+                                    if (next_corner.dir != TRINKET && next_corner.dir != WARP_TOKEN && (next_next_corner.dir == TRINKET || next_next_corner.dir == WARP_TOKEN)) {
+                                        if (next_corner.rx == next_next_corner.rx && next_corner.ry == next_next_corner.ry) {
+                                            if (next_corner.rx == LAB::CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_ENTER::rx && next_corner.ry == LAB::CORNERS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE_ENTER::ry) {
+                                                // This is the "benign" YMIWTC case
+                                                // break;
+                                            }
+                                        }
+                                    }
+                                    do_game_render();
+                                    get_heuristic(new_state.next_corner, new_state.game, new_state.player);
+                                    get_heuristic(new_state.next_corner + 1, new_state.game, new_state.player);
+                                    VVV_exit(2903847);
+                                }
+                            }
+                        }
                         break;
                     case 1:
                         // TODO
@@ -1814,19 +1897,55 @@ namespace Solver {
                         hash_set.clear();
                         prev_state_map.clear();
 
-                        playback_inadmissibility(a, b);
+                        // playback_inadmissibility(a, b);
                         VVV_exit(69420); // Should hopefully not happen, means heuristic might be inadmissible
                     }
 
-                    // Add state to queue
-                    q.push(new_state);
 
-                    // Remove previous state_map entry if it's worse
+                    // Hack: Remove previous state_map entry if it's worse
+                    // TODO: not sure if this is (still) necessary
                     std::size_t new_state_hash = hash_cached_naivestate(new_state);
                     if (prev_state_map.find(new_state_hash) != prev_state_map.end()) {
                         stateinfo& prev_info = prev_state_map.at(new_state_hash);
-                        if (prev_info.heuristic > new_state.input_count) {
-                            prev_info.heuristic = new_state.input_count;
+                        if (prev_info.next_corner < new_state.next_corner) {
+                            // This should only happen if new_state backtracked
+                            uint16_t new_state_h = new_state.f_count + get_heuristic(prev_info.next_corner, new_state.game, new_state.player);
+                            // Make sure new_state hasn't passed the prev_info.next_corner
+                            if (new_state_h < new_state.h) {
+                                VVV_exit(203875);
+                                new_state_h = new_state.h;
+                            }
+                            if (passed_next_corner(prev_info.next_corner, new_state.game.roomx, new_state.game.roomy, new_state.player.x, new_state.player.y)) {
+                                VVV_exit(203876);
+                            }
+                            new_state.next_corner = prev_info.next_corner;
+                            new_state.h = new_state_h;
+                        }
+                        else if (prev_info.next_corner > new_state.next_corner) {
+                            // This should only happen if prev_state backtracked
+                            uint16_t prev_h = prev_info.f_count + get_heuristic(new_state.next_corner, new_state.game, new_state.player);
+                            // Make sure prev_state hasn't passed the new_state.next_corner
+                            if (prev_h < prev_info.heuristic) {
+                                // TODO: garbage room trinket triggers this (really deep though)
+                                prev_h = prev_info.heuristic;
+                                VVV_exit(203879);
+                            }
+                            if (passed_next_corner(new_state.next_corner, new_state.game.roomx, new_state.game.roomy, new_state.player.x, new_state.player.y)) {
+                                VVV_exit(203881);
+                            }
+                            prev_info.heuristic = prev_h;
+                            prev_info.next_corner = new_state.next_corner;
+                        }
+
+                        if (prev_info.heuristic - new_state.h != prev_info.f_count - new_state.f_count) {
+                            // Something weird happened - same state but different heuristic
+                            VVV_exit(203880);
+                        } else if (prev_info.heuristic > new_state.h) {
+                            // We found the same state again, but via a faster path
+                            // This happens because we explore deepest branches first
+                            prev_info.f_count = new_state.f_count;
+                            prev_info.heuristic = new_state.h;
+                            prev_info.next_corner = new_state.next_corner;
                             prev_info.prev_hash = s_hash;
                         }
                     } else {
@@ -1834,7 +1953,7 @@ namespace Solver {
                         // TODO: how can we guarantee this reconstructs the right solution later? if we find a worse path to the solution first
                         prev_state_map.emplace(std::piecewise_construct,
                             std::forward_as_tuple(new_state_hash),
-                            std::forward_as_tuple(s_hash, i, new_state.input_count));
+                            std::forward_as_tuple(s_hash, i, new_state.f_count, new_state.h, new_state.next_corner));
                     }
 
                     // Consistency check
@@ -1860,6 +1979,9 @@ namespace Solver {
                             VVV_exit(27625);
                         }
                     }
+
+                    // Add state to queue
+                    q.push(new_state);
                 }
             }
             if (q.empty()) {
@@ -1902,7 +2024,7 @@ namespace Solver {
         while (true) {
             int16_t total_inputs = 0;
             load_naive_state(restore_point);
-            game.hours = 0;
+            game.timetrialresulttrinkets = 0;
             game.deathcounts = 0;
             int8_t prev_i = 0;
             for (int idx = 0; idx < inputs.size(); idx++) {
@@ -1931,7 +2053,7 @@ namespace Solver {
                 }
                 prev_i = i;
 
-                game.hours++;
+                game.timetrialresulttrinkets++;
                 game.minutes = left;
                 game.seconds = right;
                 game.frames = flip;
@@ -1944,7 +2066,7 @@ namespace Solver {
                 SDL_Delay((1 << t) * 34);
             }
             if (different_speeds) {
-                t = 2 - t;
+                t = 1 - t;
             }
         }
     }
@@ -1954,75 +2076,165 @@ namespace Solver {
             load_naive_state(a);
             game.hours = a.h;
             do_game_render();
-            uint16_t a_h = a.f_count + get_heuristic(a.next_corner, a.game.roomx, a.game.roomy, a.player.x, a.player.y, a.game.gravitycontrol, a.player.vx, a.player.vy, a.game.tapleft, a.game.tapright);
+            uint16_t a_h = a.f_count + get_heuristic(a.next_corner, a.game, a.player);
             SDL_Delay(170);
 
             load_naive_state(b);
             game.hours = b.h;
             do_game_render();
-            uint16_t b_h = b.f_count + get_heuristic(b.next_corner, b.game.roomx, b.game.roomy, b.player.x, b.player.y, b.game.gravitycontrol, b.player.vx, b.player.vy, b.game.tapleft, b.game.tapright);
+            uint16_t b_h = b.f_count + get_heuristic(b.next_corner, b.game, b.player);
             SDL_Delay(170);
         }
+    }
+
+    void ymiwtc_ref_inputs(std::vector<int8_t>& ref_inputs) {
+        ref_inputs.clear();
+        // Input format:     0bVRL   (V=flip, R=right, L=left)
+        ref_inputs.push_back(0b010);
+        ref_inputs.push_back(0b010);
+        ref_inputs.push_back(0b010);
+        ref_inputs.push_back(0b010);
+        ref_inputs.push_back(0b010);
+        ref_inputs.push_back(0b010);
+        ref_inputs.push_back(0b000);
+        ref_inputs.push_back(0b110);
+        ref_inputs.push_back(0b010);
+        ref_inputs.push_back(0b010);
+        ref_inputs.push_back(0b010);
+        ref_inputs.push_back(0b010);
+        ref_inputs.push_back(0b010);
+        ref_inputs.push_back(0b000);
+        ref_inputs.push_back(0b000);
+        ref_inputs.push_back(0b000);
+        ref_inputs.push_back(0b000);
+        ref_inputs.push_back(0b000);
+        ref_inputs.push_back(0b000);
+        // Frame 20: Enter YMIWTC
+        ref_inputs.push_back(0b010);
+        ref_inputs.push_back(0b010);
+        ref_inputs.push_back(0b010);
+        ref_inputs.push_back(0b011);
+
+        // 22 in-between frames
+        for (int i = 1; i < 23; i++)
+            ref_inputs.push_back(0b010);
+
+        // Frame 46: Flip down
+        ref_inputs.push_back(0b110);
+        ref_inputs.push_back(0b010);
+        ref_inputs.push_back(0b010);
+        ref_inputs.push_back(0b010);
+        ref_inputs.push_back(0b010);
+        // Frame 51: Lineclip up
+        ref_inputs.push_back(0b100);
+        ref_inputs.push_back(0b000);
+        ref_inputs.push_back(0b100);
+        ref_inputs.push_back(0b000);
+        ref_inputs.push_back(0b000);
+        ref_inputs.push_back(0b010);
+        ref_inputs.push_back(0b010);
+        ref_inputs.push_back(0b010);
+        ref_inputs.push_back(0b000);
+        ref_inputs.push_back(0b010);
+        ref_inputs.push_back(0b010);
+        // Frame 62: Hold left
+        ref_inputs.push_back(0b001);
+        ref_inputs.push_back(0b001);
+        ref_inputs.push_back(0b001);
+        ref_inputs.push_back(0b001);
+        ref_inputs.push_back(0b001);
+        ref_inputs.push_back(0b000);
+        ref_inputs.push_back(0b001);
+        ref_inputs.push_back(0b001);
+        ref_inputs.push_back(0b001);
+        ref_inputs.push_back(0b001);
+        ref_inputs.push_back(0b001);
+        ref_inputs.push_back(0b000);
+        ref_inputs.push_back(0b001);
+        ref_inputs.push_back(0b001);
+        ref_inputs.push_back(0b001);
+        // Frame 77: Flip into line
+        ref_inputs.push_back(0b101);
+
+        // 22 in-between frames
+        for (int i = 1; i < 23; i++)
+            ref_inputs.push_back(0b001);
+
+        // Frame 100: Flip up to trinket
+        ref_inputs.push_back(0b101);
+        ref_inputs.push_back(0b001);
+        ref_inputs.push_back(0b001);
+        ref_inputs.push_back(0b001);
+        ref_inputs.push_back(0b000);
+        // Frame 105: Grab trinket, turn around and edgeflip
+        ref_inputs.push_back(0b010);
+        ref_inputs.push_back(0b110);
+        ref_inputs.push_back(0b010);
+        ref_inputs.push_back(0b010);
+        ref_inputs.push_back(0b010);
+        ref_inputs.push_back(0b010);
+        ref_inputs.push_back(0b010);
+        ref_inputs.push_back(0b010);
+        ref_inputs.push_back(0b010);
+        ref_inputs.push_back(0b010);
+        ref_inputs.push_back(0b010);
+        ref_inputs.push_back(0b010);
+        // Frame 117: Flip into line
+        ref_inputs.push_back(0b110);
+
+        // 28 in-between frames
+        for (int i = 1; i < 29; i++)
+            ref_inputs.push_back(0b010);
+
+        // Frame 146: Flip into line
+        ref_inputs.push_back(0b110);
+        ref_inputs.push_back(0b000);
+        ref_inputs.push_back(0b010);
+        ref_inputs.push_back(0b000);
+        ref_inputs.push_back(0b000);
+        ref_inputs.push_back(0b001);
+        ref_inputs.push_back(0b001);
+        ref_inputs.push_back(0b000);
+        ref_inputs.push_back(0b000);
+        ref_inputs.push_back(0b000);
+        ref_inputs.push_back(0b010);
+        // Frame 157: Go left to exit
+        ref_inputs.push_back(0b001);
+
+        // 22 in-between frames
+        for (int i = 1; i < 23; i++)
+            ref_inputs.push_back(0b001);
+
+        // Frame 180: Flip up to set up corner cut
+        ref_inputs.push_back(0b101);
+        ref_inputs.push_back(0b001);
+        ref_inputs.push_back(0b001);
+        ref_inputs.push_back(0b101);
+        ref_inputs.push_back(0b001);
+        ref_inputs.push_back(0b001);
+        ref_inputs.push_back(0b000);
+        ref_inputs.push_back(0b000);
+        ref_inputs.push_back(0b001);
+        ref_inputs.push_back(0b010);
+        ref_inputs.push_back(0b010);
+        ref_inputs.push_back(0b010);
+        ref_inputs.push_back(0b010);
     }
 
     void playback_ref() {
         load_scenario();
         cachednaivestate initial_state = create_cached_naivestate();
         // Example solution
-        std::vector<int> inputs_ref;
-        for (int c = 0; c < 2; c++) {
-            inputs_ref.push_back(1); // L
-            inputs_ref.push_back(1); // L
-            inputs_ref.push_back(1); // L
-            inputs_ref.push_back(1); // L
-            inputs_ref.push_back(1); // L
-            inputs_ref.push_back(0);
+        std::vector<int8_t> ref_inputs;
+
+        ymiwtc_ref_inputs(ref_inputs);
+
+        int ref_frame_count = ref_inputs.size();
+
+        // Add some empty entries at the end
+        for (int i = 0; i < 30; i++) {
+            ref_inputs.push_back(0);
         }
-        inputs_ref.push_back(0);
-        inputs_ref.push_back(0);
-        inputs_ref.push_back(0);
-        inputs_ref.push_back(0);
-        inputs_ref.push_back(0);
-        inputs_ref.push_back(0);
-        inputs_ref.push_back(0);
-        inputs_ref.push_back(0);
-        inputs_ref.push_back(0);
-        inputs_ref.push_back(0);
-        inputs_ref.push_back(0);
-        inputs_ref.push_back(0);
-        inputs_ref.push_back(0);
-        inputs_ref.push_back(0);
-        inputs_ref.push_back(0);
-        inputs_ref.push_back(0);
-        inputs_ref.push_back(0);
-        inputs_ref.push_back(0);
-        inputs_ref.push_back(0);
-        inputs_ref.push_back(0);
-        inputs_ref.push_back(0);
-        inputs_ref.push_back(2); // R
-        inputs_ref.push_back(6); // R
-        for (int c = 0; c < 3; c++) {
-            inputs_ref.push_back(2); // R
-            inputs_ref.push_back(2); // R
-            inputs_ref.push_back(2); // R
-            inputs_ref.push_back(2); // R
-            inputs_ref.push_back(2); // R
-            inputs_ref.push_back(0);
-            inputs_ref.push_back(0);
-            inputs_ref.push_back(0);
-        }
-        inputs_ref.push_back(0);
-        inputs_ref.push_back(0);
-        inputs_ref.push_back(0);
-        inputs_ref.push_back(0);
-        inputs_ref.push_back(0);
-        inputs_ref.push_back(0);
-        inputs_ref.push_back(0);
-        inputs_ref.push_back(0);
-        inputs_ref.push_back(0);
-        inputs_ref.push_back(0);
-        inputs_ref.push_back(0);
-        inputs_ref.push_back(0);
 
         // Clear the entity and block caches
         load_cached_naivestate(initial_state);
@@ -2032,8 +2244,8 @@ namespace Solver {
 
         int ref_dir_input_count = 0;
         int ref_flip_input_count = 0;
-        for (int idx = 0; idx < inputs_ref.size(); idx++) {
-            int8_t i = inputs_ref[idx];
+        for (int idx = 0; idx < ref_inputs.size(); idx++) {
+            int8_t i = ref_inputs[idx];
 
             bool left = i & 1;
             bool right = i & 2;
@@ -2054,66 +2266,86 @@ namespace Solver {
             game.deathcounts = 0;
             int8_t prev_i = 0;
             uint8_t next_corner = 0;
-            for (int idx = 0; idx < inputs_ref.size(); idx++) {
-                int8_t i = inputs_ref[idx];
+            for (int idx = 0; idx < ref_inputs.size(); idx++) {
+                int8_t i = ref_inputs[idx];
 
                 bool left = i & 1;
                 bool right = i & 2;
                 bool flip = i & 4;
+
+                bool can_flip = (!game.jumpheld || game.jumppressed > 0) && (obj.entities[0].onground > 0 && game.gravitycontrol == 0 || obj.entities[0].onroof > 0 && game.gravitycontrol == 1);
+                if (flip && !can_flip) {
+                    VVV_exit(29064);
+                }
+
                 switch (MIN_INPUT_MODE) {
-                case 0: break;
-                case 1: {
-                    int8_t changed_inputs = prev_i ^ i;
-                    total_dir_inputs += (changed_inputs & 1) + ((changed_inputs >> 1) & 1);
-                    total_flip_inputs += ((changed_inputs >> 2) & 1);
-                    game.deathcounts = total_dir_inputs;
-                    break;
-                }
-                case 2: {
-                    // Check heuristic admissibility
-                    cachednaivestate new_state = create_cached_naivestate();
+                    case 0: {
+                        // Check heuristic admissibility
+                        cachednaivestate new_state = create_cached_naivestate();
 
-                    if (passed_next_corner(next_corner, new_state.game.roomx, new_state.game.roomy, new_state.player.x, new_state.player.y)) {
-                        next_corner++;
-                    }
-
-
-                    int tmp_next_corner = next_corner;
-                    if (!before_next_corner(next_corner, new_state.game.roomx, new_state.game.roomy, new_state.player.x, new_state.player.y)) {
                         if (passed_next_corner(next_corner, new_state.game.roomx, new_state.game.roomy, new_state.player.x, new_state.player.y)) {
-                            // Sanity check, shouldn't happen
-                            VVV_exit(29067);
+                            next_corner++;
                         }
-                        // We can just solve the next corner directly without sacrificing accuracy
-                        if (next_corner + 1 < scenario.corners.size() && scenario.corners[next_corner].dir != TRINKET) {
-                            tmp_next_corner++;
+
+                        uint16_t simple_h = idx + get_simple_heuristic(next_corner, new_state.game.roomx, new_state.game.roomy, new_state.player.x, new_state.player.y);
+                        uint16_t accel_h = idx + get_heuristic(next_corner, new_state.game, new_state.player);
+                    
+                        if (simple_h > ref_frame_count && idx <= ref_frame_count) {
+                            VVV_exit(29065);
                         }
-                    }
+                        if (accel_h > ref_frame_count && idx <= ref_frame_count) {
+                            VVV_exit(29066);
+                        }
 
-                    uint16_t input_dir_h = total_dir_inputs + get_input_frames_heuristic_x(tmp_next_corner, new_state.game.roomx, new_state.game.roomy, new_state.player.x, new_state.player.y, new_state.game.gravitycontrol, new_state.player.vx, new_state.player.vy, new_state.game.tapleft, new_state.game.tapright);
-                    uint16_t input_flip_h = total_flip_inputs + get_input_frames_heuristic_y(tmp_next_corner, new_state.game.roomx, new_state.game.roomy, new_state.player.x, new_state.player.y, new_state.game.gravitycontrol, new_state.player.vx, new_state.player.vy, new_state.game.tapleft, new_state.game.tapright);
-
-                    if (input_dir_h > ref_dir_input_count) {
-                        uint16_t input_h = total_dir_inputs + get_input_frames_heuristic_x(tmp_next_corner, new_state.game.roomx, new_state.game.roomy, new_state.player.x, new_state.player.y, new_state.game.gravitycontrol, new_state.player.vx, new_state.player.vy, new_state.game.tapleft, new_state.game.tapright);
-                        VVV_exit(12307);
+                        break;
                     }
-                    if (input_flip_h > ref_flip_input_count) {
-                        uint16_t input_h = total_flip_inputs + get_input_frames_heuristic_y(tmp_next_corner, new_state.game.roomx, new_state.game.roomy, new_state.player.x, new_state.player.y, new_state.game.gravitycontrol, new_state.player.vx, new_state.player.vy, new_state.game.tapleft, new_state.game.tapright);
-                        VVV_exit(12308);
+                    case 1: {
+                        int8_t changed_inputs = prev_i ^ i;
+                        total_dir_inputs += (changed_inputs & 1) + ((changed_inputs >> 1) & 1);
+                        total_flip_inputs += ((changed_inputs >> 2) & 1);
+                        game.deathcounts = total_dir_inputs;
+                        break;
                     }
+                    case 2: {
+                        // Check heuristic admissibility
+                        cachednaivestate new_state = create_cached_naivestate();
 
-                    total_dir_inputs += (int16_t)left + (int16_t)right;
-                    total_flip_inputs += (int16_t)flip;
-                    game.deathcounts = input_dir_h + input_flip_h;
-                    break;
-                }
+                        if (passed_next_corner(next_corner, new_state.game.roomx, new_state.game.roomy, new_state.player.x, new_state.player.y)) {
+                            next_corner++;
+                        }
+
+
+                        int tmp_next_corner = next_corner;
+                        if (!before_next_corner(next_corner, new_state.game.roomx, new_state.game.roomy, new_state.player.x, new_state.player.y)) {
+                            if (passed_next_corner(next_corner, new_state.game.roomx, new_state.game.roomy, new_state.player.x, new_state.player.y)) {
+                                // Sanity check, shouldn't happen
+                                VVV_exit(29067);
+                            }
+                            // We can just solve the next corner directly without sacrificing accuracy
+                            if (next_corner + 1 < scenario.corners.size() && scenario.corners[next_corner].dir != TRINKET) {
+                                tmp_next_corner++;
+                            }
+                        }
+
+                        uint16_t input_dir_h = total_dir_inputs + get_input_frames_heuristic_x(tmp_next_corner, new_state.game.roomx, new_state.game.roomy, new_state.player.x, new_state.player.y, new_state.game.gravitycontrol, new_state.player.vx, new_state.player.vy, new_state.game.tapleft, new_state.game.tapright);
+                        uint16_t input_flip_h = total_flip_inputs + get_input_frames_heuristic_y(tmp_next_corner, new_state.game.roomx, new_state.game.roomy, new_state.player.x, new_state.player.y, new_state.game.gravitycontrol, new_state.player.vx, new_state.player.vy, new_state.game.tapleft, new_state.game.tapright);
+
+                        if (input_dir_h > ref_dir_input_count) {
+                            uint16_t input_h = total_dir_inputs + get_input_frames_heuristic_x(tmp_next_corner, new_state.game.roomx, new_state.game.roomy, new_state.player.x, new_state.player.y, new_state.game.gravitycontrol, new_state.player.vx, new_state.player.vy, new_state.game.tapleft, new_state.game.tapright);
+                            VVV_exit(12307);
+                        }
+                        if (input_flip_h > ref_flip_input_count) {
+                            uint16_t input_h = total_flip_inputs + get_input_frames_heuristic_y(tmp_next_corner, new_state.game.roomx, new_state.game.roomy, new_state.player.x, new_state.player.y, new_state.game.gravitycontrol, new_state.player.vx, new_state.player.vy, new_state.game.tapleft, new_state.game.tapright);
+                            VVV_exit(12308);
+                        }
+
+                        total_dir_inputs += (int16_t)left + (int16_t)right;
+                        total_flip_inputs += (int16_t)flip;
+                        game.deathcounts = input_dir_h + input_flip_h;
+                        break;
+                    }
                 }
                 prev_i = i;
-
-                game.hours++;
-                game.minutes = left;
-                game.seconds = right;
-                game.frames = flip;
 
                 key.clearKeys();
                 key.setKey(KEYBOARD_LEFT, left);
@@ -2132,7 +2364,7 @@ namespace Solver {
         load_scenario();
 
         naivestate initial_state = create_naive_state();
-        initial_state.h = get_heuristic(initial_state.next_corner, initial_state.game.roomx, initial_state.game.roomy, initial_state.player.x, initial_state.player.y, initial_state.game.gravitycontrol, initial_state.player.vx, initial_state.player.vy, initial_state.game.tapleft, initial_state.game.tapright);
+        initial_state.h = get_heuristic(initial_state.next_corner, initial_state.game, initial_state.player);
 
         std::size_t initial_hash = hash_naivestate(initial_state);
 
@@ -2245,7 +2477,7 @@ namespace Solver {
                         tmp_state.next_corner++;
                     }
 
-                    tmp_state.h = tmp_state.f_count + get_heuristic(tmp_state.next_corner, tmp_state.game.roomx, tmp_state.game.roomy, tmp_state.player.x, tmp_state.player.y, tmp_state.game.gravitycontrol, tmp_state.player.vx, tmp_state.player.vy, tmp_state.game.tapleft, tmp_state.game.tapright);
+                    tmp_state.h = tmp_state.f_count + get_heuristic(tmp_state.next_corner, tmp_state.game, tmp_state.player);
                     if (tmp_state.h < s.heuristic) {
                         VVV_exit(69420); // Should hopefully not happen, means heuristic might be inadmissible
                     }
@@ -2255,7 +2487,7 @@ namespace Solver {
 
                     // Remove previous state_map entry if it's worse
                     if (prev_state_map.find(tmp_hash) != prev_state_map.end()) {
-                        uint16_t prev_heuristic = prev_state_map.at(tmp_hash).heuristic;
+                        uint16_t prev_heuristic = prev_state_map.at(tmp_hash).f_count;
                         if (tmp_state.h < prev_heuristic) {
                             prev_state_map.erase(tmp_hash);
                         }
@@ -2264,7 +2496,7 @@ namespace Solver {
                     if (prev_state_map.find(tmp_hash) == prev_state_map.end()) {
                         prev_state_map.emplace(std::piecewise_construct,
                             std::forward_as_tuple(tmp_hash),
-                            std::forward_as_tuple(s.hash, i, tmp_state.h));
+                            std::forward_as_tuple(s.hash, i, tmp_state.f_count, tmp_state.h, tmp_state.next_corner));
                     }
                 }
 
@@ -2704,10 +2936,11 @@ namespace Solver {
         // Init everything else with zeroes
         s.f_count = 0;
         s.h = 0.0;
-        s.num_l_plus_r = 0;
         s.next_corner = 0;
         s.num_frames_in_room = 0;
         s.input_count = 0;
+        s.input_changes = 0;
+        s.num_l_plus_r = 0;
 
         return s;
     }
@@ -3073,6 +3306,20 @@ namespace Solver {
         label_len = font::len(0, tempstring);
         font::print(PR_BOR, 6, 42, tempstring, 255, 255, 255);
         font::print(PR_BOR, 8 + label_len, 42, help.String(entitycache.size()), 196, 196, 196);
+
+        bool left = key.isDown(KEYBOARD_LEFT);
+        bool right = key.isDown(KEYBOARD_RIGHT);
+        bool flip = key.isDown(KEYBOARD_v);
+
+        tempstring = "INPUT:";
+        label_len = font::len(0, tempstring);
+        font::print(PR_BOR, 6, 54, tempstring, 255, 255, 255);
+        int c = left ? 196 : 96;
+        font::print(PR_BOR, 8 + label_len, 54, "L", c, c, c);
+        c = flip ? 196 : 96;
+        font::print(PR_BOR, 8 + label_len + 16, 54, "V", c, c, c);
+        c = right ? 196 : 96;
+        font::print(PR_BOR, 8 + label_len + 32, 54, "R", c, c, c);
     }
 
     bool compare_naive_states(naivestate a, naivestate b) {
@@ -3089,45 +3336,65 @@ namespace Solver {
         return a.h > b.h;
     }
 
+    // Returns true if a should be processed after b
     bool compare_cached_naivestates(cachednaivestate a, cachednaivestate b) {
-        if (a.h == b.h) {
-            if (SOLVE_MIN_FRAMES && MIN_INPUT_MODE != 0 && a.f_count != b.f_count) {
+        if (a.h != b.h) {
+            // Prioritize low heuristic -> fastest solution will be found first (if heuristic is admissible)
+            return a.h > b.h;
+        }
+        // Sort by room to minimize room changes
+        if (a.game.roomx != b.game.roomx) {
+            // return a.game.roomx > b.game.roomx;
+        }
+        else if (a.game.roomy != b.game.roomy) {
+            // return a.game.roomy > b.game.roomy;
+        }
+
+        if (SOLVE_MIN_FRAMES && MIN_INPUT_MODE != 0 && a.f_count != b.f_count) {
+            // Prioritize low frame count for faster solutions
+            return a.f_count > b.f_count;
+        }
+        if (CLEAN_SOLUTION && a.num_l_plus_r != b.num_l_plus_r) {
+            // Prioritize minimal L+R inputs, since they're not so nice
+            return a.num_l_plus_r > b.num_l_plus_r;
+        }
+        if (CLEAN_SOLUTION && a.input_changes != b.input_changes) {
+            // Prioritize minimal changes in input, yielding "cleanest" solution
+            return a.input_changes > b.input_changes;
+        }
+        if (a.next_corner != b.next_corner) {
+            // Prioritize high next_corner, since heuristic should be more precise for later corners
+            return a.next_corner < b.next_corner;
+        }
+
+        int a_depth, b_depth;
+        switch (MIN_INPUT_MODE) {
+        case 0:
+        default:
+            a_depth = a.f_count;
+            b_depth = b.f_count;
+            break;
+        case 1:
+            a_depth = a.input_changes;
+            b_depth = b.input_changes;
+            break;
+        case 2:
+            a_depth = a.input_count;
+            b_depth = b.input_count;
+            break;
+        }
+
+        if (a_depth == b_depth) {
+            if (!SOLVE_MIN_FRAMES && MIN_INPUT_MODE != 0 && a.f_count != b.f_count) {
                 // Prioritize low frame count for faster solutions
                 return a.f_count > b.f_count;
             }
-
-            int a_depth, b_depth;
-            switch (MIN_INPUT_MODE) {
-            case 0:
-                a_depth = a.f_count;
-                b_depth = b.f_count;
-                break;
-            case 2:
-                a_depth = a.input_count;
-                b_depth = b.input_count;
-                break;
-            case 1:
-            default:
-                // TODO
-                a_depth = 0;
-                b_depth = 0;
-                VVV_exit(923);
-                break;
-            }
-            if (a_depth == b_depth) {
-                if (!SOLVE_MIN_FRAMES && MIN_INPUT_MODE != 0 && a.f_count != b.f_count) {
-                    // Prioritize low frame count for faster solutions
-                    return a.f_count > b.f_count;
-                }
-                // Prioritize low l+r count (because it's ugly)
-                return a.num_l_plus_r > b.num_l_plus_r;
-                // TODO: maybe prioritize least "input changes", to find the "nicest" solution
-            }
-            // Prioritize high depth (continue furthest branch -> reduces runtime, but not asymptotically)
-            return a_depth < b_depth;
+            // Prioritize low input changes for cleaner solutions
+            return a.input_changes > b.input_changes;
+            // TODO: maybe prioritize least "input changes", to find the "nicest" solution
         }
-        // Prioritize low heuristic -> fastest solution will be found first if heuristic is admissible
-        return a.h > b.h;
+        // Prioritize high depth (continue furthest branch -> reduces runtime, but not asymptotically)
+        return a_depth < b_depth;
     }
 
     bool compare_statehashes(statehash a, statehash b) {
@@ -3456,6 +3723,42 @@ namespace Solver {
             return !(x_d >= -17 && x_d <= 9 && y_d >= -22 && y_d <= 13);
         }
         return true;
+    }
+
+    bool passed_prev_corner(int next_corner, int room_x, int room_y, int player_x, int player_y) {
+        if (next_corner <= 0) {
+            return false;
+        }
+        int px = room_adjusted_x(room_x, player_x);
+        int py = room_adjusted_y(room_y, player_y);
+
+        corner c = scenario.corners[next_corner - 1];
+        int cx = room_adjusted_x(c.rx, c.x);
+        int cy = room_adjusted_y(c.ry, c.y);
+
+        // Subtract corner position from player position
+        int x_d = px - cx;
+        int y_d = py - cy;
+
+        switch (c.dir) {
+        case UP_LEFT:
+        case LEFT_UP:
+            return x_d > 0 || y_d > 0;
+        case DOWN_LEFT:
+        case LEFT_DOWN:
+            return x_d > 0 || y_d < 0;
+        case UP_RIGHT:
+        case RIGHT_UP:
+            return x_d < 0 || y_d > 0;
+        case DOWN_RIGHT:
+        case RIGHT_DOWN:
+            return x_d < 0 || y_d < 0;
+        case TRINKET:
+        case WARP_TOKEN:
+            // Can't undo these
+            return false;
+        }
+        return false;
     }
 
     int get_coasted_dist(float vx, int rx, int px) {
@@ -4032,16 +4335,17 @@ namespace Solver {
     // TODO: account for differing room heights (232 if map.warpy)
     // TODO: account for nearest flippable surface
     // TODO: maybe we can cache results starting from next_corner
-    uint16_t get_heuristic(int next_corner_orig, int room_x, int room_y, int player_x, int player_y, int gravity, float vx, float vy, int tapleft, int tapright) {
+    uint16_t get_heuristic(int next_corner_orig, naivegamestate& g, naiveplayerstate &p) {
+
         int total_frames = 0;
         int next_corner_base = next_corner_orig;
         int next_corner = next_corner_base;
-        bool can_flip = (!game.jumpheld || game.jumppressed > 0) && (obj.entities[0].onground > 0 && game.gravitycontrol == 0 || obj.entities[0].onroof > 0 && game.gravitycontrol == 1);
-        bool can_double_flip = (!game.jumpheld || game.jumppressed > 0) && (obj.entities[0].onground > 0 && game.gravitycontrol == 0 && obj.entities[0].onroof > 0);
+        bool can_flip = (!g.jumpheld || g.jumppressed > 0) && (p.onground > 0 && g.gravitycontrol == 0 || p.onroof > 0 && g.gravitycontrol == 1);
+        bool can_double_flip = (!g.jumpheld || g.jumppressed > 0) && (p.onground > 0 && g.gravitycontrol == 0 && p.onroof > 0);
 
         // Extract first corner from the loop below to handle initial acceleration
-        SimState state_ul = SimState(player_x, player_y, room_x, room_y, vx, vy, gravity, tapleft, tapright);
-        SimState state_dr = SimState(player_x, player_y, room_x, room_y, vx, vy, gravity, tapleft, tapright);
+        SimState state_ul = SimState(p.x, p.y, g.roomx, g.roomy, p.vx, p.vy, g.gravitycontrol, g.tapleft, g.tapright);
+        SimState state_dr = SimState(p.x, p.y, g.roomx, g.roomy, p.vx, p.vy, g.gravitycontrol, g.tapleft, g.tapright);
 
         while (next_corner < scenario.corners.size()) {
             corner c = scenario.corners[next_corner];
@@ -4211,6 +4515,8 @@ namespace Solver {
                     break;
                 }
                 if (!is_before) {
+                    // TODO: this should also induce a px_min == px_max check to infer vx and vy
+                    // Otherwise, skipping the previous corner may be a "disadvantage"
                     state_ul.bound_x(px_min, px_min);
                     state_dr.bound_x(px_max, px_max);
                     state_ul.bound_y(py_min, py_min);
@@ -4567,7 +4873,7 @@ namespace Solver {
             int spare_x_frames = SDL_max(0, y_frame_reached - x_frame_reached);
             int spare_y_frames = SDL_max(0, x_frame_reached - y_frame_reached);
 
-            if (spare_x_frames == 0 || !is_limited_by_y_d) {
+            if ((spare_x_frames == 0 && is_limited_by_x_d) || !is_limited_by_y_d) {
                 if (x_d > 0) {
                     state_ul.bound_vx(-MAX_X_SPEED, -X_RATE);
                     state_dr.bound_vx(-MAX_X_SPEED, -X_RATE);
@@ -4604,7 +4910,7 @@ namespace Solver {
                     }
                 }
             }
-            else if (spare_x_frames <= 3) {
+            else if (spare_x_frames <= 3 && is_limited_by_x_d) {
                 float accel_per_frame = 3.0f - X_RATE;
                 if (x_d > 0) {
                     state_ul.bound_vx(-MAX_X_SPEED, spare_x_frames * accel_per_frame);
@@ -4621,7 +4927,7 @@ namespace Solver {
             }
 
 
-            if (spare_y_frames == 0 || !is_limited_by_x_d) {
+            if ((spare_y_frames == 0 && is_limited_by_y_d) || !is_limited_by_x_d) {
                 if (y_d > 0) {
                     state_ul.bound_vy(-MAX_Y_SPEED, -Y_RATE);
                     state_dr.bound_vy(-MAX_Y_SPEED, -Y_RATE);
@@ -4713,8 +5019,22 @@ namespace Solver {
             }
             if (!is_after) {
                 if (x_d != 0 && y_d != 0) {
-                    // This shouldn't happen
-                    VVV_exit(295494);
+                    if (next_corner_base != next_corner) {
+                        // This shouldn't happen unless we're already not before the last corner right away
+                        VVV_exit(295494);
+                    }
+
+                    bool is_limited_by_x_d = c_dir == UP_LEFT || c_dir == UP_RIGHT || c_dir == DOWN_LEFT || c_dir == DOWN_RIGHT;
+                    bool is_limited_by_y_d = c_dir == LEFT_UP || c_dir == LEFT_DOWN || c_dir == RIGHT_UP || c_dir == RIGHT_DOWN;
+                    if (is_limited_by_x_d && !is_limited_by_y_d) {
+                        y_d = 0;
+                    }
+                    else if (!is_limited_by_x_d && is_limited_by_x_d) {
+                        x_d = 0;
+                    } else {
+                        // Should be unreachable (trinket as last)
+                        VVV_exit(295495);
+                    }
                 }
 
                 bool reached_corner_x = x_d == 0;
@@ -4805,6 +5125,189 @@ namespace Solver {
                     total_frames += extra_frames;
                 }
             }
+        }
+
+        return total_frames;
+    }
+
+    // TODO: test this somehow
+    // TODO: or at least verify signs and stuff, easy to get wrong
+    // TODO: refactor eventually
+    // TODO: account for velocity (turning around takes time)
+    // TODO: account for treadmills and moving platforms (higher max speed)
+    // TODO: account for warping rooms (WZ, intermissions, final)
+    // TODO: account for warp tokens (overworld, WZ)
+    // TODO: account for differing room heights (232 if map.warpy)
+    // TODO: account for nearest flippable surface
+    // TODO: maybe we can cache results starting from next_corner
+    uint16_t get_simple_heuristic(int next_corner, int room_x, int room_y, int player_x, int player_y) {
+        int total_frames = 0;
+
+        int min_x = room_adjusted_x(room_x, player_x);
+        int max_x = min_x;
+        int min_y = room_adjusted_y(room_y, player_y);
+        int max_y = min_y;
+
+        for (int c_idx = next_corner; c_idx < scenario.corners.size(); c_idx++) {
+            corner c = scenario.corners[c_idx];
+            int cx = room_adjusted_x(c.rx, c.x);
+            int cy = room_adjusted_y(c.ry, c.y);
+
+            int px = max_x;
+            int py = max_y;
+            if (c.dir == UP_LEFT || c.dir == LEFT_UP || c.dir == LEFT_DOWN || c.dir == DOWN_LEFT) {
+                // Going left, take smaller x
+                px = min_x;
+            }
+            if (c.dir == UP_LEFT || c.dir == UP_RIGHT || c.dir == LEFT_UP || c.dir == RIGHT_UP) {
+                // Going up, take smaller y
+                py = min_y;
+            }
+
+            // Subtract corner position from player position
+            int x_d = px - cx;
+            int y_d = py - cy;
+
+            int frame_count = 0;
+            // Note that if we are "inside" the corner (e.g. x_d > 0 && y_d < 0 for UP_LEFT),
+            //   then we just pretend we can walk through walls. The max corner cut distance constraint
+            //   makes sure we don't completely wreck our heuristic
+            // Note also that if we are already past the corner (i.e. x_d <= 0 for UP_LEFT),
+            //   then we do nothing as we want to preserve min_x, max_x, min_y and max_y for the next corner
+            switch (c.dir) {
+            case UP_LEFT: // Limiting factor: leftwards movement
+                if (x_d > 0) {
+                    // What distance can we cover until we pass the corner?
+                    frame_count = (x_d + X_SPEED - 1) / X_SPEED;
+                    min_x = px - frame_count * X_SPEED;
+                    // Can't cut more than 10 pixels past the corner
+                    min_y = SDL_max(py - frame_count * Y_SPEED, cy - Y_SPEED);
+                    // In case we want to hug the corner
+                    max_x = cx;
+                    max_y = SDL_max(py - frame_count * Y_SPEED, cy);
+                }
+                break;
+            case UP_RIGHT: // Limiting factor: rightwards movement
+                if (x_d < 0) {
+                    // What distance can we cover until we pass the corner?
+                    frame_count = (-x_d + X_SPEED - 1) / X_SPEED;
+                    max_x = px + frame_count * X_SPEED;
+                    // Can't cut more than 10 pixels past the corner
+                    min_y = SDL_max(py - frame_count * Y_SPEED, cy - Y_SPEED);
+                    // In case we want to hug the corner
+                    min_x = cx;
+                    max_y = SDL_max(py - frame_count * Y_SPEED, cy);
+                }
+                break;
+            case LEFT_UP: // Limiting factor: upwards movement
+                if (y_d > 0) {
+                    // What distance can we cover until we pass the corner?
+                    frame_count = (y_d + Y_SPEED - 1) / Y_SPEED;
+                    // Can't cut more than 0 pixels past the corner
+                    min_x = SDL_max(px - frame_count * X_SPEED, cx);
+                    min_y = py - frame_count * Y_SPEED;
+                    // In case we want to hug the corner
+                    max_x = SDL_max(px - frame_count * X_SPEED, cx);
+                    max_y = cy;
+                }
+                break;
+            case LEFT_DOWN: // Limiting factor: downwards movement
+                if (y_d < 0) {
+                    // What distance can we cover until we pass the corner?
+                    frame_count = (-y_d + Y_SPEED - 1) / Y_SPEED;
+                    // Can't cut more than 0 pixels past the corner
+                    min_x = SDL_max(px - frame_count * X_SPEED, cx);
+                    max_y = py + frame_count * Y_SPEED;
+                    // In case we want to hug the corner
+                    max_x = SDL_max(px - frame_count * X_SPEED, cx);
+                    min_y = cy;
+                }
+                break;
+            case DOWN_LEFT:
+                if (x_d > 0) {
+                    // What distance can we cover until we pass the corner?
+                    frame_count = (x_d + X_SPEED - 1) / X_SPEED;
+                    min_x = px - frame_count * X_SPEED;
+                    // Can't cut more than 10 pixels past the corner
+                    max_y = SDL_min(py + frame_count * Y_SPEED, cy + Y_SPEED);
+                    // In case we want to hug the corner
+                    max_x = cx;
+                    min_y = SDL_min(py + frame_count * Y_SPEED, cy);
+                }
+                break;
+            case DOWN_RIGHT:
+                if (x_d < 0) {
+                    // What distance can we cover until we pass the corner?
+                    frame_count = (-x_d + X_SPEED - 1) / X_SPEED;
+                    max_x = px + frame_count * X_SPEED;
+                    // Can't cut more than 10 pixels past the corner
+                    max_y = SDL_min(py + frame_count * Y_SPEED, cy + Y_SPEED);
+                    // In case we want to hug the corner
+                    min_x = cx;
+                    min_y = SDL_min(py + frame_count * Y_SPEED, cy);
+                }
+                break;
+            case RIGHT_UP:
+                if (y_d > 0) {
+                    // What distance can we cover until we pass the corner?
+                    frame_count = (y_d + Y_SPEED - 1) / Y_SPEED;
+                    // Can't cut more than 0 pixels past the corner
+                    max_x = SDL_min(px + frame_count * X_SPEED, cx);
+                    min_y = py - frame_count * Y_SPEED;
+                    // In case we want to hug the corner
+                    min_x = SDL_min(px + frame_count * X_SPEED, cx);
+                    max_y = cy;
+                }
+                break;
+            case RIGHT_DOWN:
+                if (y_d < 0) {
+                    // What distance can we cover until we pass the corner?
+                    frame_count = (-y_d + Y_SPEED - 1) / Y_SPEED;
+                    // Can't cut more than 0 pixels past the corner
+                    max_x = SDL_min(px + frame_count * X_SPEED, cx);
+                    max_y = py + frame_count * Y_SPEED;
+                    // In case we want to hug the corner
+                    min_x = SDL_min(px + frame_count * X_SPEED, cx);
+                    min_y = cy;
+                }
+                break;
+            case TRINKET:
+                // Could be in any direction
+                // Note that we can collect the trinket in the range x [-17, 9], y [-22, 13]
+                // Modify distances accordingly
+                if (x_d < -17) {
+                    x_d += 17;
+                }
+                else if (x_d > 9) {
+                    x_d -= 9;
+                }
+                else {
+                    x_d = 0;
+                }
+                if (y_d < -22) {
+                    y_d += 22;
+                }
+                else if (y_d > 13) {
+                    y_d -= 13;
+                }
+                else {
+                    y_d = 0;
+                }
+
+                // At least how many frames will it take to reach the trinket?
+                int x_frames = (SDL_abs(x_d) + X_SPEED - 1) / X_SPEED;
+                int y_frames = (SDL_abs(y_d) + Y_SPEED - 1) / Y_SPEED;
+                frame_count = SDL_max(x_frames, y_frames);
+
+                // What are the min and max positions reachable while still collecting the trinket?
+                min_x = SDL_max(px - frame_count * X_SPEED, cx - 17);
+                max_x = SDL_min(px + frame_count * X_SPEED, cx + 9);
+
+                min_y = SDL_max(py - frame_count * Y_SPEED, cy - 22);
+                max_y = SDL_min(py + frame_count * Y_SPEED, cy + 13);
+            }
+
+            total_frames += frame_count;
         }
 
         return total_frames;

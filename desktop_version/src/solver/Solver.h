@@ -64,9 +64,11 @@ namespace Solver {
     struct stateinfo {
         std::size_t prev_hash;
         int8_t input;
+        uint16_t f_count;
         uint16_t heuristic;
+        int16_t next_corner;
 
-        stateinfo(std::size_t hash, int8_t i, uint16_t h) : prev_hash(hash), input(i), heuristic(h) {}
+        stateinfo(std::size_t hash, int8_t i, uint16_t f, uint16_t h, int16_t t) : prev_hash(hash), input(i), f_count(f), heuristic(h), next_corner(t) {}
     };
 
     // Reduced from 44 to 14 bytes
@@ -214,11 +216,12 @@ namespace Solver {
 
         uint16_t h;                     //  8 bytes -> 2 bytes
         uint16_t num_frames_in_room;    //  4 bytes -> 2 bytes
-        uint8_t num_l_plus_r;           //  4 bytes -> 1 byte
         uint8_t next_corner;            //  4 bytes -> 1 byte
+        
         uint16_t f_count;               //  4 bytes -> 2 bytes
-
         uint16_t input_count;
+        uint16_t input_changes;
+        uint8_t num_l_plus_r;
     };
 
     struct SimState {
@@ -299,10 +302,14 @@ namespace Solver {
     int room_adjusted_y(int ry, int y);
     bool passed_next_corner(int next_corner, int room_x, int room_y, int player_x, int player_y);
     bool before_next_corner(int next_corner, int room_x, int room_y, int player_x, int player_y);
-    uint16_t get_heuristic(int next_corner, int room_x, int room_y, int player_x, int player_y, int gravity, float vx, float vy, int tapleft, int tapright);
+    bool passed_prev_corner(int next_corner, int room_x, int room_y, int player_x, int player_y);
+    
+    uint16_t get_heuristic(int next_corner, naivegamestate& g, naiveplayerstate& p);
     uint16_t get_input_frames_heuristic(int next_corner, int room_x, int room_y, int player_x, int player_y, int gravity, float vx, float vy, int tapleft, int tapright);
     uint16_t get_input_frames_heuristic_x(int next_corner, int room_x, int room_y, int player_x, int player_y, int gravity, float vx, float vy, int tapleft, int tapright);
     uint16_t get_input_frames_heuristic_y(int next_corner, int room_x, int room_y, int player_x, int player_y, int gravity, float vx, float vy, int tapleft, int tapright);
+
+    uint16_t get_simple_heuristic(int next_corner, int room_x, int room_y, int player_x, int player_y);
 
     void do_sim_step(SimState &state, bool press_left, bool press_right, bool flip);
 
