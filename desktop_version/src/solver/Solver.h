@@ -1,12 +1,17 @@
 #ifndef SOLVER_H
 #define SOLVER_H
 
+#include "Exceptions.h"
+#include "Geometry.h"
+#include "Terrain.h"
+
 #include <cstddef>
 #include <vector>
 
 namespace Solver {
+    using namespace Geometry;
 
-    enum corner_dir {
+    enum CornerDir {
         // Add 4 to invert first dir (means can't be sequential)
         UP_LEFT,
         UP_RIGHT,
@@ -24,26 +29,26 @@ namespace Solver {
     // 0 -> 3 -> 5 -> 6
     // 7 -> 4 -> 2 -> 1
 
-    struct corner {
+    struct RawCorner {
         int rx;
         int ry;
         int x;
         int y;
-        corner_dir dir;
+        CornerDir dir;
 
-        corner(int a, int b, int c, int d, corner_dir e) : rx(a), ry(b), x(c), y(d), dir(e) {}
+        RawCorner(int a, int b, int c, int d, CornerDir e) : rx(a), ry(b), x(c), y(d), dir(e) {}
     };
 
-    struct Scenario {
+    struct RawScenario {
         int init_rx;
         int init_ry;
         int init_x;
         int init_y;
         int init_gravity;
         int frames_to_advance;
-        std::vector<corner> corners;
+        std::vector<RawCorner> corners;
 
-        Scenario(int a, int b, int c, int d, int e, int f, std::vector<corner> cs) : init_rx(a), init_ry(b), init_x(c), init_y(d), init_gravity(e), frames_to_advance(f), corners(cs) {}
+        RawScenario(int a, int b, int c, int d, int e, int f, std::vector<RawCorner> cs) : init_rx(a), init_ry(b), init_x(c), init_y(d), init_gravity(e), frames_to_advance(f), corners(cs) {}
     };
 
     struct statehash {
@@ -52,12 +57,12 @@ namespace Solver {
         int16_t f_count;
         int8_t next_corner;
 
-        statehash(float h, std::size_t hsh, int16_t frames, int8_t corner)
+        statehash(float h, std::size_t hsh, int16_t frames, int8_t RawCorner)
         {
             heuristic = h;
             hash = hsh;
             f_count = frames;
-            next_corner = corner;
+            next_corner = RawCorner;
         }
     };
 
@@ -262,7 +267,7 @@ namespace Solver {
     void debug_test();
     void debug_test_cached();
 
-	void load_scenario();
+    void load_raw_scenario();
 
     naivestate create_naive_state();
 	void load_naive_state(naivestate& s);

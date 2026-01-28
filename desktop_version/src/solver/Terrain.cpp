@@ -769,12 +769,12 @@ namespace Terrain {
 	}
 	Corner GetCornerInLocalFrame(CornerID corner_id, const LocalFrame& frame) {
 		RoomData& roomData = GetRoomData(corner_id.room);
-		Corner& rawCorner = roomData.corners.at(corner_id.cornerIndex);
+		Corner& corner = roomData.corners.at(corner_id.cornerIndex);
 		
 		IntVector roomDistance = GetDistanceOffsetBetweenRooms(frame.origin.room, corner_id.room, frame.invY);
-		Corner result(rawCorner);
+		Corner result(corner);
 
-		result.pos = GetDistanceBetween(frame.origin, GlobalPosition(corner_id.room, rawCorner.pos), frame.invY);
+		result.pos = GetDistanceBetween(frame.origin, GlobalPosition(corner_id.room, corner.pos), frame.invY);
 		
 		if (frame.invX) {
 			switch (result.type) {
@@ -1626,7 +1626,7 @@ namespace Terrain {
 
 				int wall_count = up_left + left + up + self;
 				if (wall_count != 1) {
-					// Not a convex corner
+					// A convex corner has only one occupied quadrant
 					continue;
 				}
 

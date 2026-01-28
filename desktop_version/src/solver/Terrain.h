@@ -26,6 +26,7 @@
 #include "solver/Heuristic.h"
 #include "solver/Numerics.h"
 #include "solver/Solver.h"
+#include "solver/SolverClean.h"
 
 using namespace Geometry;
 
@@ -148,6 +149,17 @@ namespace Terrain {
 
 		GlobalPosition() { }
 		GlobalPosition(RoomPosition room, IntVector pos) : room(room), pos(pos) { }
+
+		// These functions are for SolverClean, not Terrain
+		bool isAfter(Solver::CheckedCorner& c) {
+			return c.isPosAfter(*this);
+		}
+		bool isBefore(Solver::CheckedCorner& c) {
+			return c.isPosBefore(*this);
+		}
+		bool isInside(Solver::CheckedCorner& c) {
+			return c.isPosInside(*this);
+		}
 	};
 
 	struct LocalFrame {
@@ -174,6 +186,7 @@ namespace Terrain {
 		}
 	};
 
+	// The direction from the corner's perspective, i.e. in which direction is it pointing
 	enum CornerType {
 		TopLeft,
 		TopRight,

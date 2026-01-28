@@ -1,0 +1,73 @@
+﻿{
+  "configurations": [
+    {
+      "name": "x64-Debug",
+      "generator": "Ninja",
+      "configurationType": "Debug",
+      "inheritEnvironments": [ "msvc_x64_x64" ],
+      "buildRoot": "${projectDir}\\out\\build\\${name}",
+      "installRoot": "${projectDir}\\out\\install\\${name}",
+      "cmakeCommandArgs": "",
+      "buildCommandArgs": "",
+      "ctestCommandArgs": "",
+      "variables": [
+        {
+          "name": "SDL2_INCLUDE_DIRS",
+          "value": "C:/Users/Tynan/Documents/Private/repos/VVVVVV/third_party/SDL2/SDL2-2.24.0/include;C:/Users/Tynan/Documents/Private/repos/VVVVVV/third_party/SDL2/SDL2_mixer-2.6.2/include",
+          "type": "PATH"
+        },
+        {
+          "name": "SDL2_LIBRARIES",
+          "value": "C:/Users/Tynan/Documents/Private/repos/VVVVVV/third_party/SDL2/SDL2-2.24.0/lib/x64/SDL2.lib;C:/Users/Tynan/Documents/Private/repos/VVVVVV/third_party/SDL2/SDL2-2.24.0/lib/x64/SDL2main.lib;C:/Users/Tynan/Documents/Private/repos/VVVVVV/third_party/SDL2/SDL2_mixer-2.6.2/lib/x64/SDL2_mixer.lib",
+          "type": "PATH"
+        }
+      ]
+    },
+    {
+      "name": "x64-RelWithDebInfo",
+      "generator": "Ninja",
+      "configurationType": "RelWithDebInfo",
+      "buildRoot": "${projectDir}\\out\\build\\${name}",
+      "installRoot": "${projectDir}\\out\\install\\${name}",
+      "cmakeCommandArgs": "",
+      "buildCommandArgs": "",
+      "ctestCommandArgs": "",
+      "variables": [
+        {
+          "name": "SDL2_INCLUDE_DIRS",
+          "value": "C:/Users/Tynan/Documents/Private/repos/VVVVVV/third_party/SDL2/SDL2-2.24.0/include;C:/Users/Tynan/Documents/Private/repos/VVVVVV/third_party/SDL2/SDL2_mixer-2.6.2/include",
+          "type": "PATH"
+        },
+        {
+          "name": "SDL2_LIBRARIES",
+          "value": "C:/Users/Tynan/Documents/Private/repos/VVVVVV/third_party/SDL2/SDL2-2.24.0/lib/x64/SDL2.lib;C:/Users/Tynan/Documents/Private/repos/VVVVVV/third_party/SDL2/SDL2-2.24.0/lib/x64/SDL2main.lib;C:/Users/Tynan/Documents/Private/repos/VVVVVV/third_party/SDL2/SDL2_mixer-2.6.2/lib/x64/SDL2_mixer.lib",
+          "type": "PATH"
+        }
+      ],
+      "inheritEnvironments": [ "msvc_x64_x64" ]
+    },
+    {
+      "name": "x64-Release",
+      "generator": "Ninja",
+      "configurationType": "Release",
+      "buildRoot": "${projectDir}\\out\\build\\${name}",
+      "installRoot": "${projectDir}\\out\\install\\${name}",
+      "cmakeCommandArgs": "",
+      "buildCommandArgs": "",
+      "ctestCommandArgs": "",
+      "variables": [
+        {
+          "name": "SDL2_INCLUDE_DIRS",
+          "value": "C:/Users/Tynan/Documents/Private/repos/VVVVVV/third_party/SDL2/SDL2-2.24.0/include;C:/Users/Tynan/Documents/Private/repos/VVVVVV/third_party/SDL2/SDL2_mixer-2.6.2/include",
+          "type": "PATH"
+        },
+        {
+          "name": "SDL2_LIBRARIES",
+          "value": "C:/Users/Tynan/Documents/Private/repos/VVVVVV/third_party/SDL2/SDL2-2.24.0/lib/x64/SDL2.lib;C:/Users/Tynan/Documents/Private/repos/VVVVVV/third_party/SDL2/SDL2-2.24.0/lib/x64/SDL2main.lib;C:/Users/Tynan/Documents/Private/repos/VVVVVV/third_party/SDL2/SDL2_mixer-2.6.2/lib/x64/SDL2_mixer.lib",
+          "type": "PATH"
+        }
+      ],
+      "inheritEnvironments": [ "msvc_x64_x64" ]
+    }
+  ]
+}
