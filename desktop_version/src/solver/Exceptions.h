@@ -32,6 +32,11 @@ namespace Exceptions {
 			VVV_exit(3);
 		}
 	}
+	static inline void VVV_assert(bool condition, int exit_code) {
+		if (!condition) {
+			VVV_exit(exit_code);
+		}
+	}
 	static inline void unreachable(void) {
 		assert(false);
 	}

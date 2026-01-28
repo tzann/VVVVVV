@@ -3,6 +3,9 @@
 
 #include "solver/Geometry.h"
 
+#define ROOM_W (320)
+#define ROOM_H (240)
+
 #define VIRIDIAN_CX (6)
 #define VIRIDIAN_CY (2)
 #define VIRIDIAN_W (12)
@@ -33,5 +36,11 @@
 
 #define RENDER_OFFSET_X (11)
 #define RENDER_OFFSET_Y (12)
+
+// Note that we touch the warp token / trinket in the range x [-17, 9], y [-22, 13]
+#define TRINKET_X_MIN (-17)
+#define TRINKET_X_MAX (9)
+#define TRINKET_Y_MIN (-22)
+#define TRINKET_Y_MAX (13)
 
 #endif /* SOLVER_CONSTANTS_H */
