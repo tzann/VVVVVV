@@ -56,7 +56,12 @@ namespace Geometry {
 			return INT_MAX;
 		}
 
-		// Assume no overflow for now
+		// This would make the multiplication overflow
+		if (y >= INT_MAX / x) {
+			return INT_MAX;
+		}
+
+		// No other overflows possible afaik
 		return x * y;
 	}
 	static int saturatingDiv(int x, int y) {
@@ -71,10 +76,13 @@ namespace Geometry {
 			// We define 0 / 0 = 0
 			return 0;
 		} else if (y == 0) {
+			// x / 0 = INF
 			return INT_MAX;
 		} else if (x == INT_MAX) {
+			// INF / x = INF, although perhaps INF / INF should throw an exception?
 			return INT_MAX;
 		} else if (y == INT_MAX) {
+			// x / INF = 0
 			return 0;
 		}
 
@@ -283,10 +291,9 @@ namespace Geometry {
 			return regularize();
 		}
 		IntInterval operator-(void) const {
-			if (this->is_bottom()) {
-				return IntInterval::bottom();
-			}
-			return IntInterval(saturatingNegate(max), saturatingNegate(min));
+			IntInterval res(*this);
+			res.negate();
+			return res;
 		}
 
 		IntInterval& operator+=(const IntInterval& rhs) {
@@ -461,11 +468,14 @@ namespace Geometry {
 				return IntInterval::bottom();
 			}
 
-			if (max <= 0) {
+			if (is_negative()) {
 				return -(*this);
 			}
-			if (min >= 0) {
+			if (is_positive()) {
 				return IntInterval(*this);
+			}
+			if (!is_bounded()) {
+				return IntInterval::positive();
 			}
 
 			return IntInterval(0, SDL_max(saturatingNegate(min), max));
@@ -499,19 +509,21 @@ namespace Geometry {
 		}
 		IntInterval& removeLowerBound(void) {
 			if (!is_bottom()) {
-				min = -INT_MAX;
+				min = INT_MIN;
 			}
 			return regularize();
 		}
 		IntInterval& join(const IntInterval& other);
 		IntInterval& intersect(const IntInterval& other);
 		IntInterval& difference(const IntInterval& other);
+		/// Essentially returns top().difference(this), i.e. an interval that contains at least everything not contained in this one
+		IntInterval& invert();
 
 		IntInterval getIntervalAbove(void) const {
 			if (is_bottom()) {
 				return IntInterval::top();
 			} else if (has_upper_bound()) {
-				return IntInterval::fromLowerBound(max + 1);
+				return IntInterval::fromLowerBound(saturatingAdd(max, 1));
 			} else {
 				return IntInterval::bottom();
 			}
@@ -520,7 +532,7 @@ namespace Geometry {
 			if (is_bottom()) {
 				return IntInterval::top();
 			} else if (has_lower_bound()) {
-				return IntInterval::fromUpperBound(min - 1);
+				return IntInterval::fromUpperBound(saturatingSub(min, 1));
 			} else {
 				return IntInterval::bottom();
 			}
@@ -546,6 +558,8 @@ namespace Geometry {
 		}
 		static IntInterval join(const IntInterval& a, const IntInterval& b);
 		static IntInterval intersect(const IntInterval& a, const IntInterval& b);
+		static IntInterval difference(const IntInterval& a, const IntInterval& b);
+		static IntInterval inverse(const IntInterval& a);
 		static IntInterval pos_div(const IntInterval& a, const IntInterval& b);
 	};
 

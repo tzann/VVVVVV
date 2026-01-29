@@ -3,6 +3,8 @@
 
 #include "solver/Geometry.h"
 
+#define REGULAR_FRAME_DELAY (34)
+
 #define ROOM_W (320)
 #define ROOM_H (240)
 

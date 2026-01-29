@@ -2,15 +2,26 @@
 
 namespace Geometry {
 	IntInterval IntInterval::join(const IntInterval& a, const IntInterval& b) {
-		int min = SDL_min(a.min, b.min);
-		int max = SDL_max(a.max, b.max);
-		return IntInterval(min, max);
+		IntInterval res(a);
+		res.join(b);
+		return res;
 	}
 	IntInterval IntInterval::intersect(const IntInterval& a, const IntInterval& b) {
-		int min = SDL_max(a.min, b.min);
-		int max = SDL_min(a.max, b.max);
-		return IntInterval(min, max);
+		IntInterval res(a);
+		res.intersect(b);
+		return res;
 	}
+	IntInterval IntInterval::difference(const IntInterval& a, const IntInterval& b) {
+		IntInterval res(a);
+		res.difference(b);
+		return res;
+	}
+	IntInterval IntInterval::inverse(const IntInterval& a) {
+		IntInterval res(a);
+		res.invert();
+		return res;
+	}
+
 	IntInterval& IntInterval::join(const IntInterval& other) {
 		min = SDL_min(min, other.min);
 		max = SDL_max(max, other.max);
@@ -22,14 +33,26 @@ namespace Geometry {
 		return regularize();
 	}
 	IntInterval& IntInterval::difference(const IntInterval& other) {
-		if (!is_bottom()) {
-			if (other.contains(min)) {
-				min = saturatingAdd(other.max, 1);
-			}
-			if (other.contains(max)) {
-				max = saturatingSub(other.min, 1);
-			}
+		if (!other.has_lower_bound() || other.contains(min)) {
+			addLowerBound(saturatingAdd(other.max, 1));
 		}
+		if (!other.has_upper_bound() || other.contains(max)) {
+			addUpperBound(saturatingSub(other.min, 1));
+		}
+
+		return regularize();
+	}
+	IntInterval& IntInterval::invert() {
+		int lb = INT_MIN;
+		int ub = INT_MAX;
+		if (!has_lower_bound()) {
+			lb = saturatingAdd(max, 1);
+		}
+		if (!has_upper_bound()) {
+			ub = saturatingSub(min, 1);
+		}
+		max = ub;
+		min = lb;
 		return regularize();
 	}
 

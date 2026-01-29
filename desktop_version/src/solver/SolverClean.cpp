@@ -1,4 +1,5 @@
 #include "solver/SolverClean.h"
+#include "solver/Scenarios.h"
 
 #include "CustomLevels.h"
 #include "DeferCallbacks.h"
@@ -27,6 +28,7 @@
 #include "VFormat.h"
 #include "Vlogging.h"
 
+#include <chrono>
 #include <queue>
 #include <functional>
 #include <unordered_set>
@@ -40,21 +42,219 @@ namespace Solver {
     using Terrain::RoomPosition;
     using Terrain::GlobalPosition;
 
-    void solveScenario(SolverConfig& solver, CheckedScenario& scenario) {
+    static void runSolver() {
+        RawScenario rs = SS1::SCENARIOS::START;
+        SolverConfig solver;
+        CheckedScenario scenario = checkScenario(rs);
 
+        solveScenario(solver, scenario);
     }
 
-    static uint16_t calcHeuristic(SolverConfig& solver, CheckedScenario& scenario, int next_corner, PlayerState& player, GameState& game) {
+    static void solveScenario(SolverConfig& solver, const CheckedScenario& scenario) {
+        auto start_time = std::chrono::system_clock::now();
+
+        solver.debug_info.clear();
+        loadScenario(scenario);
+
+        CachedSolverState init_state = cacheCurrentState(solver);
+        uint64_t init_hash = init_state.hash();
+        uint16_t init_heuristic = updateHeuristic(solver, scenario, init_state);
+        
+        /// States that have been processed - just enough information to reconstruct them later
+        std::unordered_map<uint64_t, StateSummary, CustomHash> processed_states;
+        /// The main data structure: A queue containing all not-yet processed states, ordered according to the solver config
+        std::priority_queue<CachedSolverState, std::vector<CachedSolverState>, SolverConfig> queue(solver);
+        /// A vector of solution states, in case we want to find several (or all) optimal solutions
+        std::vector<StateSummary> solution_states;
+
+        queue.emplace(init_state);
+        while (!queue.empty()) {
+            const CachedSolverState& state = queue.top();
+            // TODO: is it safe to pop here or does that invalidate the reference?
+            queue.pop();
+
+            uint64_t state_hash = state.hash();
+            if (processed_states.find(state_hash) != processed_states.end()) {
+                // We've already seen this state, skip it
+                continue;
+            }
+            // Store the state summary, which allows us to reconstruct the solution later
+            processed_states.emplace(state_hash, state.summary());
+
+            // Update debug info
+            {
+                auto now_time = std::chrono::system_clock::now();
+                solver.debug_info.millis = std::chrono::duration_cast<std::chrono::milliseconds>(now_time - start_time).count();
+                solver.debug_info.states = processed_states.size();
+                solver.debug_info.min_heuristic = state.heuristic;
+                solver.debug_info.max_measure = SDL_max(solver.debug_info.max_measure, state.getMeasure(solver.mode));
+                solver.debug_info.queue_size = queue.size();
+                solver.debug_info.cache_size = solver.cache.size();
+                // TODO: occasionally render debug info
+            }
+
+            // Have we reached the goal?
+            if (state.next_corner == scenario.corners.size()) {
+                // Yes! We've passed the last corner. Add this state to the solution list
+                solution_states.push_back(state.summary());
+                if (solution_states.size() >= solver.max_solutions) {
+                    break;
+                }
+            }
+
+            // Generate all possible subsequent states by iterating over all possible inputs
+            uint8_t max_input = 8;
+            for (uint8_t input = 0; input < max_input; input++) {
+                bool left = input & 1;
+                bool right = input & 2;
+                bool flip = input & 4;
+                // TODO: R, interact
+
+                // Load the state we are continuing from
+                loadState(solver, state);
+                // Set the inputs accordingly
+                key.clearKeys();
+                key.setKey(KEYBOARD_LEFT, left);
+                key.setKey(KEYBOARD_RIGHT, right);
+                key.setKey(KEYBOARD_v, flip);
+                // Advance the game by one frame
+                do_game_step(false);
+
+                // Hack: if we died, ignore this branch
+                // This means we will never find death strats, but that's fine for now
+                if (game.deathseq > 0) {
+                    continue;
+                }
+
+                // Cache the new state that we've reached (this already updates all counter variables and the heuristic)
+                CachedSolverState new_state = cacheCurrentStateWithDeltaFromPrev(solver, scenario, state);
+
+                // IMPORTANT: Check that the new heuristic is NOT lower than the old one
+                // That would imply the heuristic is INADMISSIBLE, which means we are not guaranteed to find the optimal solution!
+                if (new_state.heuristic < state.heuristic) {
+                    Exceptions::inadmissible_heuristic();
+                }
+
+                // Finally: Add the new state to the queue. The insertion will preserve the ordering.
+                queue.push(new_state);
+            }
+        }
+
+        // Now we can clear the queue
+        // Priority queues don't have a clear() function for some reason, so just reinitialize
+        queue = std::priority_queue<CachedSolverState, std::vector<CachedSolverState>, SolverConfig>(solver);
+
+        // Now we reconstruct the solution(s)! We just want a list of the inputs given each frame
+        std::vector<std::vector<uint8_t>> solution_inputs;
+        for (StateSummary& solution : solution_states) {
+            std::vector<uint8_t> inputs;
+            inputs.emplace_back(solution.inputs);
+
+            // Walk back up the previous states, collecting inputs along the way
+            uint64_t hash = solution.prev_hash;
+            while (hash != init_hash) {
+                // The previous state must always exist, since we stop when we reach the initial state
+                StateSummary& prev = processed_states.at(hash);
+                inputs.emplace_back(prev.inputs);
+                hash = prev.prev_hash;
+            }
+
+            // We collected the inputs in reverse order, so reverse the inputs to account for it
+            // TODO: we might be able to do this and copy into `solution_inputs` at the same time with an iterator that has negative stride
+            std::reverse(inputs.begin(), inputs.end());
+
+            // Make sure the input vectors have the right length
+            if (solver.debug_checks) {
+                assert(inputs.size() == solver.debug_info.max_measure);
+                assert(inputs.size() == solver.debug_info.min_heuristic);
+            }
+
+            solution_inputs.emplace_back(inputs);
+        }
+
+        // Now we can also discard all the processed states we gathered
+        processed_states.clear();
+
+        // Reload the initial state before clearing the entity cache
+        loadState(solver, init_state);
+        solver.cache.clear();
+
+        // Cache the initial state again, to repopulate the entity cache with only the necessary entries
+        init_state = cacheCurrentState(solver);
+
+        // Now we will repeatedly play back the solutions we've found
+        while (true) {
+            for (int idx = 0; idx < solution_inputs.size(); idx++) {
+                const std::vector<uint8_t>& inputs = solution_inputs[idx];
+
+                // Reset displayed solution info
+                {
+                    solver.solution_info.solution_idx = idx;
+                    solver.solution_info.length = inputs.size();
+                    solver.solution_info.frame = 0;
+                    solver.solution_info.input = 0;
+                    solver.solution_info.measure = 0;
+                }
+
+                // Render the initial frame, delay a bit longer
+                loadState(solver, init_state);
+                do_game_render();
+                SDL_Delay(10 * REGULAR_FRAME_DELAY);
+
+                for (int f = 0; f < inputs.size(); f++) {
+                    const uint8_t& i = inputs[f];
+                    bool left = i & 1;
+                    bool right = i & 2;
+                    bool flip = i & 4;
+
+                    // Set inputs accordingly
+                    key.clearKeys();
+                    key.setKey(KEYBOARD_LEFT, left);
+                    key.setKey(KEYBOARD_RIGHT, right);
+                    key.setKey(KEYBOARD_v, flip);
+
+                    // Update displayed solution info (will be rendered after next game step)
+                    {
+                        solver.solution_info.frame = f + 1;
+                        solver.solution_info.input = i;
+                        // TODO: get the actual measure here, which is a bit tricky - we have to know it before stepping to the next frame
+                        solver.solution_info.measure = f + 1;
+                    }
+
+                    // Sanity checks
+                    if (solver.debug_checks) {
+                        if (f == inputs.size() - 1) {
+                            // Compare on the second last frame since that's the final hash we store
+                            assert(cacheCurrentState(solver).hash() == solution_states[idx].prev_hash);
+                        }
+                    }
+
+                    // Advance the game by one frame, don't disable rendering
+                    do_game_step(true);
+                    SDL_Delay(REGULAR_FRAME_DELAY);
+                }
+            }
+        }
+    }
+
+    static uint16_t updateHeuristic(const SolverConfig& solver, const CheckedScenario& scenario, CachedSolverState& state) {
+        assert(state.heuristic == 0);
+        uint16_t h = state.getMeasure(solver.mode) + calcHeuristic(solver, scenario, state.next_corner, state.player, state.game);
+        state.heuristic = h;
+        return h;
+    }
+
+    static uint16_t calcHeuristic(const SolverConfig& solver, const CheckedScenario& scenario, int next_corner, const PlayerState& player, const GameState& game) {
         GlobalPosition pos = GlobalPosition(RoomPosition::FromNativeRoomCoords(game.roomx, game.roomy), IntVector(player.x, player.y));
 
         if (solver.debug_checks) {
             assert(0 <= next_corner && next_corner <= scenario.corners.size());
             if (next_corner < scenario.corners.size()) {
-                CheckedCorner& next = scenario.corners[next_corner];
+                const CheckedCorner& next = scenario.corners[next_corner];
                 assert(!next.isPosAfter(pos));
             }
             if (next_corner >= 1) {
-                CheckedCorner& last = scenario.corners[next_corner - 1];
+                const CheckedCorner& last = scenario.corners[next_corner - 1];
                 assert(!last.isPosBefore(pos));
             }
         }
@@ -74,7 +274,7 @@ namespace Solver {
         }
     }
 
-    static uint16_t calcSimpleHeuristic(SolverConfig& solver, CheckedScenario& scenario, int next_corner, PlayerState& player, GameState& game) {
+    static uint16_t calcSimpleHeuristic(const SolverConfig& solver, const CheckedScenario& scenario, int next_corner, const PlayerState& player, const GameState& game) {
         int total_frames = 0;
 
         IntVector pos_vec = IntVector(room_adjusted_x(game.roomx, player.x), room_adjusted_y(game.roomy, player.y));
@@ -82,171 +282,64 @@ namespace Solver {
         Region pos = Region(pos_vec, pos_vec);
 
         for (int c_idx = next_corner; c_idx < scenario.corners.size(); c_idx++) {
-            CheckedCorner& c = scenario.corners[c_idx];
+            const CheckedCorner& c = scenario.corners[c_idx];
 
-            Region& c_r = c.region;
+            // This is the region of the corner that we must pass through to proceed
+            const Region& c_r = c.region;
 
-            IntInterval x_diff = pos.x - c_r.x;
-            IntInterval y_diff = pos.y - c_r.y;
+            // Minimum absolute distance per dimension
+            int x_d = (pos.x - c_r.x).abs().getLowerBound();
+            int y_d = (pos.y - c_r.y).abs().getLowerBound();
 
-            int x_d = 0;
-            if (x_diff.contains(0)) {
-                x_d = 0;
-            }
-            else if (x_diff.is_negative()) {
-                x_d = x_diff.getUpperBound();
-            }
-            else if (x_diff.is_positive()) {
-                x_d = x_diff.getLowerBound();
-            }
-            int y_d = 0;
-            if (y_diff.contains(0)) {
-                y_d = 0;
-            }
-            else if (y_diff.is_negative()) {
-                y_d = y_diff.getUpperBound();
-            }
-            else if (y_diff.is_positive()) {
-                y_d = y_diff.getLowerBound();
-            }
+            // Factor in vertical corner cuts
+            bool verticalCutUp = c.dir == UP_LEFT || c.dir == UP_RIGHT;
+            bool verticalCutDown = c.dir == DOWN_LEFT || c.dir == DOWN_RIGHT;
+            IntInterval verticalCornerCutDist = IntInterval(verticalCutUp ? -MAX_VY : 0, verticalCutDown ? MAX_VY : 0);
 
-            int frame_count = 0;
-            IntInterval x_dist = VX_INT_RANGE;
-            IntInterval y_dist = VY_INT_RANGE; 
+            // The space of reachable positions one frame after passing the corner
+            Region postCornerRegion = Region(c_r.x, c_r.y + verticalCornerCutDist);
 
-            // Note that if we are "inside" the corner (e.g. x_d > 0 && y_d < 0 for UP_LEFT),
-            //   then we just pretend we can walk through walls. The max corner cut distance constraint
-            //   makes sure we don't completely wreck our heuristic
-            // Note also that if we are already past the corner (i.e. x_d <= 0 for UP_LEFT),
-            //   then we do nothing as we want to preserve min_x, max_x, min_y and max_y for the next corner
-            switch (c.dir) {
-            case UP_LEFT: // Limiting factor: leftwards movement
-                if (x_d > 0) {
-                    // How long until we pass the corner?
-                    frame_count = div_ceil(x_d, MAX_VX);
-                    pos.x += x_dist * frame_count;
-                    pos.y += y_dist * frame_count;
+            // How long will it take to get past the corner?
+            int x_frames = div_ceil(x_d, MAX_VX);
+            int y_frames = div_ceil(y_d, MAX_VY);
+            int frames = SDL_max(x_frames, y_frames);
 
-                    // Corner pos is upper bound (we need to be to the left)
-                    pos.x.intersect(c_r.x);
-                    // Can't cut more than 10 pixels past the corner vertically
-                    pos.y.intersect(c_r.y - MAX_VY);
-                }
-                break;
-            case UP_RIGHT: // Limiting factor: rightwards movement
-                if (x_d < 0) {
-                    // What distance can we cover until we pass the corner?
-                    frame_count = div_ceil(-x_d, MAX_VX);
-                    pos.x += x_dist * frame_count;
-                    pos.y += y_dist * frame_count;
+            // How far can we move during that time?
+            IntInterval x_dist = VX_INT_RANGE * frames;
+            IntInterval y_dist = VY_INT_RANGE * frames; 
 
-                    // Corner pos is lower bound (we need to be to the right)
-                    pos.x.intersect(c_r.x);
-                    // Can't cut more than 10 pixels past the corner vertically
-                    pos.y.intersect(c_r.y - MAX_VY);
-                }
-                break;
-            case LEFT_UP: // Limiting factor: upwards movement
-                if (y_d > 0) {
-                    // What distance can we cover until we pass the corner?
-                    frame_count = div_ceil(y_d, MAX_VY);
-                    pos.x += x_dist * frame_count;
-                    pos.y += y_dist * frame_count;
+            // Update player position
+            pos.x += x_dist;
+            pos.y += y_dist;
 
-                    // Can't cut past the corner horizontally
-                    pos.x.intersect(c_r.x);
-                    // Corner pos is upper bound (we need to be above)
-                    pos.y.intersect(c_r.y);
-                }
-                break;
-            case LEFT_DOWN: // Limiting factor: downwards movement
-                if (y_d < 0) {
-                    // What distance can we cover until we pass the corner?
-                    frame_count = div_ceil(-y_d, MAX_VY);
-                    pos.x += x_dist * frame_count;
-                    pos.y += y_dist * frame_count;
+            // Restrict player position to post-corner region
+            pos.intersect(postCornerRegion);
 
-                    // Can't cut past the corner horizontally
-                    pos.x.intersect(c_r.x);
-                    // Corner pos is lower bound (we need to be above)
-                    pos.y.intersect(c_r.y);
-                }
-                break;
-            case DOWN_LEFT:
-                if (x_d > 0) {
-                    // How long until we pass the corner?
-                    frame_count = div_ceil(x_d, MAX_VX);
-                    pos.x += x_dist * frame_count;
-                    pos.y += y_dist * frame_count;
-
-                    // Corner pos is upper bound (we need to be to the left)
-                    pos.x.addUpperBound(c_r.x.max);
-                    // Can't cut more than 10 pixels past the corner vertically
-                    pos.y.addLowerBound(c_r.y.min + MAX_VY);
-                }
-                break;
-            case DOWN_RIGHT:
-                if (x_d < 0) {
-                    // How long until we pass the corner?
-                    frame_count = div_ceil(-x_d, MAX_VX);
-                    pos.x += x_dist * frame_count;
-                    pos.y += y_dist * frame_count;
-
-                    // Corner pos is upper bound (we need to be to the left)
-                    pos.x.addUpperBound(c_r.x.max);
-                    // Can't cut more than 10 pixels past the corner vertically
-                    pos.y.addLowerBound(c_r.y.min + MAX_VY);
-                }
-                break;
-            case RIGHT_UP:
-                if (y_d > 0) {
-                    // What distance can we cover until we pass the corner?
-                    frame_count = div_ceil(y_d, MAX_VY);
-                    pos.x += x_dist * frame_count;
-                    pos.y += y_dist * frame_count;
-
-                    // Can't cut past the corner horizontally
-                    pos.x.intersect(c_r.x);
-                    // Corner pos is upper bound (we need to be above)
-                    pos.y.intersect(c_r.y);
-                }
-                break;
-            case RIGHT_DOWN:
-                if (y_d < 0) {
-                    // What distance can we cover until we pass the corner?
-                    frame_count = div_ceil(-y_d, MAX_VY);
-                    pos.x += x_dist * frame_count;
-                    pos.y += y_dist * frame_count;
-
-                    // Can't cut past the corner horizontally
-                    pos.x.intersect(c_r.x);
-                    // Corner pos is upper bound (we need to be above)
-                    pos.y.intersect(c_r.y);
-                }
-                break;
-            case TRINKET:
-                // Could be in any direction
-                // At least how many frames will it take to reach the trinket?
-                int x_frames = div_ceil(SDL_abs(x_d), MAX_VX);
-                int y_frames = div_ceil(SDL_abs(y_d), MAX_VY);
-                frame_count = SDL_max(x_frames, y_frames);
-                pos.x += x_dist * frame_count;
-                pos.y += y_dist * frame_count;
-
-                // What are the min and max positions reachable while still collecting the trinket?
-                pos.x.intersect(c_r.x);
-                pos.y.intersect(c_r.y);
-            }
-
-            total_frames += frame_count;
+            // Update total frame count
+            total_frames += frames;
         }
 
-        // TODO: account for final distance to get past the last corner, not just no longer be before it
+        // We are now no longer before the last corner, but we may not yet be past it
+        if (scenario.corners.back().isRegular()) {
+            const CheckedCorner& c = scenario.corners.back();
+            Region c_r = c.getRegionAfter();
+
+            // Minimum absolute distance per dimension
+            int x_d = (pos.x - c_r.x).abs().getLowerBound();
+            int y_d = (pos.y - c_r.y).abs().getLowerBound();
+
+            // How long will it take to get past the corner?
+            int x_frames = div_ceil(x_d, MAX_VX);
+            int y_frames = div_ceil(y_d, MAX_VY);
+            int frames = SDL_max(x_frames, y_frames);
+
+            total_frames += frames;
+        }
 
         return total_frames;
     }
 
-    CheckedScenario checkScenario(RawScenario& raw_scenario) {
+    static CheckedScenario checkScenario(const RawScenario& raw_scenario) {
         using Terrain::RoomPosition;
 
         std::vector<CheckedCorner> checked_corners;
@@ -256,7 +349,7 @@ namespace Solver {
 
         RoomPosition current_room = RoomPosition(-1, -1);
         for (int c_idx = 0; c_idx < raw_scenario.corners.size(); c_idx++) {
-            RawCorner& c = raw_scenario.corners[c_idx];
+            const RawCorner& c = raw_scenario.corners[c_idx];
             bool shiny_or_warp = c.dir == CornerDir::TRINKET || c.dir == CornerDir::WARP_TOKEN;
 
             RoomPosition c_room = RoomPosition::FromNativeRoomCoords(c.rx, c.ry);;
@@ -383,8 +476,9 @@ namespace Solver {
                 }
 
                 Region reg = Region(x_ival, y_ival);
-
-                checked_corners.emplace_back(std::forward_as_tuple(c_room, reg, c.dir));
+                CheckedCorner c = CheckedCorner(c_room, reg, c.dir);
+                // TODO emplace instead of push
+                checked_corners.push_back(c);
             }
             else {
                 // Trinket or warp token - let's see if the hitbox is partially OoB and update it
@@ -409,7 +503,9 @@ namespace Solver {
                 // Sanity check: At least one pixel of the trinket is not OoB
                 VVV_assert(!box.is_bottom() && box.is_bounded(), 573000 + c_idx);
 
-                checked_corners.emplace_back(std::forward_as_tuple(c_room, box, c.dir));
+                CheckedCorner c = CheckedCorner(c_room, box, c.dir);
+                // TODO emplace instead of push
+                checked_corners.push_back(c);
             }
 
             // Free the collision bitmap
@@ -422,7 +518,7 @@ namespace Solver {
         return res;
     }
 
-    void loadScenario(CheckedScenario& scenario) {
+    static void loadScenario(const CheckedScenario& scenario) {
         game.savex = scenario.init_pos.x;
         game.savey = scenario.init_pos.y;
         game.saverx = scenario.init_room.rx;
@@ -457,8 +553,81 @@ namespace Solver {
         key.clearKeys();
     }
 
-    static CachedSolverState cacheCurrentState(SolverConfig& solver)
-    {
+    static CachedSolverState cacheCurrentStateWithDeltaFromPrev(SolverConfig& solver, const CheckedScenario& scenario, const CachedSolverState& prev) {
+        CachedSolverState state = cacheCurrentState(solver);
+        // The global coordinates of the player
+        const GlobalPosition pos = state.getGlobalPos();
+        // The current inputs to the game
+        bool left = key.isDown(SDLK_LEFT);
+        bool right = key.isDown(SDLK_RIGHT);
+        bool flip = key.isDown(SDLK_v);
+        bool reset = key.isDown(SDLK_r);
+        bool talk = key.isDown(SDLK_RETURN);
+        uint8_t inputs = 0;
+        inputs |= (inputs << 1) | talk;
+        inputs |= (inputs << 1) | reset;
+        inputs |= (inputs << 1) | flip;
+        inputs |= (inputs << 1) | right;
+        inputs |= (inputs << 1) | left;
+
+        bool changedCorner = false;
+        // Have we passed the next corner in the scenario?
+        if (prev.next_corner < scenario.corners.size()) {
+            const CheckedCorner& next = scenario.corners[prev.next_corner];
+            if (next.isPosAfter(pos)) {
+                state.next_corner++;
+                changedCorner = true;
+            }
+        }
+        // Did we go back around the previous corner?
+        if (!changedCorner && prev.next_corner > 0) {
+            const CheckedCorner& last = scenario.corners[prev.next_corner - 1];
+            if (last.isPosBefore(pos)) {
+                state.next_corner--;
+                changedCorner = true;
+            }
+        }
+
+        // Update frame counter
+        state.frame_count = prev.frame_count + 1;
+
+        // Update input counters
+        uint8_t changed_inputs = prev.inputs ^ inputs;
+        uint16_t num_changed_inputs = std::_Popcount(changed_inputs);
+        uint16_t num_input_frames = std::_Popcount(inputs);
+        state.input_change_count += num_changed_inputs;
+        state.input_frame_count += num_input_frames;
+
+        // Update flip counter, although this is non-trivial to deduce - might be worth testing
+        if (flip) {
+            if (prev.canDoubleFlip()) {
+                state.flip_count += 2;
+            }
+            else if (prev.canFlip()) {
+                state.flip_count++;
+            }
+        }
+
+        // Count the number of frames where both left and right were pressed at the same time
+        // We want to avoid this if possible, because we want to know if it's a forced element of the solution
+        if (left && right) {
+            state.num_l_plus_r++;
+        }
+
+        // Store current inputs, which should not yet have changed
+        state.inputs = inputs;
+
+        // Store hash of previous state for reconstruction
+        // TODO: don't recalculate it
+        state.prevHash = prev.hash();
+
+        // Finally, recalculate the heuristic for this new 
+        // Calling this already sets `state.heuristic`
+        updateHeuristic(solver, scenario, state);
+        return state;
+    }
+
+    static CachedSolverState cacheCurrentState(SolverConfig& solver) {
         CachedSolverState state;
 
         state.game.roomx = game.roomx;
@@ -625,7 +794,7 @@ namespace Solver {
         return CacheEntry(entity_set, block_set);
     }
 
-    static void loadState(SolverConfig& solver, CachedSolverState& state) {
+    static void loadState(const SolverConfig& solver, const CachedSolverState& state) {
         // Restore trinkets first, because they affect room load
         for (int i = 0; i < 20; i++) {
             // hacky fix pt1
@@ -693,12 +862,12 @@ namespace Solver {
         // Load cached entity and block data
         loadCacheEntry(solver, state.cache_entry);
     }
-    static void loadCacheEntry(SolverConfig& solver, CacheEntry& entry) {
+    static void loadCacheEntry(const SolverConfig& solver, const CacheEntry& entry) {
         if (entry.entity_hash != 0) {
-            std::vector<std::size_t>& cached_entities = solver.cache.getEntitySet(entry.entity_hash);
+            const std::vector<std::size_t>& cached_entities = solver.cache.getEntitySet(entry.entity_hash);
             // Load entity data
             for (int i = 0; i < cached_entities.size(); i++) {
-                EntityState& e = solver.cache.getEntity(cached_entities[i]);
+                const EntityState& e = solver.cache.getEntity(cached_entities[i]);
                 // obj.entities[0] is player, don't overwrite it
                 obj.entities[i + 1].type = e.type;
                 obj.entities[i + 1].rule = e.rule;
@@ -726,10 +895,10 @@ namespace Solver {
             }
         }
         if (entry.block_hash != 0) {
-            std::vector<std::size_t>& cached_blocks = solver.cache.getBlockSet(entry.block_hash);
+            const std::vector<std::size_t>& cached_blocks = solver.cache.getBlockSet(entry.block_hash);
             // Load block data
             for (int i = 0; i < cached_blocks.size(); i++) {
-                BlockState& b = solver.cache.getBlock(cached_blocks[i]);
+                const BlockState& b = solver.cache.getBlock(cached_blocks[i]);
                 obj.blocks[i].rect.x = b.rect_x;
                 obj.blocks[i].rect.y = b.rect_y;
                 obj.blocks[i].rect.w = b.rect_w;
@@ -751,7 +920,7 @@ namespace Solver {
     }
 
     /// Returns true if state `a` should come *after* state `b` in processing order
-    bool SolverConfig::compareStates(CachedSolverState& a, CachedSolverState& b) {
+    bool SolverConfig::compareStates(const CachedSolverState& a, const CachedSolverState& b) const {
         // The heuristic must always have the highest priority in state comparisons
         if (a.heuristic != b.heuristic) {
             // Prioritize low heuristic -> fastest solution will be found first if heuristic is admissible
@@ -783,7 +952,7 @@ namespace Solver {
         return true;
     }
 
-    bool CheckedCorner::isPosAfter(Terrain::GlobalPosition& pos) {
+    bool CheckedCorner::isPosAfter(const Terrain::GlobalPosition& pos) const {
         if (room.outside != pos.room.outside) {
             Exceptions::invalid_argument();
         }
@@ -804,21 +973,21 @@ namespace Solver {
             int y_delta = rx_delta + pos.pos.y - c_pos.y;
             switch (this->dir) {
             case UP_LEFT:
-                return x_delta > 0 && y_delta >= 0;
-            case UP_RIGHT:
-                return x_delta < 0 && y_delta >= 0;
-            case DOWN_LEFT:
-                return x_delta > 0 && y_delta <= 0;
-            case DOWN_RIGHT:
-                return x_delta < 0 && y_delta <= 0;
-            case LEFT_UP:
-                return x_delta >= 0 && y_delta > 0;
-            case LEFT_DOWN:
-                return x_delta >= 0 && y_delta < 0;
-            case RIGHT_UP:
-                return x_delta <= 0 && y_delta > 0;
-            case RIGHT_DOWN:
                 return x_delta <= 0 && y_delta < 0;
+            case UP_RIGHT:
+                return x_delta >= 0 && y_delta < 0;
+            case DOWN_LEFT:
+                return x_delta <= 0 && y_delta > 0;
+            case DOWN_RIGHT:
+                return x_delta >= 0 && y_delta > 0;
+            case LEFT_UP:
+                return x_delta < 0 && y_delta <= 0;
+            case LEFT_DOWN:
+                return x_delta < 0 && y_delta >= 0;
+            case RIGHT_UP:
+                return x_delta > 0 && y_delta <= 0;
+            case RIGHT_DOWN:
+                return x_delta > 0 && y_delta >= 0;
             default:
                 Exceptions::unreachable();
             }
@@ -826,7 +995,7 @@ namespace Solver {
 
         Exceptions::todo();
     }
-    bool CheckedCorner::isPosBefore(Terrain::GlobalPosition& pos) {
+    bool CheckedCorner::isPosBefore(const Terrain::GlobalPosition& pos) const {
         if (room.outside != pos.room.outside) {
             Exceptions::invalid_argument();
         }
@@ -867,7 +1036,7 @@ namespace Solver {
 
         Exceptions::todo();
     }
-    bool CheckedCorner::isPosInside(Terrain::GlobalPosition& pos) {
+    bool CheckedCorner::isPosInside(const Terrain::GlobalPosition& pos) const {
         if (room.outside != pos.room.outside) {
             Exceptions::invalid_argument();
         }
@@ -897,5 +1066,120 @@ namespace Solver {
         }
 
         Exceptions::todo();
+    }
+
+    Region CheckedCorner::getUnboundedRegion() const {
+        // Simply remove the "outside" bounds on regular corner regions
+        Region region = Region(this->region);
+        if (this->isRegular()) {
+            switch (this->getType()) {
+            case Terrain::CornerType::BottomLeft:
+                region.removeXLowerBound();
+                region.removeYUpperBound();
+                break;
+            case Terrain::CornerType::BottomRight:
+                region.removeXUpperBound();
+                region.removeYUpperBound();
+                break;
+            case Terrain::CornerType::TopLeft:
+                region.removeXLowerBound();
+                region.removeYLowerBound();
+                break;
+            case Terrain::CornerType::TopRight:
+                region.removeXUpperBound();
+                region.removeYLowerBound();
+                break;
+            default:
+                Exceptions::unreachable();
+            }
+        }
+
+        return region;
+    }
+    Region CheckedCorner::getRegionAfter() const {
+        // In this context, being "after" the corner means being sure that
+        // we have already passed it. For trinkets and warp tokens, we can't
+        // "really" know just based off the position, except if we're touching it
+        Region region = this->getUnboundedRegion();
+        switch (this->dir) {
+        case UP_LEFT:
+        case UP_RIGHT:
+        case DOWN_LEFT:
+        case DOWN_RIGHT:
+            // Keep X range the same, invert Y range
+            region.y.invert();
+            break;
+        case LEFT_UP:
+        case LEFT_DOWN:
+        case RIGHT_UP:
+        case RIGHT_DOWN:
+            // Keep Y range the same, invert X range
+            region.x.invert();
+            break;
+        case TRINKET:
+        case WARP_TOKEN:
+            // Do nothing
+            break;
+        default:
+            Exceptions::unreachable();
+        }
+
+        return region;
+    }
+    Region CheckedCorner::getRegionBefore() const {
+        // In this context, being "before" the corner means being sure that
+        // we still need to pass it. For trinkets and warp tokens, we can't
+        // "really" know just based off the position, so always return false
+        Region region = this->getUnboundedRegion();
+        switch (this->dir) {
+        case TRINKET:
+        case WARP_TOKEN:
+            region.make_bottom();
+            break;
+        case UP_LEFT:
+        case UP_RIGHT:
+        case DOWN_LEFT:
+        case DOWN_RIGHT:
+            // Keep Y range the same, invert X range
+            region.x.invert();
+            break;
+        case LEFT_UP:
+        case LEFT_DOWN:
+        case RIGHT_UP:
+        case RIGHT_DOWN:
+            // Keep X range the same, invert Y range
+            region.y.invert();
+            break;
+        default:
+            Exceptions::unreachable();
+        }
+
+        return region;
+    }
+    Region CheckedCorner::getRegionInside() const {
+        // In this context, being "inside" the corner means being out of bounds
+        // So, touching a trinket or warp token doesn't count as being "inside"
+        Region region = this->getUnboundedRegion();
+        switch (this->dir) {
+        case TRINKET:
+        case WARP_TOKEN:
+            region.make_bottom();
+            break;
+        case UP_LEFT:
+        case UP_RIGHT:
+        case DOWN_LEFT:
+        case DOWN_RIGHT:
+        case LEFT_UP:
+        case LEFT_DOWN:
+        case RIGHT_UP:
+        case RIGHT_DOWN:
+            // Invert both x and y ranges
+            region.y.invert();
+            break;
+        default:
+            Exceptions::unreachable();
+        }
+
+        return region;
     }
 }
