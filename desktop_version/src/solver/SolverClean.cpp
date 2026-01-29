@@ -49,8 +49,9 @@ namespace SolverClean {
     std::hash<float> hash_float;
 
     void runSolver(void) {
-        RawScenario rs = SS1::SCENARIOS::START;
+        RawScenario rs = SS1::SCENARIOS::ITS_A_SECRET_TO_NOBODY;
         SolverConfig solver;
+        solver.clean_inputs = true;
         CheckedScenario scenario = checkScenario(rs);
 
         solveScenario(solver, scenario);
@@ -74,6 +75,7 @@ namespace SolverClean {
         queue.emplace(init_state);
 
         // Render the initial frame before starting
+        key.clearKeys();
         solver.debug_info.clear();
         solver.solution_info.clear();
         render(solver);
@@ -119,8 +121,10 @@ namespace SolverClean {
                 }
             }
 
+            bool flip_held_too_long = state.game.jumpheld && state.game.jumppressed == 0;
+            bool cant_flip = flip_held_too_long || !state.canFlip();
+            uint8_t max_input = cant_flip ? 4 : 8;
             // Generate all possible subsequent states by iterating over all possible inputs
-            uint8_t max_input = 8;
             for (uint8_t input = 0; input < max_input; input++) {
                 bool left = input & 1;
                 bool right = input & 2;
@@ -145,10 +149,12 @@ namespace SolverClean {
 
                 // Cache the new state that we've reached (this already updates all counter variables and the heuristic)
                 CachedSolverState new_state = cacheCurrentStateWithDeltaFromPrev(solver, scenario, state);
+                new_state.inputs = input;
 
                 // IMPORTANT: Check that the new heuristic is NOT lower than the old one
                 // That would imply the heuristic is INADMISSIBLE, which means we are not guaranteed to find the optimal solution!
                 if (new_state.heuristic < state.heuristic) {
+                    updateHeuristic(solver, scenario, new_state);
                     Exceptions::inadmissible_heuristic();
                 }
 
@@ -216,6 +222,7 @@ namespace SolverClean {
 
                 // Render the initial frame, delay a bit longer
                 loadState(solver, init_state);
+                key.clearKeys();
                 render(solver);
                 SDL_Delay(10 * REGULAR_FRAME_DELAY);
 
@@ -249,6 +256,7 @@ namespace SolverClean {
 
                     // Advance the game by one frame, don't disable rendering
                     doGameStep();
+                    render(solver);
                     SDL_Delay(REGULAR_FRAME_DELAY);
                 }
             }
@@ -256,7 +264,7 @@ namespace SolverClean {
     }
 
     static uint16_t updateHeuristic(const SolverConfig& solver, const CheckedScenario& scenario, CachedSolverState& state) {
-        assert(state.heuristic == 0);
+        // assert(state.heuristic == 0);
         uint16_t h = state.getMeasure(solver.mode) + calcHeuristic(solver, scenario, state.next_corner, state.player, state.game);
         state.heuristic = h;
         return h;
@@ -295,8 +303,9 @@ namespace SolverClean {
     static uint16_t calcSimpleHeuristic(const SolverConfig& solver, const CheckedScenario& scenario, int next_corner, const PlayerState& player, const GameState& game) {
         int total_frames = 0;
 
-        int x_pos = ROOM_W * game.roomx + player.x;
-        int y_pos = ROOM_H * game.roomy + player.y;
+        const RoomPosition& room_pos = game.getRoomPos();
+        int x_pos = ROOM_W * room_pos.rx + player.x;
+        int y_pos = ROOM_H * room_pos.ry + player.y;
 
         Region pos = Region(IntVector(x_pos, y_pos));
 
@@ -305,18 +314,18 @@ namespace SolverClean {
 
             // This is the region of the corner that we must pass through to proceed
             const Region& c_r = c.region;
+            // Factor in room offsets
+            IntInterval c_x = c_r.x + (ROOM_W * c.room.rx);
+            IntInterval c_y = c_r.y + (ROOM_H * c.room.ry);
 
             // Minimum absolute distance per dimension
-            int x_d = (pos.x - c_r.x).abs().getLowerBound();
-            int y_d = (pos.y - c_r.y).abs().getLowerBound();
+            int x_d = (pos.x - c_x).abs().getLowerBound();
+            int y_d = (pos.y - c_y).abs().getLowerBound();
 
             // Factor in vertical corner cuts
             bool verticalCutUp = c.dir == UP_LEFT || c.dir == UP_RIGHT;
             bool verticalCutDown = c.dir == DOWN_LEFT || c.dir == DOWN_RIGHT;
             IntInterval verticalCornerCutDist = IntInterval(verticalCutUp ? -MAX_VY : 0, verticalCutDown ? MAX_VY : 0);
-
-            // The space of reachable positions one frame after passing the corner
-            Region postCornerRegion = Region(c_r.x, c_r.y + verticalCornerCutDist);
 
             // How long will it take to get past the corner?
             int x_frames = div_ceil(x_d, MAX_VX);
@@ -331,8 +340,14 @@ namespace SolverClean {
             pos.x += x_dist;
             pos.y += y_dist;
 
+            // The space of reachable positions one frame after passing the corner
+            Region postCornerRegion = Region(c_x, c_y + verticalCornerCutDist);
+
             // Restrict player position to post-corner region
             pos.intersect(postCornerRegion);
+
+            // Sanity checks
+            assert(!pos.is_bottom() && pos.is_bounded());
 
             // Update total frame count
             total_frames += frames;
@@ -341,11 +356,15 @@ namespace SolverClean {
         // We are now no longer before the last corner, but we may not yet be past it
         if (scenario.corners.back().isRegular()) {
             const CheckedCorner& c = scenario.corners.back();
+            // This is the region of the corner that we have to reach
             Region c_r = c.getRegionAfter();
+            // Factor in room offsets
+            IntInterval c_x = c_r.x + (ROOM_W * c.room.rx);
+            IntInterval c_y = c_r.y + (ROOM_H * c.room.ry);
 
             // Minimum absolute distance per dimension
-            int x_d = (pos.x - c_r.x).abs().getLowerBound();
-            int y_d = (pos.y - c_r.y).abs().getLowerBound();
+            int x_d = (pos.x - c_x).abs().getLowerBound();
+            int y_d = (pos.y - c_y).abs().getLowerBound();
 
             // How long will it take to get past the corner?
             int x_frames = div_ceil(x_d, MAX_VX);
@@ -991,15 +1010,67 @@ namespace SolverClean {
     }
 
     static void renderHUD(const SolverConfig& solver) {
+        const char* tempstring; int label_len;
+        char buffer[SCREEN_WIDTH_CHARS + 1];
+
         if (solver.solution_info.length > 0) {
             // We are displaying a solution, render that info
-            // TODO
+            const SolutionInfo& info = solver.solution_info;
+
+            { // Format sol string
+                vformat_buf(
+                    buffer, sizeof(buffer),
+                    "{d} / {h}", "d:int, h:int",
+                    info.solution_idx, info.num_solutions
+                );
+            }
+            tempstring = "SOLVE:";
+            label_len = font::len(0, tempstring);
+            font::print(PR_BOR, 6, 6, tempstring, 255, 255, 255);
+            font::print(PR_BOR, 8 + label_len, 6, buffer, 196, 196, 196);
+
+            { // Format frame string
+                vformat_buf(
+                    buffer, sizeof(buffer),
+                    "{d} / {h}", "d:int, h:int",
+                    info.frame, info.length
+                );
+            }
+            tempstring = "FRAME:";
+            label_len = font::len(0, tempstring);
+            font::print(PR_BOR, 6, 18, tempstring, 255, 255, 255);
+            font::print(PR_BOR, 8 + label_len, 18, buffer, 196, 196, 196);
+
+            if (solver.mode == MIN_INPUT_CHANGES || solver.mode == MIN_INPUT_FRAMES || solver.mode == MIN_FLIPS) {
+                { // Format value string
+                    vformat_buf(
+                        buffer, sizeof(buffer),
+                        "{d} / {h}", "d:int, h:int",
+                        info.measure, info.solution_measure
+                    );
+                }
+                tempstring = "VALUE:";
+                label_len = font::len(0, tempstring);
+                font::print(PR_BOR, 6, 30, tempstring, 255, 255, 255);
+                font::print(PR_BOR, 8 + label_len, 30, buffer, 196, 196, 196);
+            }
+
+            bool left = key.isDown(KEYBOARD_LEFT);
+            bool right = key.isDown(KEYBOARD_RIGHT);
+            bool flip = key.isDown(KEYBOARD_v);
+            tempstring = "INPUT:";
+            label_len = font::len(0, tempstring);
+            font::print(PR_BOR, 6, 42, tempstring, 255, 255, 255);
+            int c = left ? 196 : 96;
+            font::print(PR_BOR, 8 + label_len, 42, "L", c, c, c);
+            c = flip ? 196 : 96;
+            font::print(PR_BOR, 8 + label_len + 16, 42, "V", c, c, c);
+            c = right ? 196 : 96;
+            font::print(PR_BOR, 8 + label_len + 32, 42, "R", c, c, c);
         }
         else if (solver.debug_info.queue_size > 0) {
             // We are currently solving the scenario, display debug info
             const DebugInfo& info = solver.debug_info;
-            const char* tempstring; int label_len;
-            char buffer[SCREEN_WIDTH_CHARS + 1];
 
             { // Format time string
                 int millis = solver.debug_info.millis % 1000;
@@ -1033,7 +1104,7 @@ namespace SolverClean {
 
             tempstring = "TIME: ";
             label_len = font::len(0, tempstring);
-            font::print(PR_BOR, 6, 30, tempstring, 255, 255, 255);
+            font::print(PR_BOR, 6, 6, tempstring, 255, 255, 255);
             font::print(PR_BOR, 8 + label_len,  6, buffer, 196, 196, 196);
 
             { // Format depth string
@@ -1055,12 +1126,12 @@ namespace SolverClean {
 
             tempstring = "QUEUE:";
             label_len = font::len(0, tempstring);
-            font::print(PR_BOR, 6, 30, tempstring, 255, 255, 255);
+            font::print(PR_BOR, 6, 42, tempstring, 255, 255, 255);
             font::print(PR_BOR, 8 + label_len, 42, help.String(info.queue_size), 196, 196, 196);
 
             tempstring = "CACHE:";
             label_len = font::len(0, tempstring);
-            font::print(PR_BOR, 6, 42, tempstring, 255, 255, 255);
+            font::print(PR_BOR, 6, 54, tempstring, 255, 255, 255);
             font::print(PR_BOR, 8 + label_len, 54, help.String(info.cache_size), 196, 196, 196);
         }
     }
@@ -1157,7 +1228,7 @@ namespace SolverClean {
             int ry_delta = ROOM_H * (pos.room.ry - room.ry);
             IntVector c_pos = this->getRegularPos();
             int x_delta = rx_delta + pos.pos.x - c_pos.x;
-            int y_delta = rx_delta + pos.pos.y - c_pos.y;
+            int y_delta = ry_delta + pos.pos.y - c_pos.y;
             switch (this->dir) {
             case UP_LEFT:
                 return x_delta > 0 && y_delta >= 0;

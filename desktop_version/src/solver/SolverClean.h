@@ -79,8 +79,10 @@ namespace SolverClean {
         uint16_t frame;
         /// The inputs of the current frame, where the bits in low-to-high order are Left, Right, Flip, (R, Enter)
         uint8_t input;
-        /// The value being optimized for, e.g. number of frames or number of inputs
+        /// The running total of the value being optimized for
         uint16_t measure;
+        /// The total of the value being optimized for across the whole solution
+        uint16_t solution_measure;
 
         SolutionInfo() {
             clear();
@@ -88,10 +90,12 @@ namespace SolverClean {
 
         void clear() {
             solution_idx = 0;
+            num_solutions = 0;
             length = 0;
             frame = 0;
             input = 0;
             measure = 0;
+            solution_measure = 0;
         }
     };
 

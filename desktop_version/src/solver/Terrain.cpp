@@ -32,7 +32,7 @@ namespace Terrain {
 
 	RoomData overworldRoomData[20][20];
 	RoomData outsideRoomData[20][20];
-	CollisionSetting collisionSetting = CollisionSetting::WallsAndSpikes;
+	CollisionSetting collisionSetting = CollisionSetting::Walls;
 
 	std::vector<NavigationEdge> edges;
 		
