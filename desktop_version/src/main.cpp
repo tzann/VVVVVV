@@ -792,7 +792,7 @@ int main(int argc, char *argv[])
     emscripten_set_main_loop(emscriptenloop, 0, 0);
 #else
 
-    // Enter our injected code
+    // Enter our "injected" code
     Solver::entrypoint();
 
     while (true)

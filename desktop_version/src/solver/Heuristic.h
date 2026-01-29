@@ -3,7 +3,7 @@
 
 #include <SDL.h>
 
-#include "solver/Constants.h"
+#include "Constants.h"
 
 namespace Heuristic {
 	int basic_heuristic(int dx, int dy);

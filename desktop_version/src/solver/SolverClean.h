@@ -1,9 +1,10 @@
 #ifndef SOLVER_CLEAN_H
 #define SOLVER_CLEAN_H
 
-#include "solver/Exceptions.h"
-#include "solver/Geometry.h"
-#include "solver/Terrain.h"
+#include "Exceptions.h"
+#include "Geometry.h"
+#include "Terrain.h"
+#include "Scenarios.h"
 
 #include <SDL.h>
 
@@ -12,15 +13,17 @@
 #include <vector>
 
 using namespace Geometry;
+using namespace Terrain;
 
-namespace Solver {
+namespace SolverClean {
+    using namespace Scenarios;
 
     // Hash functions for various data types
-    std::hash<bool> hash_bool;
-    std::hash<int> hash_int;
-    std::hash<uint64_t> hash_uint64;
-    std::hash<float> hash_float;
-    uint64_t combineHashes(uint64_t h1, uint64_t h2) {
+    extern std::hash<bool> hash_bool;
+    extern std::hash<int> hash_int;
+    extern std::hash<uint64_t> hash_uint64;
+    extern std::hash<float> hash_float;
+    inline uint64_t combineHashes(uint64_t h1, uint64_t h2) {
         return h1 ^ (h2 + 0x9e3779b9 + (h1 << 6) + (h1 >> 2));
     }
 
@@ -67,7 +70,9 @@ namespace Solver {
     /// This struct contains the information that's displayed on the HUD when displaying a solution
     struct SolutionInfo {
         /// The index of the solution currently playing, if there is more than one
-        uint16_t solution_idx;
+        uint64_t solution_idx;
+        /// The total number of solutions found
+        uint64_t num_solutions;
         /// How many frames are in the entire solution
         uint16_t length;
         /// The index of the frame currently being displayed
@@ -76,6 +81,18 @@ namespace Solver {
         uint8_t input;
         /// The value being optimized for, e.g. number of frames or number of inputs
         uint16_t measure;
+
+        SolutionInfo() {
+            clear();
+        }
+
+        void clear() {
+            solution_idx = 0;
+            length = 0;
+            frame = 0;
+            input = 0;
+            measure = 0;
+        }
     };
 
     struct CheckedCorner {
@@ -216,23 +233,23 @@ namespace Solver {
             // TODO: these values can be packed to minimize hash calls
             uint64_t result = 0;
 
-            result = combine_hashes(result, hash_int(state));
-            result = combine_hashes(result, hash_int(deathseq));
-            result = combine_hashes(result, hash_int(lifeseq));
-            result = combine_hashes(result, hash_bool(gravitycontrol));
-            result = combine_hashes(result, hash_int(roomx));
-            result = combine_hashes(result, hash_int(roomy));
-            result = combine_hashes(result, hash_bool(press_action));
-            result = combine_hashes(result, hash_int(jumppressed));
-            result = combine_hashes(result, hash_bool(jumpheld));
-            result = combine_hashes(result, hash_bool(press_right));
-            result = combine_hashes(result, hash_bool(press_left));
+            result = combineHashes(result, hash_int(state));
+            result = combineHashes(result, hash_int(deathseq));
+            result = combineHashes(result, hash_int(lifeseq));
+            result = combineHashes(result, hash_bool(gravitycontrol));
+            result = combineHashes(result, hash_int(roomx));
+            result = combineHashes(result, hash_int(roomy));
+            result = combineHashes(result, hash_bool(press_action));
+            result = combineHashes(result, hash_int(jumppressed));
+            result = combineHashes(result, hash_bool(jumpheld));
+            result = combineHashes(result, hash_bool(press_right));
+            result = combineHashes(result, hash_bool(press_left));
 
             // Any value greater than 5 is equivalent to 5
             int effective_tapright = SDL_min(tapright, 5);
             int effective_tapleft = SDL_min(tapleft, 5);
-            result = combine_hashes(result, hash_int(effective_tapright));
-            result = combine_hashes(result, hash_int(effective_tapleft));
+            result = combineHashes(result, hash_int(effective_tapright));
+            result = combineHashes(result, hash_int(effective_tapleft));
 
             return result;
         }
@@ -301,46 +318,46 @@ namespace Solver {
         uint64_t hash() const {
             // TODO: these values can be packed to minimize hash calls
             uint64_t result = hash_int(x);
-            result = combine_hashes(result, hash_int(y));
+            result = combineHashes(result, hash_int(y));
 
-            result = combine_hashes(result, hash_float(vx));
-            result = combine_hashes(result, hash_float(vy));
+            result = combineHashes(result, hash_float(vx));
+            result = combineHashes(result, hash_float(vy));
 
             // Should always be integers
-            result = combine_hashes(result, hash_int((int) ax));
-            result = combine_hashes(result, hash_int((int) ay));
+            result = combineHashes(result, hash_int((int) ax));
+            result = combineHashes(result, hash_int((int) ay));
 
             // Any value less than 0 is equivalent to 0
             int effective_onground = SDL_max(onground, 0);
             int effective_onroof = SDL_max(onroof, 0);
-            result = combine_hashes(result, hash_int(effective_onground));
-            result = combine_hashes(result, hash_int(effective_onroof));
+            result = combineHashes(result, hash_int(effective_onground));
+            result = combineHashes(result, hash_int(effective_onroof));
 
-            result = combine_hashes(result, hash_bool(dir));
+            result = combineHashes(result, hash_bool(dir));
 
-            result = combine_hashes(result, hash_int(tile));
+            result = combineHashes(result, hash_int(tile));
 
             // Any value less than 0 is equivalent to 0
             int effective_framedelay = SDL_max(framedelay, 0);
-            result = combine_hashes(result, hash_int(effective_framedelay));
-            result = combine_hashes(result, hash_int(drawframe));
+            result = combineHashes(result, hash_int(effective_framedelay));
+            result = combineHashes(result, hash_int(drawframe));
 
             // Any value less than 0 is equivalent to 0
             int effective_visualonground = SDL_max(visualonground, 0);
             int effective_visualonroof = SDL_max(visualonroof, 0);
-            result = combine_hashes(result, hash_int(effective_visualonground));
-            result = combine_hashes(result, hash_int(effective_visualonroof));
+            result = combineHashes(result, hash_int(effective_visualonground));
+            result = combineHashes(result, hash_int(effective_visualonroof));
 
-            result = combine_hashes(result, hash_int(walkingframe));
-            result = combine_hashes(result, hash_int(collisiondrawframe));
+            result = combineHashes(result, hash_int(walkingframe));
+            result = combineHashes(result, hash_int(collisiondrawframe));
 
             // Any value less than 0 is equivalent to 0
             int effective_collisionframedelay = SDL_max(collisionframedelay, 0);
-            result = combine_hashes(result, hash_int(effective_collisionframedelay));
-            result = combine_hashes(result, hash_bool(collisionwalkingframe));
+            result = combineHashes(result, hash_int(effective_collisionframedelay));
+            result = combineHashes(result, hash_bool(collisionwalkingframe));
 
-            result = combine_hashes(result, hash_float(newxp));
-            result = combine_hashes(result, hash_float(newyp));
+            result = combineHashes(result, hash_float(newxp));
+            result = combineHashes(result, hash_float(newyp));
 
             return result;
         }
@@ -403,9 +420,9 @@ namespace Solver {
             packed_value = (packed_value << 4) | (rule + 1);
 
             uint64_t e_hash = hash_int(x);
-            e_hash = combine_hashes(e_hash, hash_int(y));
-            e_hash = combine_hashes(e_hash, hash_float(vy));
-            e_hash = combine_hashes(e_hash, hash_float(vx));
+            e_hash = combineHashes(e_hash, hash_int(y));
+            e_hash = combineHashes(e_hash, hash_float(vy));
+            e_hash = combineHashes(e_hash, hash_float(vx));
 
             packed_value = (packed_value << 5) | (behave + 1);
             packed_value = (packed_value << 3) | state;
@@ -427,7 +444,7 @@ namespace Solver {
             packed_value = (packed_value << 4) | life;
             packed_value = (packed_value << 2) | invis;
 
-            e_hash = combine_hashes(e_hash, hash_uint64(packed_value));
+            e_hash = combineHashes(e_hash, hash_uint64(packed_value));
 
             return e_hash;
         }
@@ -449,7 +466,7 @@ namespace Solver {
                     // Hack: Ignore trinkets, they should be restored by setting obj.collect
                     continue;
                 }
-                result = combine_hashes(result, es[i].hash());
+                result = combineHashes(result, es[i].hash());
             }
 
             return result;
@@ -484,7 +501,7 @@ namespace Solver {
 
             for (int i = 0; i < blocks.size(); i++) {
                 if (blocks[i].type == BLOCK || blocks[i].type == TRIGGER || blocks[i].type == ACTIVITY) {
-                    result = combine_hashes(result, blocks[i].hash());
+                    result = combineHashes(result, blocks[i].hash());
                 }
             }
 
@@ -500,7 +517,7 @@ namespace Solver {
         CacheEntry(uint64_t entity_hash, uint64_t block_hash) : entity_hash(entity_hash), block_hash(block_hash) {}
 
         uint64_t hash() const {
-            return combine_hashes(entity_hash, block_hash);
+            return combineHashes(entity_hash, block_hash);
         }
     };
 
@@ -585,9 +602,9 @@ namespace Solver {
 
         uint64_t hash() const {
             uint64_t result = player.hash();
-            result = combine_hashes(result, game.hash());
-            result = combine_hashes(result, cache_entry.hash());
-            result = combine_hashes(result, hash_int(collect));
+            result = combineHashes(result, game.hash());
+            result = combineHashes(result, cache_entry.hash());
+            result = combineHashes(result, hash_int(collect));
 
             // TODO: should we hash next_corner too?
 
@@ -654,7 +671,7 @@ namespace Solver {
         uint64_t cacheEntitySet(std::vector<uint64_t> entity_hashes) {
             uint64_t set_hash = hash_uint64(entity_hashes.size());
             for (uint64_t h : entity_hashes) {
-                set_hash = combine_hashes(set_hash, h);
+                set_hash = combineHashes(set_hash, h);
             }
 
             if (entity_sets.find(set_hash) == entity_sets.end()) {
@@ -681,7 +698,7 @@ namespace Solver {
         uint64_t cacheBlockSet(std::vector<uint64_t> block_hashes) {
             uint64_t set_hash = hash_uint64(block_hashes.size());
             for (uint64_t h : block_hashes) {
-                set_hash = combine_hashes(set_hash, h);
+                set_hash = combineHashes(set_hash, h);
             }
 
             if (block_sets.find(set_hash) == block_sets.end()) {
@@ -712,13 +729,15 @@ namespace Solver {
         /// These are simply used for rendering data on the HUD
         DebugInfo debug_info;
         SolutionInfo solution_info;
+        /// How often the solver should render current state and debug info while solving
+        uint64_t render_delay;
 
-        SolverConfig() : mode(SolverMode::SIMPLE), minimize_frames(false), clean_inputs(false), debug_checks(false), max_solutions(1) {}
-        SolverConfig(SolverMode mode) : mode(mode), minimize_frames(false), clean_inputs(false), debug_checks(false), max_solutions(1) {}
-        SolverConfig(SolverMode mode, bool minimize_frames) : mode(mode), minimize_frames(minimize_frames), clean_inputs(false), debug_checks(false), max_solutions(1) {}
-        SolverConfig(SolverMode mode, bool minimize_frames, bool clean_inputs) : mode(mode), minimize_frames(minimize_frames), clean_inputs(clean_inputs), debug_checks(false), max_solutions(1) {}
-        SolverConfig(SolverMode mode, bool minimize_frames, bool clean_inputs, bool debug_checks) : mode(mode), minimize_frames(minimize_frames), clean_inputs(clean_inputs), debug_checks(debug_checks), max_solutions(1) {}
-        SolverConfig(SolverMode mode, bool minimize_frames, bool clean_inputs, bool debug_checks, int max_solutions) : mode(mode), minimize_frames(minimize_frames), clean_inputs(clean_inputs), debug_checks(debug_checks), max_solutions(max_solutions) {}
+        SolverConfig() : mode(SolverMode::SIMPLE), minimize_frames(false), clean_inputs(false), debug_checks(false), max_solutions(1), render_delay(1000) {}
+        SolverConfig(SolverMode mode) : mode(mode), minimize_frames(false), clean_inputs(false), debug_checks(false), max_solutions(1), render_delay(1000) {}
+        SolverConfig(SolverMode mode, bool minimize_frames) : mode(mode), minimize_frames(minimize_frames), clean_inputs(false), debug_checks(false), max_solutions(1), render_delay(1000) {}
+        SolverConfig(SolverMode mode, bool minimize_frames, bool clean_inputs) : mode(mode), minimize_frames(minimize_frames), clean_inputs(clean_inputs), debug_checks(false), max_solutions(1), render_delay(1000) {}
+        SolverConfig(SolverMode mode, bool minimize_frames, bool clean_inputs, bool debug_checks) : mode(mode), minimize_frames(minimize_frames), clean_inputs(clean_inputs), debug_checks(debug_checks), max_solutions(1), render_delay(1000) {}
+        SolverConfig(SolverMode mode, bool minimize_frames, bool clean_inputs, bool debug_checks, int max_solutions) : mode(mode), minimize_frames(minimize_frames), clean_inputs(clean_inputs), debug_checks(debug_checks), max_solutions(max_solutions), render_delay(1000) {}
 
         bool compareStates(const CachedSolverState& a, const CachedSolverState& b) const;
         std::size_t operator()(const CachedSolverState& a, const CachedSolverState& b) const {
@@ -726,7 +745,7 @@ namespace Solver {
         }
     };
 
-    static void runSolver();
+    void runSolver(void);
 
     static CheckedScenario checkScenario(const RawScenario& raw_scenario);
     static void loadScenario(const CheckedScenario& scenario);
@@ -744,6 +763,10 @@ namespace Solver {
 
     static void loadState(const SolverConfig& solver, const CachedSolverState& state);
     static void loadCacheEntry(const SolverConfig& solver, const CacheEntry& entry);
+
+    static void doGameStep();
+    static void render(const SolverConfig& solver);
+    static void renderHUD(const SolverConfig& solver);
 }
 
 #endif /* SOLVER_CLEAN_H */

@@ -1,5 +1,4 @@
-#include "solver/SolverClean.h"
-#include "solver/Scenarios.h"
+#include "SolverClean.h"
 
 #include "CustomLevels.h"
 #include "DeferCallbacks.h"
@@ -35,14 +34,21 @@
 #include <algorithm>
 #include <iostream>
 
-namespace Solver {
+namespace SolverClean {
     using namespace Geometry;
+    using namespace Scenarios;
     using Exceptions::VVV_assert;
     using Exceptions::assert;
     using Terrain::RoomPosition;
     using Terrain::GlobalPosition;
 
-    static void runSolver() {
+    // Hash functions for various data types
+    std::hash<bool> hash_bool;
+    std::hash<int> hash_int;
+    std::hash<uint64_t> hash_uint64;
+    std::hash<float> hash_float;
+
+    void runSolver(void) {
         RawScenario rs = SS1::SCENARIOS::START;
         SolverConfig solver;
         CheckedScenario scenario = checkScenario(rs);
@@ -51,15 +57,6 @@ namespace Solver {
     }
 
     static void solveScenario(SolverConfig& solver, const CheckedScenario& scenario) {
-        auto start_time = std::chrono::system_clock::now();
-
-        solver.debug_info.clear();
-        loadScenario(scenario);
-
-        CachedSolverState init_state = cacheCurrentState(solver);
-        uint64_t init_hash = init_state.hash();
-        uint16_t init_heuristic = updateHeuristic(solver, scenario, init_state);
-        
         /// States that have been processed - just enough information to reconstruct them later
         std::unordered_map<uint64_t, StateSummary, CustomHash> processed_states;
         /// The main data structure: A queue containing all not-yet processed states, ordered according to the solver config
@@ -67,10 +64,24 @@ namespace Solver {
         /// A vector of solution states, in case we want to find several (or all) optimal solutions
         std::vector<StateSummary> solution_states;
 
+        // Load the scenario
+        loadScenario(scenario);
+
+        // Create the initial state to solve from
+        CachedSolverState init_state = cacheCurrentState(solver);
+        uint64_t init_hash = init_state.hash();
+        uint16_t init_heuristic = updateHeuristic(solver, scenario, init_state);
         queue.emplace(init_state);
+
+        // Render the initial frame before starting
+        solver.debug_info.clear();
+        solver.solution_info.clear();
+        render(solver);
+
+        auto start_time = std::chrono::system_clock::now();
+        auto last_render_time = std::chrono::system_clock::now();
         while (!queue.empty()) {
-            const CachedSolverState& state = queue.top();
-            // TODO: is it safe to pop here or does that invalidate the reference?
+            CachedSolverState state = CachedSolverState(queue.top());
             queue.pop();
 
             uint64_t state_hash = state.hash();
@@ -90,7 +101,13 @@ namespace Solver {
                 solver.debug_info.max_measure = SDL_max(solver.debug_info.max_measure, state.getMeasure(solver.mode));
                 solver.debug_info.queue_size = queue.size();
                 solver.debug_info.cache_size = solver.cache.size();
-                // TODO: occasionally render debug info
+                
+                // Occasionally render debug info
+                uint64_t millis_since_last_render = std::chrono::duration_cast<std::chrono::milliseconds>(now_time - last_render_time).count();
+                if (millis_since_last_render >= solver.render_delay) {
+                    last_render_time = now_time;
+                    render(solver);
+                }
             }
 
             // Have we reached the goal?
@@ -118,7 +135,7 @@ namespace Solver {
                 key.setKey(KEYBOARD_RIGHT, right);
                 key.setKey(KEYBOARD_v, flip);
                 // Advance the game by one frame
-                do_game_step(false);
+                doGameStep();
 
                 // Hack: if we died, ignore this branch
                 // This means we will never find death strats, but that's fine for now
@@ -190,6 +207,7 @@ namespace Solver {
                 // Reset displayed solution info
                 {
                     solver.solution_info.solution_idx = idx;
+                    solver.solution_info.num_solutions = solution_inputs.size();
                     solver.solution_info.length = inputs.size();
                     solver.solution_info.frame = 0;
                     solver.solution_info.input = 0;
@@ -198,7 +216,7 @@ namespace Solver {
 
                 // Render the initial frame, delay a bit longer
                 loadState(solver, init_state);
-                do_game_render();
+                render(solver);
                 SDL_Delay(10 * REGULAR_FRAME_DELAY);
 
                 for (int f = 0; f < inputs.size(); f++) {
@@ -230,7 +248,7 @@ namespace Solver {
                     }
 
                     // Advance the game by one frame, don't disable rendering
-                    do_game_step(true);
+                    doGameStep();
                     SDL_Delay(REGULAR_FRAME_DELAY);
                 }
             }
@@ -277,9 +295,10 @@ namespace Solver {
     static uint16_t calcSimpleHeuristic(const SolverConfig& solver, const CheckedScenario& scenario, int next_corner, const PlayerState& player, const GameState& game) {
         int total_frames = 0;
 
-        IntVector pos_vec = IntVector(room_adjusted_x(game.roomx, player.x), room_adjusted_y(game.roomy, player.y));
+        int x_pos = ROOM_W * game.roomx + player.x;
+        int y_pos = ROOM_H * game.roomy + player.y;
 
-        Region pos = Region(pos_vec, pos_vec);
+        Region pos = Region(IntVector(x_pos, y_pos));
 
         for (int c_idx = next_corner; c_idx < scenario.corners.size(); c_idx++) {
             const CheckedCorner& c = scenario.corners[c_idx];
@@ -401,7 +420,7 @@ namespace Solver {
                 }
 
                 // The corner position itself should not be occupied (for this solver)
-                VVV_assert(!collision_bitmap[bitmap_width * (c.y - min.y - 1) + (c.x - min.x - 1)], 570000 + c_idx);
+                VVV_assert(!collision_bitmap[bitmap_width * (c.y - min.y) + (c.x - min.x)], 570000 + c_idx);
 
                 int occupied_count = 0;
                 bool above_occupied = false;
@@ -410,7 +429,7 @@ namespace Solver {
                 bool right_occupied = false;
                 for (int px = c.x - 1; px <= c.x + 1; px++) {
                     for (int py = c.y - 1; py <= c.y + 1; py++) {
-                        if (collision_bitmap[bitmap_width * (py - min.y - 1) + (px - min.x - 1)]) {
+                        if (collision_bitmap[bitmap_width * (py - min.y) + (px - min.x)]) {
                             occupied_count++;
                             above_occupied |= py < c.y;
                             left_occupied |= px < c.x;
@@ -447,7 +466,7 @@ namespace Solver {
                 int x_gap = c.x;
                 for (; min.x < x_gap && x_gap < max.x; x_gap += x_increment) {
                     int y = c.y - y_increment;
-                    if (collision_bitmap[bitmap_width * (y - min.y - 1) + (x_gap - min.x - 1)]) {
+                    if (collision_bitmap[bitmap_width * (y - min.y) + (x_gap - min.x)]) {
                         // Cell is occupied, gap ends here
                         break;
                     }
@@ -462,7 +481,7 @@ namespace Solver {
                 int y_gap = c.y;
                 for (; min.y < y_gap && y_gap < max.y; y_gap += y_increment) {
                     int x = c.x - x_increment;
-                    if (collision_bitmap[bitmap_width * (y_gap - min.y - 1) + (x - min.x - 1)]) {
+                    if (collision_bitmap[bitmap_width * (y_gap - min.y) + (x - min.x)]) {
                         // Cell is occupied, gap ends here
                         break;
                     }
@@ -476,9 +495,9 @@ namespace Solver {
                 }
 
                 Region reg = Region(x_ival, y_ival);
-                CheckedCorner c = CheckedCorner(c_room, reg, c.dir);
+                CheckedCorner cc = CheckedCorner(c_room, reg, c.dir);
                 // TODO emplace instead of push
-                checked_corners.push_back(c);
+                checked_corners.push_back(cc);
             }
             else {
                 // Trinket or warp token - let's see if the hitbox is partially OoB and update it
@@ -492,7 +511,7 @@ namespace Solver {
                     if (min.x > px || px > max.x) continue;
                     for (int py = c.y + TRINKET_Y_MIN; py <= c.y + TRINKET_Y_MAX; py++) {
                         if (min.y > py || py > max.y) continue;
-                        if (!collision_bitmap[bitmap_width * (py - min.y - 1) + (px - min.x - 1)]) {
+                        if (!collision_bitmap[bitmap_width * (py - min.y) + (px - min.x)]) {
                             // The trinket can be collected, i.e. this pos is not OoB
                             Region point = Region(IntVector(px, py));
                             box.join(point);
@@ -503,9 +522,9 @@ namespace Solver {
                 // Sanity check: At least one pixel of the trinket is not OoB
                 VVV_assert(!box.is_bottom() && box.is_bounded(), 573000 + c_idx);
 
-                CheckedCorner c = CheckedCorner(c_room, box, c.dir);
+                CheckedCorner cc = CheckedCorner(c_room, box, c.dir);
                 // TODO emplace instead of push
-                checked_corners.push_back(c);
+                checked_corners.push_back(cc);
             }
 
             // Free the collision bitmap
@@ -546,8 +565,7 @@ namespace Solver {
         // Hack: Advance frames to fix enemy cycles to right position
         for (int i = 0; i < scenario.advance_frames; i++) {
             key.clearKeys();
-            do_game_step(true);
-            SDL_Delay(34);
+            doGameStep();
         }
 
         key.clearKeys();
@@ -803,9 +821,10 @@ namespace Solver {
 
         // Load room
         if (game.roomx != state.game.roomx || game.roomy != state.game.roomy) {
-            // Only load if it's necessary. this might behave weirdly in rooms where sprites are deleted?
-            gotoroom(state.game.roomx, state.game.roomy);
+            // Only load if it's necessary.
+            // TODO: this might behave weirdly in rooms where sprites are deleted? e.g. trinkets
             // TODO: restore collected trinkets if not reloading room
+            map.gotoroom(state.game.roomx, state.game.roomy);
         }
 
         // Restore trinkets first, because they affect room load
@@ -916,6 +935,133 @@ namespace Solver {
                 // obj.blocks[i].b = b.b;
                 // obj.blocks[i].activity_y = b.activity_y;
             }
+        }
+    }
+
+    static void doGameStep() {
+        {
+            // graphics.renderfixedpost();
+            // loop_end
+            key.linealreadyemptykludge = false;
+            // loop_begin
+            // loop_assign_active_funcs
+            // loop_run_active_funcs
+            {
+                // gameinput
+                if (key.actually_poll) {
+                    key.Poll();
+                }
+                gameinput();
+                // gamelogic
+                gamelogic();
+                // focused_end
+                // game.gameclock();
+                // music.processmusic();
+                graphics.processfade();
+                // focused_begin
+                map.nexttowercolour_set = false;
+                // run_script
+                if (!script.running) {
+                    script.run();
+                }
+                // gamerenderfixed
+                gamerenderfixed();
+                // graphics.renderfixedpre
+                // graphics.renderfixedpre();
+            }
+        }
+        // Skip rendering to improve runtime
+    }
+
+    static void render(const SolverConfig& solver) {
+        graphics.clear();
+        graphics.set_render_target(graphics.gameTexture);
+        gamerender();
+
+        // Clear previous HUD text so we can just display debug info
+        graphics.set_render_target(graphics.gameTexture);
+        graphics.clear();
+        graphics.copy_texture(graphics.gameplayTexture, NULL, NULL);
+
+        renderHUD(solver);
+
+        graphics.render();
+
+        gameScreen.RenderPresent();
+    }
+
+    static void renderHUD(const SolverConfig& solver) {
+        if (solver.solution_info.length > 0) {
+            // We are displaying a solution, render that info
+            // TODO
+        }
+        else if (solver.debug_info.queue_size > 0) {
+            // We are currently solving the scenario, display debug info
+            const DebugInfo& info = solver.debug_info;
+            const char* tempstring; int label_len;
+            char buffer[SCREEN_WIDTH_CHARS + 1];
+
+            { // Format time string
+                int millis = solver.debug_info.millis % 1000;
+                int seconds = solver.debug_info.millis / 1000;
+                int s = seconds % 60;
+                int m = (seconds / 60) % 60;
+                int h = seconds / 3600;
+
+                if (h > 0) {
+                    vformat_buf(buffer, sizeof(buffer),
+                        "{hrs}:{min|digits=2}:{sec|digits=2}.{mil|digits=3}",
+                        "hrs:int, min:int, sec:int, mil:int",
+                        h, m, s, millis
+                    );
+                }
+                else if (m > 0) {
+                    vformat_buf(buffer, sizeof(buffer),
+                        "{min}:{sec|digits=2}.{mil|digits=3}",
+                        "min:int, sec:int, mil:int",
+                        m, s, millis
+                    );
+                }
+                else {
+                    vformat_buf(buffer, sizeof(buffer),
+                        "{sec}.{mil|digits=3}",
+                        "sec:int, mil:int",
+                        s, millis
+                    );
+                }
+            }
+
+            tempstring = "TIME: ";
+            label_len = font::len(0, tempstring);
+            font::print(PR_BOR, 6, 30, tempstring, 255, 255, 255);
+            font::print(PR_BOR, 8 + label_len,  6, buffer, 196, 196, 196);
+
+            { // Format depth string
+                vformat_buf(
+                    buffer, sizeof(buffer),
+                    "{d} / {h}", "d:int, h:int",
+                    info.max_measure, info.min_heuristic
+                );
+            }
+            tempstring = "DEPTH:";
+            label_len = font::len(0, tempstring);
+            font::print(PR_BOR, 6, 18, tempstring, 255, 255, 255);
+            font::print(PR_BOR, 8 + label_len, 18, buffer, 196, 196, 196);
+
+            tempstring = "STATE:";
+            label_len = font::len(0, tempstring);
+            font::print(PR_BOR, 6, 30, tempstring, 255, 255, 255);
+            font::print(PR_BOR, 8 + label_len, 30, help.String(info.states), 196, 196, 196);
+
+            tempstring = "QUEUE:";
+            label_len = font::len(0, tempstring);
+            font::print(PR_BOR, 6, 30, tempstring, 255, 255, 255);
+            font::print(PR_BOR, 8 + label_len, 42, help.String(info.queue_size), 196, 196, 196);
+
+            tempstring = "CACHE:";
+            label_len = font::len(0, tempstring);
+            font::print(PR_BOR, 6, 42, tempstring, 255, 255, 255);
+            font::print(PR_BOR, 8 + label_len, 54, help.String(info.cache_size), 196, 196, 196);
         }
     }
 

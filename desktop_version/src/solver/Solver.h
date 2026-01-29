@@ -4,52 +4,13 @@
 #include "Exceptions.h"
 #include "Geometry.h"
 #include "Terrain.h"
+#include "Scenarios.h"
 
 #include <cstddef>
 #include <vector>
 
 namespace Solver {
     using namespace Geometry;
-
-    enum CornerDir {
-        // Add 4 to invert first dir (means can't be sequential)
-        UP_LEFT,
-        UP_RIGHT,
-        LEFT_UP,
-        LEFT_DOWN,
-        DOWN_LEFT,
-        DOWN_RIGHT,
-        RIGHT_UP,
-        RIGHT_DOWN,
-        TRINKET,
-        WARP_TOKEN,
-    };
-
-    // To get "canonical" previous corner direction
-    // 0 -> 3 -> 5 -> 6
-    // 7 -> 4 -> 2 -> 1
-
-    struct RawCorner {
-        int rx;
-        int ry;
-        int x;
-        int y;
-        CornerDir dir;
-
-        RawCorner(int a, int b, int c, int d, CornerDir e) : rx(a), ry(b), x(c), y(d), dir(e) {}
-    };
-
-    struct RawScenario {
-        int init_rx;
-        int init_ry;
-        int init_x;
-        int init_y;
-        int init_gravity;
-        int frames_to_advance;
-        std::vector<RawCorner> corners;
-
-        RawScenario(int a, int b, int c, int d, int e, int f, std::vector<RawCorner> cs) : init_rx(a), init_ry(b), init_x(c), init_y(d), init_gravity(e), frames_to_advance(f), corners(cs) {}
-    };
 
     struct statehash {
         float heuristic;

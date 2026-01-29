@@ -23,6 +23,8 @@
 #include "VFormat.h"
 #include "Vlogging.h"
 
+#include "solver/Terrain.h"
+
 void Graphics::init(void)
 {
     flipmode = false;

@@ -20,12 +20,11 @@
 #include "Exit.h"
 #include "Screen.h"
 
-#include "solver/Constants.h"
-#include "solver/Exceptions.h"
-#include "solver/Geometry.h"
-#include "solver/Heuristic.h"
-#include "solver/Numerics.h"
-#include "solver/Solver.h"
+#include "Constants.h"
+#include "Exceptions.h"
+#include "Geometry.h"
+#include "Heuristic.h"
+#include "Numerics.h"
 
 using namespace Geometry;
 

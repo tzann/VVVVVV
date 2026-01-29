@@ -1,5 +1,4 @@
-#include "solver/Solver.h"
-#include "solver/Scenarios.h"
+#include "Solver.h"
 
 #include <SDL.h>
 
@@ -37,7 +36,10 @@
 #include <algorithm>
 #include <iostream>
 
+#include "SolverClean.h"
+
 namespace Solver {
+    using namespace Scenarios;
     using Exceptions::VVV_assert;
 
     const int X_SPEED = 6;
@@ -142,8 +144,9 @@ namespace Solver {
 
         // Solve
         // stateful_solver();
-        cached_stateful_solver();
+        // cached_stateful_solver();
         // stateless_solver(true);
+        SolverClean::runSolver();
     }
 
     void squish_test() {
