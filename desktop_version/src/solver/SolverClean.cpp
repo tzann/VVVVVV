@@ -54,6 +54,7 @@ namespace SolverClean {
         solver.clean_inputs = true;
         solver.debug_checks = true;
         solver.render_delay = 34;
+        solver.max_solutions = INT_MAX;
 
         CheckedScenario scenario = checkScenario(rs);
 
@@ -83,6 +84,8 @@ namespace SolverClean {
         solver.solution_info.clear();
         render(solver);
 
+        int solution_measure = INT_MAX;
+
         auto start_time = std::chrono::system_clock::now();
         auto last_render_time = std::chrono::system_clock::now();
         while (!queue.empty()) {
@@ -93,6 +96,9 @@ namespace SolverClean {
             if (processed_states.find(state_hash) != processed_states.end()) {
                 // We've already seen this state, skip it
                 continue;
+            } else if (state.getMeasure(solver.mode) > solution_measure) {
+                // We've already found a solution better than this, so we must be finished
+                break;
             }
             // Store the state summary, which allows us to reconstruct the solution later
             processed_states.emplace(state_hash, state.summary());
@@ -121,6 +127,8 @@ namespace SolverClean {
             if (state.next_corner == scenario.corners.size()) {
                 // Yes! We've passed the last corner. Add this state to the solution list
                 solution_states.push_back(state.summary());
+                assert(state.getMeasure(solver.mode) == solution_measure || solution_measure == INT_MAX);
+                solution_measure = state.getMeasure(solver.mode);
                 if (solution_states.size() >= solver.max_solutions) {
                     break;
                 }
@@ -1241,14 +1249,19 @@ namespace SolverClean {
             return a_measure < b_measure;
         }
 
+        if (a.num_l_plus_r != b.num_l_plus_r) {
+            // Prioritize low L+R input count, we only want it to occur if absolutely necessary
+            return a.num_l_plus_r > b.num_l_plus_r;
+        }
+
         if (clean_inputs && (a.input_change_count != b.input_change_count)) {
             // Prioritize low changes in inputs, so the resulting solution is more human-viable
             return a.input_change_count > b.input_change_count;
         }
 
-        if (a.num_l_plus_r != b.num_l_plus_r) {
-            // Prioritize low L+R input count, we only want it to occur if absolutely necessary
-            return a.num_l_plus_r > b.num_l_plus_r;
+        if (clean_inputs && (a.input_frame_count != b.input_frame_count)) {
+            // Prioritize input frame count, so doing nothing is better than constantly moving
+            return a.input_frame_count > b.input_frame_count;
         }
 
         return true;
