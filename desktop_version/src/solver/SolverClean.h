@@ -165,6 +165,7 @@ namespace SolverClean {
         bool isPosAfter(const Terrain::GlobalPosition& pos) const;
         bool isPosBefore(const Terrain::GlobalPosition& pos) const;
         bool isPosInside(const Terrain::GlobalPosition& pos) const;
+        bool isPosNotStrictlyBefore(const Terrain::GlobalPosition& pos) const;
 
         Region getUnboundedRegion() const;
         Region getRegionAfter() const;
@@ -540,7 +541,7 @@ namespace SolverClean {
 
         /// Contains one bit for each trinket
         /// 0 <= collect < 2^21
-        int32_t collect;
+        uint32_t collect;
 
         /// A lower bound for the cost of a solution starting from this state
         uint16_t heuristic;
@@ -608,7 +609,7 @@ namespace SolverClean {
             uint64_t result = player.hash();
             result = combineHashes(result, game.hash());
             result = combineHashes(result, cache_entry.hash());
-            result = combineHashes(result, hash_int(collect));
+            result = combineHashes(result, hash_uint64(collect));
 
             // TODO: should we hash next_corner too?
 

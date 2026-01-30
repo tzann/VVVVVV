@@ -77,7 +77,7 @@ namespace Solver {
     // The Yes Men: 4630052 states visited, ~1:30 runtime (cached_stateful)
     // It's a Secret to Nobody: 1372903, 19s runtime
     // TODO: not finding optimal solution for YMIWTC
-    static RawScenario scenario = LAB::SCENARIOS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE;
+    static RawScenario scenario = SS1::SCENARIOS::ITS_A_SECRET_TO_NOBODY;
     // static Scenario scenario = SS1::SCENARIOS::START;
 
     // Makes sure that every state can be accurately reconstructed when it is processed
@@ -111,11 +111,14 @@ namespace Solver {
     static std::unordered_map<std::size_t, std::vector<std::size_t>, modified_hash> block_set_cache;
 
     void entrypoint() {
+        SolverClean::runSolver();
+        return;
+
         // TODO is this really necessary
         // Get into GAMEMODE gracefully
         script.startgamemode(Start_SECRETLAB);
         // Give back trinkets
-        for (int i = 0; i < 20; i++) {
+        for (int i = 0; i < 100; i++) {
             obj.collect[i] = false;
         }
         // Don't do cutscenes
@@ -146,7 +149,6 @@ namespace Solver {
         // stateful_solver();
         // cached_stateful_solver();
         // stateless_solver(true);
-        SolverClean::runSolver();
     }
 
     void squish_test() {

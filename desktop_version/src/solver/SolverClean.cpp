@@ -52,6 +52,9 @@ namespace SolverClean {
         RawScenario rs = SS1::SCENARIOS::ITS_A_SECRET_TO_NOBODY;
         SolverConfig solver;
         solver.clean_inputs = true;
+        solver.debug_checks = true;
+        solver.render_delay = 34;
+
         CheckedScenario scenario = checkScenario(rs);
 
         solveScenario(solver, scenario);
@@ -94,6 +97,7 @@ namespace SolverClean {
             // Store the state summary, which allows us to reconstruct the solution later
             processed_states.emplace(state_hash, state.summary());
 
+            bool should_render = false;
             // Update debug info
             {
                 auto now_time = std::chrono::system_clock::now();
@@ -106,9 +110,10 @@ namespace SolverClean {
                 
                 // Occasionally render debug info
                 uint64_t millis_since_last_render = std::chrono::duration_cast<std::chrono::milliseconds>(now_time - last_render_time).count();
-                if (millis_since_last_render >= solver.render_delay) {
+                uint64_t rng = std::rand() % solver.render_delay;
+                if (millis_since_last_render >= solver.render_delay / 2 + rng) {
+                    should_render = true;
                     last_render_time = now_time;
-                    render(solver);
                 }
             }
 
@@ -140,6 +145,10 @@ namespace SolverClean {
                 key.setKey(KEYBOARD_v, flip);
                 // Advance the game by one frame
                 doGameStep();
+                if (should_render) {
+                    render(solver);
+                    should_render = false;
+                }
 
                 // Hack: if we died, ignore this branch
                 // This means we will never find death strats, but that's fine for now
@@ -149,11 +158,15 @@ namespace SolverClean {
 
                 // Cache the new state that we've reached (this already updates all counter variables and the heuristic)
                 CachedSolverState new_state = cacheCurrentStateWithDeltaFromPrev(solver, scenario, state);
-                new_state.inputs = input;
+                if (solver.debug_checks) {
+                    assert(new_state.inputs == input);
+                }
 
                 // IMPORTANT: Check that the new heuristic is NOT lower than the old one
                 // That would imply the heuristic is INADMISSIBLE, which means we are not guaranteed to find the optimal solution!
                 if (new_state.heuristic < state.heuristic) {
+                    render(solver);
+                    cacheCurrentStateWithDeltaFromPrev(solver, scenario, state);
                     updateHeuristic(solver, scenario, new_state);
                     Exceptions::inadmissible_heuristic();
                 }
@@ -250,7 +263,8 @@ namespace SolverClean {
                     if (solver.debug_checks) {
                         if (f == inputs.size() - 1) {
                             // Compare on the second last frame since that's the final hash we store
-                            assert(cacheCurrentState(solver).hash() == solution_states[idx].prev_hash);
+                            uint64_t current_hash = cacheCurrentState(solver).hash();
+                            assert(solution_states[idx].prev_hash == current_hash);
                         }
                     }
 
@@ -287,7 +301,7 @@ namespace SolverClean {
 
         // Advance to the next corner that we are strictly before
         int c_start_idx = next_corner;
-        while (c_start_idx < scenario.corners.size() && !scenario.corners[c_start_idx].isPosBefore(pos)) {
+        while (c_start_idx < scenario.corners.size() && scenario.corners[c_start_idx].isPosNotStrictlyBefore(pos)) {
             c_start_idx++;
         }
 
@@ -557,6 +571,31 @@ namespace SolverClean {
     }
 
     static void loadScenario(const CheckedScenario& scenario) {
+        // Get into gamemode gracefully
+        game.setstate(0);
+        // Give back trinkets
+        for (int i = 0; i < 100; i++) {
+            obj.collect[i] = false;
+        }
+        // Don't do cutscenes or trinket textboxes
+        game.nocutscenes = true;
+        game.intimetrial = true;
+        // Clear keys
+        key.clearKeys();
+        // Don't poll the keyboard
+        key.actually_poll = false;
+        // Make the game think it has focus
+        key.isActive = true;
+
+        // Save my ears from permanent damage
+        game.muted = true;
+        music.updatemutestate();
+
+        // Turn off screen effects
+        game.colourblindmode = true;
+        game.noflashingmode = true;
+
+        // Set up the initial player state
         game.savex = scenario.init_pos.x;
         game.savey = scenario.init_pos.y;
         game.saverx = scenario.init_room.rx;
@@ -570,16 +609,43 @@ namespace SolverClean {
         game.deathseq = -1;
         game.lifeseq = 0;
 
-        if (obj.entities.empty())
-        {
-            obj.createentity(game.savex, game.savey, 0, 0);
-        }
+        // Reset entities and create player at correct location
+        obj.entities.clear();
+        obj.createentity(game.savex, game.savey, 0, 0);
+
+        // Do as the game would do
         map.resetplayer();
         Terrain::LoadRoom(scenario.init_room);
         map.initmapdata();
 
+        // Skip fadein
         graphics.fademode = FADE_NONE;
+
+        // Reset button states just in case
+        game.press_action = false;
+        game.press_left = false;
+        game.press_right = false;
+        game.press_interact = false;
+        game.press_map = false;
+
         game.jumppressed = false;
+        game.jumpheld = 0;
+        game.interactheld = false;
+        game.tapleft = 0;
+        game.tapright = 0;
+
+        /* If we are spawning in a tower, ensure variables are set correctly */
+        if (map.towermode)
+        {
+            map.resetplayer();
+
+            map.ypos = obj.entities[0].yp - 120;
+            map.oldypos = map.ypos;
+
+            map.setbgobjlerp(graphics.towerbg);
+            map.cameramode = 0;
+            map.colsuperstate = 0;
+        }
 
         // Hack: Advance frames to fix enemy cycles to right position
         for (int i = 0; i < scenario.advance_frames; i++) {
@@ -601,29 +667,28 @@ namespace SolverClean {
         bool reset = key.isDown(SDLK_r);
         bool talk = key.isDown(SDLK_RETURN);
         uint8_t inputs = 0;
-        inputs |= (inputs << 1) | talk;
-        inputs |= (inputs << 1) | reset;
-        inputs |= (inputs << 1) | flip;
-        inputs |= (inputs << 1) | right;
-        inputs |= (inputs << 1) | left;
+        inputs = (inputs << 1) | talk;
+        inputs = (inputs << 1) | reset;
+        inputs = (inputs << 1) | flip;
+        inputs = (inputs << 1) | right;
+        inputs = (inputs << 1) | left;
 
-        bool changedCorner = false;
+        int next_corner = prev.next_corner;
         // Have we passed the next corner in the scenario?
-        if (prev.next_corner < scenario.corners.size()) {
-            const CheckedCorner& next = scenario.corners[prev.next_corner];
+        if (next_corner < scenario.corners.size()) {
+            const CheckedCorner& next = scenario.corners[next_corner];
             if (next.isPosAfter(pos)) {
-                state.next_corner++;
-                changedCorner = true;
+                next_corner++;
             }
         }
         // Did we go back around the previous corner?
-        if (!changedCorner && prev.next_corner > 0) {
-            const CheckedCorner& last = scenario.corners[prev.next_corner - 1];
+        if (next_corner == prev.next_corner && next_corner > 0) {
+            const CheckedCorner& last = scenario.corners[next_corner - 1];
             if (last.isPosBefore(pos)) {
-                state.next_corner--;
-                changedCorner = true;
+                next_corner--;
             }
         }
+        state.next_corner = next_corner;
 
         // Update frame counter
         state.frame_count = prev.frame_count + 1;
@@ -732,6 +797,7 @@ namespace SolverClean {
             state.cache_entry = createCacheEntry(solver);
         }
 
+        state.collect = 0;
         for (int i = 0; i < 20; i++) {
             state.collect |= obj.collect[i] << i;
         }
@@ -739,10 +805,12 @@ namespace SolverClean {
         // Init everything else with zeroes
         state.heuristic = 0.0;
         state.next_corner = 0;
+
         state.frame_count = 0;
         state.input_change_count = 0;
         state.input_frame_count = 0;
         state.flip_count = 0;
+
         state.num_l_plus_r = 0;
         state.inputs = 0;
         state.prevHash = 0;
@@ -752,7 +820,7 @@ namespace SolverClean {
 
     static CacheEntry createCacheEntry(SolverConfig& solver) {
         std::vector<uint64_t> entities;
-        entities.reserve(obj.entities.size());
+        entities.reserve(obj.entities.size() - 1);
         for (size_t i = 1; i < obj.entities.size(); i++) {
             // Skip deleted entities
             // TODO: is this safe? any unexpected side effects?
@@ -832,23 +900,28 @@ namespace SolverClean {
     }
 
     static void loadState(const SolverConfig& solver, const CachedSolverState& state) {
-        // Restore trinkets first, because they affect room load
-        for (int i = 0; i < 20; i++) {
-            // hacky fix pt1
-            obj.collect[i] = false;
-        }
-
-        // Load room
+        // Only change rooms if it's necessary.
         if (game.roomx != state.game.roomx || game.roomy != state.game.roomy) {
-            // Only load if it's necessary.
-            // TODO: this might behave weirdly in rooms where sprites are deleted? e.g. trinkets
-            // TODO: restore collected trinkets if not reloading room
+            // Reset trinket states to keep entity slots consistent
+            for (int i = 0; i < 20; i++) {
+                obj.collect[i] = 0;
+            }
             map.gotoroom(state.game.roomx, state.game.roomy);
         }
-
-        // Restore trinkets first, because they affect room load
+        else {
+            // Delete trinkets that should no longer be around
+            for (int e = 0; e < obj.entities.size(); e++) {
+                if (obj.entities[e].rule == 3 && obj.entities[e].type == 7) {
+                    int trinket_idx = obj.entities[e].para;
+                    if ((state.collect >> trinket_idx) & 1) {
+                        // Delete this entity as the game itself would
+                        obj.disableentity(e);
+                    }
+                }
+            }
+        }
+        // Set the actual collect state
         for (int i = 0; i < 20; i++) {
-            // hacky fix pt2
             obj.collect[i] = (state.collect >> i) & 1;
         }
 
@@ -899,10 +972,22 @@ namespace SolverClean {
 
         // Load cached entity and block data
         loadCacheEntry(solver, state.cache_entry);
+
+        // Look through restored entities to find any trinkets that should be reactivated
+        for (int e = 0; e < obj.entities.size(); e++) {
+            if (obj.entities[e].rule == 3 && obj.entities[e].type == 7) {
+                int trinket_idx = obj.entities[e].para;
+                if (((state.collect >> trinket_idx) & 1) == 0 && obj.entities[e].size == -1) {
+                    obj.entities[e].invis = false;
+                    obj.entities[e].size = 0;
+                }
+            }
+        }
     }
     static void loadCacheEntry(const SolverConfig& solver, const CacheEntry& entry) {
         if (entry.entity_hash != 0) {
             const std::vector<std::size_t>& cached_entities = solver.cache.getEntitySet(entry.entity_hash);
+            
             // Load entity data
             for (int i = 0; i < cached_entities.size(); i++) {
                 const EntityState& e = solver.cache.getEntity(cached_entities[i]);
@@ -1156,14 +1241,14 @@ namespace SolverClean {
             return a_measure < b_measure;
         }
 
-        if (a.num_l_plus_r != b.num_l_plus_r) {
-            // Prioritize low L+R input count, we only want it to occur if absolutely necessary
-            return a.num_l_plus_r > b.num_l_plus_r;
-        }
-
         if (clean_inputs && (a.input_change_count != b.input_change_count)) {
             // Prioritize low changes in inputs, so the resulting solution is more human-viable
             return a.input_change_count > b.input_change_count;
+        }
+
+        if (a.num_l_plus_r != b.num_l_plus_r) {
+            // Prioritize low L+R input count, we only want it to occur if absolutely necessary
+            return a.num_l_plus_r > b.num_l_plus_r;
         }
 
         return true;
@@ -1178,8 +1263,8 @@ namespace SolverClean {
         // we have already passed it. For trinkets and warp tokens, we can't
         // "really" know just based off the position, except if we're touching it
         if (this->isTrinketOrWarp()) {
-            int glob_x = ROOM_W * (pos.room.rx - room.rx) + pos.pos.x;
-            int glob_y = ROOM_H * (pos.room.ry - room.ry) + pos.pos.y;
+            int glob_x = ROOM_W * (room.rx - pos.room.rx) + pos.pos.x;
+            int glob_y = ROOM_H * (room.ry - pos.room.ry) + pos.pos.y;
             return region.contains(IntVector(glob_x, glob_y));
         }
         else if (this->isRegular()) {
@@ -1187,7 +1272,7 @@ namespace SolverClean {
             int ry_delta = ROOM_H * (pos.room.ry - room.ry);
             IntVector c_pos = this->getRegularPos();
             int x_delta = rx_delta + pos.pos.x - c_pos.x;
-            int y_delta = rx_delta + pos.pos.y - c_pos.y;
+            int y_delta = ry_delta + pos.pos.y - c_pos.y;
             switch (this->dir) {
             case UP_LEFT:
                 return x_delta <= 0 && y_delta < 0;
@@ -1267,7 +1352,7 @@ namespace SolverClean {
             int ry_delta = ROOM_H * (pos.room.ry - room.ry);
             IntVector c_pos = this->getRegularPos();
             int x_delta = rx_delta + pos.pos.x - c_pos.x;
-            int y_delta = rx_delta + pos.pos.y - c_pos.y;
+            int y_delta = ry_delta + pos.pos.y - c_pos.y;
             switch (this->getType()) {
                 case Terrain::CornerType::BottomRight:
                     return x_delta < 0 && y_delta < 0;
@@ -1279,6 +1364,43 @@ namespace SolverClean {
                     return x_delta > 0 && y_delta > 0;
                 default:
                     Exceptions::unreachable();
+            }
+        }
+
+        Exceptions::todo();
+    }
+    bool CheckedCorner::isPosNotStrictlyBefore(const Terrain::GlobalPosition& pos) const {
+        if (room.outside != pos.room.outside) {
+            Exceptions::invalid_argument();
+        }
+
+        // In this context, being "before" the corner means being sure that we
+        // still need to pass it. For trinkets and warp tokens, we can't "really"
+        // know just based off the position, so only return true if we are touching
+        if (this->isTrinketOrWarp()) {
+            return isPosAfter(pos);
+        }
+        else if (this->isRegular()) {
+            int rx_delta = ROOM_W * (pos.room.rx - room.rx);
+            int ry_delta = ROOM_H * (pos.room.ry - room.ry);
+            IntVector c_pos = this->getRegularPos();
+            int x_delta = rx_delta + pos.pos.x - c_pos.x;
+            int y_delta = ry_delta + pos.pos.y - c_pos.y;
+            switch (this->dir) {
+            case UP_LEFT:
+            case DOWN_LEFT:
+                return x_delta <= 0;
+            case UP_RIGHT:
+            case DOWN_RIGHT:
+                return x_delta >= 0;
+            case LEFT_UP:
+            case RIGHT_UP:
+                return y_delta <= 0;
+            case LEFT_DOWN:
+            case RIGHT_DOWN:
+                return y_delta >= 0;
+            default:
+                Exceptions::unreachable();
             }
         }
 
