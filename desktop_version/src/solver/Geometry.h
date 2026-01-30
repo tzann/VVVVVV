@@ -660,7 +660,7 @@ namespace Geometry {
 			return regularize();
 		}
 		Region& removeXLowerBound(void) {
-			x.removeUpperBound();
+			x.removeLowerBound();
 			return regularize();
 		}
 		Region& removeYUpperBound(void) {

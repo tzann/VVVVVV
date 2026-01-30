@@ -729,6 +729,9 @@ namespace SolverClean {
         /// How many solutions do we want to find? (INT_MAX means all optimal solutions)
         int max_solutions;
 
+        /// Rooms that are guaranteed to occur in the optimal solution
+        std::vector<RoomPosition> ignore_rooms;
+
         /// The entity cache is designed to reduce memory usage by only storing unique entity configurations
         EntityCache cache;
         /// These are simply used for rendering data on the HUD

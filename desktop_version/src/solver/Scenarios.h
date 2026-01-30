@@ -1240,6 +1240,17 @@ namespace Scenarios {
                 CORNERS::PUREST_UNOBTAINIUM::TRINKET,
                 });
 
+            const RawScenario STANDING_WAVE_TO_LDE_IGNORE_LINES(107, 100, 240, 19, 0, 0, {
+                CORNERS::STANDING_WAVE::START_LEFT,
+                CORNERS::IM_SORRY::UNOB_LEAVE_A,
+                CORNERS::PLEASE_FORGIVE_ME::LAST_SPIKE_CORNER,
+                CORNERS::PLEASE_FORGIVE_ME::LAST_SPIKE_RIGHT,
+                CORNERS::PLEASE_FORGIVE_ME::EXIT_CORNER,
+                CORNERS::PLAYING_FOOSBALL::ENTRY_DROP,
+                CORNERS::LIVING_DEAD_END::FIRST_LINE_DROP,
+                CORNERS::LIVING_DEAD_END::SECOND_LINE_DROP,
+                });
+
             // TODO: could do hitting the apex to in a single bound
             // TODO: ideally we would check hitting the apex until entanglement generator, but that needs more optimization / a better heuristic (e.g. nearest flippable surface)
         }

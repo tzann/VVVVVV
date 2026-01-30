@@ -49,12 +49,13 @@ namespace SolverClean {
     std::hash<float> hash_float;
 
     void runSolver(void) {
-        RawScenario rs = SS1::SCENARIOS::ITS_A_SECRET_TO_NOBODY;
+        RawScenario rs = LAB::SCENARIOS::LETTER_G_TO_ENTANGLEMENT_GENERATOR;
         SolverConfig solver;
-        solver.clean_inputs = true;
-        solver.debug_checks = true;
-        solver.render_delay = 34;
-        solver.max_solutions = INT_MAX;
+        solver.clean_inputs = false;
+        solver.debug_checks = false;
+        solver.render_delay = 340;
+        solver.max_solutions = 1;
+        solver.ignore_rooms.push_back(RoomPosition::FromNativeRoomCoords(102, 100));
 
         CheckedScenario scenario = checkScenario(rs);
 
@@ -153,15 +154,29 @@ namespace SolverClean {
                 key.setKey(KEYBOARD_v, flip);
                 // Advance the game by one frame
                 doGameStep();
-                if (should_render) {
-                    render(solver);
-                    should_render = false;
-                }
 
                 // Hack: if we died, ignore this branch
                 // This means we will never find death strats, but that's fine for now
                 if (game.deathseq > 0) {
                     continue;
+                }
+                if (!solver.ignore_rooms.empty()) {
+                    // Skip rooms we know don't matter
+                    RoomPosition rp = RoomPosition::FromNativeRoomCoords(game.roomx, game.roomy);
+                    bool skip = false;
+                    for (const RoomPosition& r : solver.ignore_rooms) {
+                        if (rp == r) {
+                            skip = true;
+                            break;
+                        }
+                    }
+                    if (skip) continue;
+                }
+
+                // Render occasionally
+                if (should_render) {
+                    render(solver);
+                    should_render = false;
                 }
 
                 // Cache the new state that we've reached (this already updates all counter variables and the heuristic)
@@ -1114,7 +1129,7 @@ namespace SolverClean {
                 vformat_buf(
                     buffer, sizeof(buffer),
                     "{d} / {h}", "d:int, h:int",
-                    info.solution_idx, info.num_solutions
+                    (info.solution_idx + 1), info.num_solutions
                 );
             }
             tempstring = "SOLVE:";
