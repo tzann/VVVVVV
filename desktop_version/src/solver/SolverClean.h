@@ -30,8 +30,10 @@ namespace SolverClean {
     enum SolverMode {
         /// Simple heuristic that uses Manhattan distance and assumes max speed at all times
         SIMPLE,
-        /// More complicated sim-based heuristic, factors in acceleration and velocity changes
-        ACCEL_BASED,
+        /// More complicated sim-based heuristic, factors in acceleration (but assumes instant decel)
+        ACCEL_BASED_1,
+        /// More complicated sim-based heuristic, factors in acceleration and deceleration for velocity changes
+        ACCEL_BASED_2,
         MIN_INPUT_CHANGES,
         MIN_INPUT_FRAMES,
         MIN_FLIPS,
@@ -179,6 +181,9 @@ namespace SolverClean {
         bool inv_gravity;
         int advance_frames;
         std::vector<CheckedCorner> corners;
+
+        /// Rooms that are guaranteed not to occur in the optimal solution
+        std::vector<RoomPosition> ignore_rooms;
 
         CheckedScenario(Terrain::RoomPosition init_room, IntVector init_pos, bool inv_gravity, int advance_frames, std::vector<CheckedCorner> corners) : init_room(init_room), init_pos(init_pos), inv_gravity(inv_gravity), advance_frames(advance_frames), corners(corners) {}
     };
@@ -572,7 +577,8 @@ namespace SolverClean {
         uint16_t getMeasure(SolverMode mode) const {
             switch (mode) {
             case SolverMode::SIMPLE:
-            case SolverMode::ACCEL_BASED:
+            case SolverMode::ACCEL_BASED_1:
+            case SolverMode::ACCEL_BASED_2:
                 return frame_count;
             case SolverMode::MIN_INPUT_CHANGES:
                 return input_change_count;
@@ -729,9 +735,6 @@ namespace SolverClean {
         /// How many solutions do we want to find? (INT_MAX means all optimal solutions)
         int max_solutions;
 
-        /// Rooms that are guaranteed to occur in the optimal solution
-        std::vector<RoomPosition> ignore_rooms;
-
         /// The entity cache is designed to reduce memory usage by only storing unique entity configurations
         EntityCache cache;
         /// These are simply used for rendering data on the HUD
@@ -762,6 +765,7 @@ namespace SolverClean {
     static uint16_t updateHeuristic(const SolverConfig& solver, const CheckedScenario& scenario, CachedSolverState& state);
     static uint16_t calcHeuristic(const SolverConfig& solver, const CheckedScenario& scenario, int next_corner, const PlayerState& player, const GameState& game);
     static uint16_t calcSimpleHeuristic(const SolverConfig& solver, const CheckedScenario& scenario, int next_corner, const PlayerState& player, const GameState& game);
+    static uint16_t calcAccelHeuristic1(const SolverConfig& solver, const CheckedScenario& scenario, int next_corner, const PlayerState& player, const GameState& game);
 
     /// Creates an instance which contains the current game state
     static CachedSolverState cacheCurrentState(SolverConfig& solver);

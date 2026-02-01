@@ -49,13 +49,13 @@ namespace SolverClean {
     std::hash<float> hash_float;
 
     void runSolver(void) {
-        RawScenario rs = LAB::SCENARIOS::LETTER_G_TO_ENTANGLEMENT_GENERATOR;
+        RawScenario rs = LAB::SCENARIOS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE;
         SolverConfig solver;
-        solver.clean_inputs = false;
+        solver.clean_inputs = true;
         solver.debug_checks = false;
         solver.render_delay = 340;
         solver.max_solutions = 1;
-        solver.ignore_rooms.push_back(RoomPosition::FromNativeRoomCoords(102, 100));
+        solver.mode = SolverMode::ACCEL_BASED_1;
 
         CheckedScenario scenario = checkScenario(rs);
 
@@ -160,11 +160,11 @@ namespace SolverClean {
                 if (game.deathseq > 0) {
                     continue;
                 }
-                if (!solver.ignore_rooms.empty()) {
+                if (!scenario.ignore_rooms.empty()) {
                     // Skip rooms we know don't matter
                     RoomPosition rp = RoomPosition::FromNativeRoomCoords(game.roomx, game.roomy);
                     bool skip = false;
-                    for (const RoomPosition& r : solver.ignore_rooms) {
+                    for (const RoomPosition& r : scenario.ignore_rooms) {
                         if (rp == r) {
                             skip = true;
                             break;
@@ -332,6 +332,8 @@ namespace SolverClean {
         switch (solver.mode) {
         case SolverMode::SIMPLE:
             return calcSimpleHeuristic(solver, scenario, c_start_idx, player, game);
+        case SolverMode::ACCEL_BASED_1:
+            return calcAccelHeuristic1(solver, scenario, c_start_idx, player, game);
         default:
             Exceptions::todo();
         }
@@ -356,8 +358,8 @@ namespace SolverClean {
             IntInterval c_y = c_r.y + (ROOM_H * c.room.ry);
 
             // Minimum absolute distance per dimension
-            int x_d = (pos.x - c_x).abs().getLowerBound();
-            int y_d = (pos.y - c_y).abs().getLowerBound();
+            int x_d = (pos.x - c_x).abs().min;
+            int y_d = (pos.y - c_y).abs().min;
 
             // Factor in vertical corner cuts
             bool verticalCutUp = c.dir == UP_LEFT || c.dir == UP_RIGHT;
@@ -400,8 +402,173 @@ namespace SolverClean {
             IntInterval c_y = c_r.y + (ROOM_H * c.room.ry);
 
             // Minimum absolute distance per dimension
-            int x_d = (pos.x - c_x).abs().getLowerBound();
-            int y_d = (pos.y - c_y).abs().getLowerBound();
+            int x_d = (pos.x - c_x).abs().min;
+            int y_d = (pos.y - c_y).abs().min;
+
+            // How long will it take to get past the corner?
+            int x_frames = div_ceil(x_d, MAX_VX);
+            int y_frames = div_ceil(y_d, MAX_VY);
+            int frames = SDL_max(x_frames, y_frames);
+
+            total_frames += frames;
+        }
+
+        return total_frames;
+    }
+
+    static uint16_t calcAccelHeuristic1(const SolverConfig& solver, const CheckedScenario& scenario, int next_corner, const PlayerState& player, const GameState& game) {
+        int total_frames = 0;
+
+        const RoomPosition& room_pos = game.getRoomPos();
+        int x_pos = ROOM_W * room_pos.rx + player.x;
+        int y_pos = ROOM_H * room_pos.ry + player.y;
+
+        Region pos = Region(IntVector(x_pos, y_pos));
+        FloatInterval vx = FloatInterval(player.vx);
+        FloatInterval vy = FloatInterval(player.vy);
+        // 1 is regular gravity, -1 inverted
+        IntInterval gravity3 = game.gravitycontrol ? -3 : 3;
+        IntInterval gravity4 = game.gravitycontrol ? -4 : 4;
+        bool can_flip = true;
+
+        for (int c_idx = next_corner; c_idx < scenario.corners.size(); c_idx++) {
+            const CheckedCorner& c = scenario.corners[c_idx];
+
+            // This is the region of the corner that we must pass through to proceed
+            const Region& c_r = c.region;
+            // Factor in room offsets
+            IntInterval c_x = c_r.x + (ROOM_W * c.room.rx);
+            IntInterval c_y = c_r.y + (ROOM_H * c.room.ry);
+
+            // Minimum absolute distance per dimension
+            int x_d = IntInterval::min_abs_diff(pos.x, c_x);
+            int y_d = IntInterval::min_abs_diff(pos.y, c_y);
+            // assert(x_d != 0 || y_d != 0);
+            bool is_trinket_or_warp = c.isTrinketOrWarp();
+            bool is_vertical_cut = c.dir == UP_LEFT || c.dir == UP_RIGHT || c.dir == DOWN_LEFT || c.dir == DOWN_RIGHT;
+            bool is_horizontal_cut = c.dir == LEFT_UP || c.dir == LEFT_DOWN || c.dir == RIGHT_UP || c.dir == RIGHT_DOWN;
+            bool is_limited_by_x_d = is_vertical_cut || is_trinket_or_warp;
+            bool is_limited_by_y_d = is_horizontal_cut || is_trinket_or_warp;
+
+            bool goingLeft = pos.x > c_x;
+            bool goingRight = pos.x < c_x;
+            bool goingUp = pos.y > c_y;
+            bool goingDown = pos.y < c_y;
+
+            // Assume we can always instantly stop (since we might hit a wall)
+            vx.join(0.0f);
+            vy.join(0.0f);
+
+            // Accelerate to full speed
+            while ((x_d > 0 || y_d > 0) && (vx.min > -MAX_VX || vx.max < MAX_VX || vy.min > -MAX_VY || vy.max < MAX_VY)) {
+                IntInterval ax = IntInterval(-3, 3);
+                if (can_flip) {
+                    IntInterval tmp = gravity4;
+                    gravity4.negate();
+                    vy.join(gravity4);
+
+                    gravity3.join(gravity3.negated());
+                    gravity4.join(tmp);
+                }
+
+                IntInterval ay = gravity3;
+
+                // Update velocities
+                vx += ax;
+                vy += ay;
+
+                // Apply friction and speed caps
+                FloatInterval vx_neg = vx + X_RATE;
+                vx_neg.addLowerBound(-MAX_VX);
+                vx_neg.max = 0;
+
+                vx -= X_RATE;
+                vx.addUpperBound(MAX_VX);
+                vx.min = 0;
+                vx.join(vx_neg);
+
+                FloatInterval vy_neg = vy + Y_RATE;
+                vy_neg.addLowerBound(-MAX_VY);
+                vy_neg.max = 0;
+
+                vy -= Y_RATE;
+                vy.addUpperBound(MAX_VY);
+                vy.min = 0;
+                vy.join(vy_neg);
+
+                // Update positions
+                // This applies conservative rounding, so we always get max distance
+                pos.x += vx.toIntInterval();
+                pos.y += vy.toIntInterval();
+
+                // Update x_d and y_d
+                x_d = IntInterval::min_abs_diff(pos.x, c_x);
+                y_d = IntInterval::min_abs_diff(pos.y, c_y);
+
+                total_frames++;
+            }
+
+            // How long will it take to get past the corner?
+            int x_frames = div_ceil(x_d, MAX_VX);
+            int y_frames = div_ceil(y_d, MAX_VY);
+            int frames = SDL_max(x_frames, y_frames);
+            if (is_limited_by_x_d && is_limited_by_y_d) {
+                is_limited_by_x_d &= x_frames >= y_frames;
+                is_limited_by_y_d &= y_frames >= x_frames;
+            }
+
+            // How far can we move during that time?
+            IntInterval x_dist = VX_INT_RANGE * frames;
+            IntInterval y_dist = VY_INT_RANGE * frames;
+
+            // Update player position
+            pos.x += x_dist;
+            pos.y += y_dist;
+
+            // Update velocity
+            if (goingLeft && is_limited_by_x_d) {
+                vx.addUpperBound(0);
+            }
+            if (goingRight && is_limited_by_x_d) {
+                vx.addLowerBound(0);
+            }
+            if (goingUp && is_limited_by_y_d) {
+                vy.addUpperBound(0);
+            }
+            if (goingDown && is_limited_by_y_d) {
+                vy.addLowerBound(0);
+            }
+
+            // Factor in vertical corner cuts
+            bool verticalCutUp = c.dir == UP_LEFT || c.dir == UP_RIGHT;
+            bool verticalCutDown = c.dir == DOWN_LEFT || c.dir == DOWN_RIGHT;
+            IntInterval verticalCornerCutDist = IntInterval(verticalCutUp ? -MAX_VY : 0, verticalCutDown ? MAX_VY : 0);
+
+            // The space of reachable positions one frame after passing the corner
+            Region postCornerRegion = Region(c_x, c_y + verticalCornerCutDist);
+
+            // Restrict player position to post-corner region
+            pos.intersect(postCornerRegion);
+
+            // Sanity checks
+            assert(!pos.is_bottom() && pos.is_bounded());
+
+            // Update total frame count
+            total_frames += frames;
+        }
+
+        // We are now no longer before the last corner, but we may not yet be past it
+        if (scenario.corners.back().isRegular()) {
+            const CheckedCorner& c = scenario.corners.back();
+            // This is the region of the corner that we have to reach
+            Region c_r = c.getRegionAfter();
+            // Factor in room offsets
+            IntInterval c_x = c_r.x + (ROOM_W * c.room.rx);
+            IntInterval c_y = c_r.y + (ROOM_H * c.room.ry);
+
+            // Minimum absolute distance per dimension
+            int x_d = (pos.x - c_x).abs().min;
+            int y_d = (pos.y - c_y).abs().min;
 
             // How long will it take to get past the corner?
             int x_frames = div_ceil(x_d, MAX_VX);
@@ -1269,14 +1436,14 @@ namespace SolverClean {
             return a.num_l_plus_r > b.num_l_plus_r;
         }
 
-        if (clean_inputs && (a.input_change_count != b.input_change_count)) {
-            // Prioritize low changes in inputs, so the resulting solution is more human-viable
-            return a.input_change_count > b.input_change_count;
-        }
-
         if (clean_inputs && (a.input_frame_count != b.input_frame_count)) {
             // Prioritize input frame count, so doing nothing is better than constantly moving
             return a.input_frame_count > b.input_frame_count;
+        }
+
+        if (clean_inputs && (a.input_change_count != b.input_change_count)) {
+            // Prioritize low changes in inputs, so the resulting solution is more human-viable
+            return a.input_change_count > b.input_change_count;
         }
 
         return true;

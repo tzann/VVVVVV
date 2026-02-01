@@ -851,7 +851,7 @@ namespace Terrain {
 	struct ElementRegion {
 		GenericID element_id;
 		Region region;
-		ElementRegion(void) : element_id(GenericID::invalid()), region(Region::bottom()) { }
+		ElementRegion(void) : element_id(GenericID::invalid()), region(IntInterval::bottom(), IntInterval::bottom()) { }
 		ElementRegion(GenericID element_id, Region region) : element_id(element_id), region(region) { }
 
 		bool is_bottom(void) const {
@@ -861,16 +861,8 @@ namespace Terrain {
 		bool operator== (const ElementRegion& other) const {
 			if (element_id != other.element_id) {
 				return false;
-			} else if (region.x.getLowerBound() != other.region.x.getLowerBound()) {
-				return false;
-			} else if (region.x.getUpperBound() != other.region.x.getUpperBound()) {
-				return false;
-			} else if (region.y.getLowerBound() != other.region.y.getLowerBound()) {
-				return false;
-			} else if (region.y.getUpperBound() != other.region.y.getUpperBound()) {
-				return false;
 			}
-			return true;
+			return region.exactly_equals(other.region);
 		}
 		bool operator!= (const ElementRegion& other) const {
 			return !(*this == other);
@@ -880,10 +872,10 @@ namespace Terrain {
 				return element_id < other.element_id;
 			} else if (!region.x.intersects(other.region.x)) {
 				return region.x < other.region.x;
-			} else if (region.x.getLowerBound() == other.region.x.getLowerBound()) {
-				return region.x.getUpperBound() < other.region.x.getUpperBound();
-			} else if (region.x.getUpperBound() == other.region.x.getUpperBound()) {
-				return region.x.getLowerBound() < other.region.x.getLowerBound();
+			} else if (region.x.min == other.region.x.min) {
+				return region.x.max < other.region.x.max;
+			} else if (region.x.max == other.region.x.max) {
+				return region.x.min < other.region.x.min;
 			} else {
 				// Shouldn't compare overlapping x regions of same element!
 				Exceptions::error();

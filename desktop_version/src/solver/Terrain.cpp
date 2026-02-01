@@ -574,8 +574,8 @@ namespace Terrain {
 			Region waypointRegion(wp.playerState.pos);
 			waypointRegion.x += roomOffset.x;
 			waypointRegion.y += roomOffset.y;
-			waypointRegion.x.addLowerBound(waypointRegion.x.getLowerBound() + 1);
-			waypointRegion.x.addUpperBound(waypointRegion.x.getUpperBound() - 1);
+			waypointRegion.x.addLowerBound(waypointRegion.x.min + 1);
+			waypointRegion.x.addUpperBound(waypointRegion.x.max - 1);
 			RenderRegion(waypointRegion);
 			thisPos = (waypointRegion.getMin() + waypointRegion.getMax()) / 2;
 			if (wp.id.isWall()) {
@@ -4244,10 +4244,10 @@ namespace Terrain {
 					walkingRegion.x.intersect(range.region.x.getIntervalAbove());
 				} else if (range.region.x > prevState.pos.x) {
 					walkingRegion.x.intersect(range.region.x.getIntervalBelow());
-				} else if (range.region.x.getLowerBound() < prevState.pos.x.getLowerBound()) {
-					walkingRegion.x.addLowerBound(prevState.pos.x.getLowerBound());
-				} else if (range.region.x.getUpperBound() < prevState.pos.x.getUpperBound()) {
-					walkingRegion.x.addUpperBound(prevState.pos.x.getUpperBound());
+				} else if (range.region.x.min < prevState.pos.x.min) {
+					walkingRegion.x.addLowerBound(prevState.pos.x.min);
+				} else if (range.region.x.max < prevState.pos.x.max) {
+					walkingRegion.x.addUpperBound(prevState.pos.x.max);
 				}
 			}
 			// A few cases here:
@@ -4265,7 +4265,7 @@ namespace Terrain {
 				// TODO: is this correct?
 				PlayerStateRange walkOffLeft(prevState);
 				walkOffLeft.inverseGravity = prevState.inverseGravity;
-				walkOffLeft.pos = Region(walkingRegion).addXUpperBound(walkingRegion.x.getLowerBound() + MAX_X_SPEED - 1);
+				walkOffLeft.pos = Region(walkingRegion).addXUpperBound(walkingRegion.x.min + MAX_X_SPEED - 1);
 				walkOffLeft.vx = NEG_X_SPEED_RANGE;
 				walkOffLeft.vy = PLATFORM_Y_SPEED_RANGE_FOR_GRAVITY(prevState.inverseGravity);
 				prev_states.push_back(walkOffLeft);
@@ -4276,7 +4276,7 @@ namespace Terrain {
 				// TODO: is this correct?
 				PlayerStateRange walkOffRight(prevState);
 				walkOffRight.inverseGravity = prevState.inverseGravity;
-				walkOffRight.pos = Region(walkingRegion).addXLowerBound(walkingRegion.x.getUpperBound() - MAX_X_SPEED + 1);
+				walkOffRight.pos = Region(walkingRegion).addXLowerBound(walkingRegion.x.max - MAX_X_SPEED + 1);
 				walkOffRight.vx = POS_X_SPEED_RANGE;
 				walkOffRight.vy = PLATFORM_Y_SPEED_RANGE_FOR_GRAVITY(prevState.inverseGravity);
 				prev_states.push_back(walkOffRight);
@@ -4334,9 +4334,9 @@ namespace Terrain {
 				// Cannot directly get a definite connection
 				// Hacky fix for now: just make outermost pixel "definitely" reachable
 				if (maybeReachable.pos.x > definitelyReachable.pos.x) {
-					definitelyReachable.pos.x.join(maybeReachable.pos.x.getLowerBound());
+					definitelyReachable.pos.x.join(maybeReachable.pos.x.min);
 				} else {
-					definitelyReachable.pos.x.join(maybeReachable.pos.x.getUpperBound());
+					definitelyReachable.pos.x.join(maybeReachable.pos.x.max);
 				}
 				definitelyReachable.vx.join(FULL_X_SPEED_RANGE);
 				definitelyReachable.vy.join(!fromSurface ? Y_SPEED_RANGE_FOR_GRAVITY(definitelyReachable.inverseGravity) : PLATFORM_Y_SPEED_RANGE_FOR_GRAVITY(definitelyReachable.inverseGravity));
@@ -4455,7 +4455,7 @@ namespace Terrain {
 					if (range.element_id != el_id || range.region.is_bottom()) {
 						continue;
 					}
-					int xLowerBound = range.region.x.getLowerBound();
+					int xLowerBound = range.region.x.min;
 					if (xLowerBound >= min_lower_bound || xLowerBound < firstUncoveredX) {
 						continue;
 					} 
@@ -4490,7 +4490,7 @@ namespace Terrain {
 				// TODO: make this work for (vertical) lines
 				// Create the next uncovered region
 				IntInterval uncoveredRange = lowestXInterval.getIntervalBelow().addLowerBound(firstUncoveredX);
-				firstUncoveredX = lowestXInterval.getIntervalAbove().getLowerBound();
+				firstUncoveredX = lowestXInterval.getIntervalAbove().min;
 
 				if (uncoveredRange.is_bottom()) {
 					// TODO: does this ever happen? probably
@@ -4601,9 +4601,9 @@ namespace Terrain {
 							IntInterval right = range.region.x.getIntervalAbove().intersect(fromStateOut.pos.x);
 							
 							// Pick the closer one if the in-region is not between them
-							if (fromStateIn.pos.x.getUpperBound() <= left.getUpperBound()) {
+							if (fromStateIn.pos.x.max <= left.max) {
 								fromStateOut.pos.x = left;
-							} else if (fromStateIn.pos.x.getLowerBound() >= right.getLowerBound()) {
+							} else if (fromStateIn.pos.x.min >= right.min) {
 								fromStateOut.pos.x = right;
 							} else {
 								// TODO: can this happen? -> apparently yes, idk if it's a bug
@@ -4627,9 +4627,9 @@ namespace Terrain {
 					// We have to "manually" extend it the minimum amount
 					// Hacky fix for now: extend it to the outermost pixel of the connecting region
 					if (toConnRegion.x < mustState.pos.x) {
-						mustState.pos.x.join(toConnRegion.x.getUpperBound());
+						mustState.pos.x.join(toConnRegion.x.max);
 					} else {
-						mustState.pos.x.join(toConnRegion.x.getLowerBound());
+						mustState.pos.x.join(toConnRegion.x.min);
 					}
 					mustState.vx.join(FULL_X_SPEED_RANGE);
 					mustState.vy.join(!nextWp->id.isWall() ? Y_SPEED_RANGE_FOR_GRAVITY(mustState.inverseGravity) : PLATFORM_Y_SPEED_RANGE_FOR_GRAVITY(mustState.inverseGravity));
@@ -4737,9 +4737,9 @@ namespace Terrain {
 						IntInterval right = range.region.x.getIntervalAbove().intersect(toStateIn.pos.x);
 
 						// Pick the closer one if the in-region is not between them
-						if (toStateOut.pos.x.getUpperBound() <= left.getUpperBound()) {
+						if (toStateOut.pos.x.max <= left.max) {
 							toStateIn.pos.x = left;
-						} else if (toStateOut.pos.x.getLowerBound() >= right.getLowerBound()) {
+						} else if (toStateOut.pos.x.min >= right.min) {
 							toStateIn.pos.x = right;
 						} else {
 							// TODO: can this happen? -> apparently yes, idk if it's a bug
@@ -4763,9 +4763,9 @@ namespace Terrain {
 				// We have to "manually" extend it the minimum amount
 				// Hacky fix for now: extend it to the outermost pixel of the connecting region
 				if (fromConnRegion.x < mustStateFwd.pos.x) {
-					mustStateFwd.pos.x.join(fromConnRegion.x.getUpperBound());
+					mustStateFwd.pos.x.join(fromConnRegion.x.max);
 				} else {
-					mustStateFwd.pos.x.join(fromConnRegion.x.getLowerBound());
+					mustStateFwd.pos.x.join(fromConnRegion.x.min);
 				}
 				mustStateFwd.vx.join(FULL_X_SPEED_RANGE);
 			}
@@ -4915,7 +4915,7 @@ namespace Terrain {
 							Exceptions::assert(!prevState.pos.x.is_bottom());
 						} else {
 							// Make sure the regions are adjacent
-							if ((elConnRegion.x - prevState.pos.x).abs().getLowerBound() > 1) {
+							if ((elConnRegion.x - prevState.pos.x).abs().min > 1) {
 								continue;
 							}
 						}
@@ -4997,7 +4997,7 @@ namespace Terrain {
 					IntVector secondaryDir = c.GetSecondaryDir(c_el_id.goingUp);
 
 					// TODO: remove this, it stops walls connecting to their own corners
-					if (c.pos.y == prevState.pos.y.getLowerBound() && prevState.pos.y.is_exact()) {
+					if (c.pos.y == prevState.pos.y.min && prevState.pos.y.is_exact()) {
 						continue;
 					}
 
@@ -5158,7 +5158,7 @@ namespace Terrain {
 
 			const Region& connectingRegion = GetConnectingRegionInLocalFrame(el_id, frame);
 
-			int firstUncoveredX = connectingRegion.x.getLowerBound();
+			int firstUncoveredX = connectingRegion.x.min;
 			for (std::vector<ElementRegion>::const_iterator it2 = coveredParts.cbegin(); it2 != coveredParts.cend(); it2++) {
 				const ElementRegion& el_reg = *it2;
 				if (el_reg.element_id != el_id) {
@@ -5167,8 +5167,8 @@ namespace Terrain {
 				}
 
 				const IntInterval& coveredXRange = el_reg.region.x;
-				int lastUncoveredX = coveredXRange.getIntervalBelow().getUpperBound();
-				int newFirstUncoveredX = coveredXRange.getIntervalAbove().getLowerBound();
+				int lastUncoveredX = coveredXRange.getIntervalBelow().max;
+				int newFirstUncoveredX = coveredXRange.getIntervalAbove().min;
 
 				IntInterval uncoveredXRange(firstUncoveredX, lastUncoveredX);
 				firstUncoveredX = newFirstUncoveredX;
@@ -5178,7 +5178,7 @@ namespace Terrain {
 				}
 			}
 
-			int finalUncoveredX = connectingRegion.x.getUpperBound();
+			int finalUncoveredX = connectingRegion.x.max;
 			IntInterval finalUncoveredXRange(firstUncoveredX, finalUncoveredX);
 			if (!finalUncoveredXRange.is_bottom()) {
 				uncoveredParts.emplace_back(el_id, Region(finalUncoveredXRange, connectingRegion.y));
@@ -5309,12 +5309,12 @@ namespace Terrain {
 		// Clamp to range (x)
 		for (std::vector<FloatInterval>::iterator it = v_x_fric.begin(); it != v_x_fric.end(); it++) {
 			FloatInterval& v_x = *it;
-			v_x.clamp(FloatInterval(-MAX_X_SPEED, MAX_X_SPEED));
+			v_x.clamp(-MAX_X_SPEED, MAX_X_SPEED);
 		}
 		// Clamp to range (y)
 		for (std::vector<FloatInterval>::iterator it = v_y_fric.begin(); it != v_y_fric.end(); it++) {
 			FloatInterval& v_y = *it;
-			v_y.clamp(FloatInterval(-MAX_Y_SPEED, MAX_Y_SPEED));
+			v_y.clamp(-MAX_Y_SPEED, MAX_Y_SPEED);
 		}
 
 		// Come to a stop with low speed
@@ -5533,12 +5533,12 @@ namespace Terrain {
 			if (toSurface) {
 				if (a_y > 0) {
 					int surfaceY = delta_y.max;
-					if (d_y.getLowerBound() > surfaceY) {
+					if (d_y.min > surfaceY) {
 						definitelyLanded = true;
 					}
 					if (delta_x.contains(d_x) && prev_dy < surfaceY) {
 						// Don't allow moving past the surface
-						d_y.clamp(IntInterval::fromUpperBound(surfaceY));
+						d_y.clampToInterval(IntInterval::fromUpperBound(surfaceY));
 					} else if (d_x.intersects(delta_x)) {
 						// Account for landing on the surface
 						if (IntInterval::join(prev_dy, d_y).intersects(surfaceY)) {
@@ -5547,12 +5547,12 @@ namespace Terrain {
 					}
 				} else {
 					int surfaceY = delta_y.min;
-					if (d_y.getUpperBound() < surfaceY) {
+					if (d_y.max < surfaceY) {
 						definitelyLanded = true;
 					}
 					if (delta_x.contains(d_x) && prev_dy > surfaceY) {
 						// Don't allow moving past the surface
-						d_y.clamp(IntInterval::fromLowerBound(surfaceY));
+						d_y.clampToInterval(IntInterval::fromLowerBound(surfaceY));
 					} else if (d_x.intersects(delta_x)) {
 						// Account for landing on the surface
 						if (IntInterval::join(prev_dy, d_y).intersects(surfaceY)) {
@@ -5582,12 +5582,12 @@ namespace Terrain {
 			if (toSurface && !definitelyLanded) {
 				if (a_y > 0) {
 					int surfaceY = delta_y.max;
-					if (d_y.getLowerBound() > surfaceY) {
+					if (d_y.min > surfaceY) {
 						definitelyLanded = true;
 					}
 					if (delta_x.contains(d_x) && prev_dy < surfaceY) {
 						// Don't allow moving past the surface
-						d_y.clamp(IntInterval::fromUpperBound(surfaceY));
+						d_y.clampToInterval(IntInterval::fromUpperBound(surfaceY));
 					} else if (d_x.intersects(delta_x)) {
 						// Account for landing on the surface
 						if (IntInterval::join(prev_dy, d_y).intersects(surfaceY)) {
@@ -5596,12 +5596,12 @@ namespace Terrain {
 					}
 				} else {
 					int surfaceY = delta_y.min;
-					if (d_y.getUpperBound() < surfaceY) {
+					if (d_y.max < surfaceY) {
 						definitelyLanded = true;
 					}
 					if (delta_x.contains(d_x) && prev_dy > surfaceY) {
 						// Don't allow moving past the surface
-						d_y.clamp(IntInterval::fromLowerBound(surfaceY));
+						d_y.clampToInterval(IntInterval::fromLowerBound(surfaceY));
 					} else if (d_x.intersects(delta_x)) {
 						// Account for landing on the surface
 						if (IntInterval::join(prev_dy, d_y).intersects(surfaceY)) {
@@ -5630,8 +5630,8 @@ namespace Terrain {
 		v_y = FloatInterval::join(v_y.positivePart() - y_rate, v_y.negativePart() + y_rate);
 
 		// Clamp to valid range
-		v_x.clamp(FloatInterval(-MAX_X_SPEED, MAX_X_SPEED));
-		v_y.clamp(FloatInterval(-MAX_Y_SPEED, MAX_Y_SPEED));
+		v_x.clamp(-MAX_X_SPEED, MAX_X_SPEED);
+		v_y.clamp(-MAX_Y_SPEED, MAX_Y_SPEED);
 
 		// Conditionally set to zero (if less than friction)
 		if (!(v_x.abs() >= x_rate) && !v_x.is_bottom()) {
@@ -5788,7 +5788,7 @@ namespace Terrain {
 
 		IntVector distance = GetDistanceBetween(fromPos, toPos, invY);
 		bool invX = distance.x < 0;
-		// TODO: doens't work for invX == true;
+		// TODO: doesn't work for invX == true;
 
 		// Gather all surfaces and lines directly above the edge
 		// TODO: this isn't strictly correct, in a case like:

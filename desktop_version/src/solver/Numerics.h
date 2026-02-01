@@ -7,10 +7,10 @@
 #include "solver/Exceptions.h"
 
 namespace Numerics {
-	static float next_float_above(float val) {
+	inline static float next_float_above(float val) {
 		return std::nextafterf(val, INFINITY);
 	}
-	static float next_float_below(float val) {
+	inline static float next_float_below(float val) {
 		return std::nextafterf(val, -INFINITY);
 	}
 
