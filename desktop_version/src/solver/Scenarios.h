@@ -467,7 +467,7 @@ namespace Scenarios {
                 const int rx = 103;
                 const int ry = 118;
                 const RawCorner DROP_DOWN(rx, ry, 238, 89, DOWN_LEFT);
-                const RawCorner SPIKE_DOWN(rx, ry, 154, 102, LEFT_DOWN);
+                const RawCorner SPIKE_DOWN(rx, ry, 162, 102, LEFT_DOWN);
                 const RawCorner FALL_UP_1(rx, ry, 142, 102, UP_LEFT);
                 const RawCorner FALL_UP_2(rx, ry, 126, 86, UP_LEFT);
             }
@@ -867,8 +867,6 @@ namespace Scenarios {
                 CORNERS::SAFETY_DANCE::B,
                 });
 
-            // TODO: Search space too large, can't confirm this ties TAS
-            // TODO: nearest flippable surface check?
             const RawScenario LETTER_G_TO_ENTANGLEMENT_GENERATOR(103, 116, 39, 130, 1, 0, {
                 CORNERS::LETTER_G::GO_RIGHT,
                 CORNERS::FREE_YOUR_MIND::DROP,
@@ -885,7 +883,36 @@ namespace Scenarios {
 
             // TODO: Search space too large, can't confirm this ties TAS
             // TODO: nearest flippable surface check?
-            const RawScenario LETTER_G_TO_HEADY_HEIGHTS(103, 116, 39, 130, 1, 0, {
+            const RawScenario LETTER_G_TO_BERNOULLI(103, 116, 39, 130, 1, 0, {
+                CORNERS::LETTER_G::GO_RIGHT,
+                CORNERS::FREE_YOUR_MIND::DROP,
+                CORNERS::IN_A_SINGLE_BOUND::A,
+                CORNERS::IN_A_SINGLE_BOUND::B,
+                CORNERS::BARANI_BARANI::A,
+                CORNERS::BARANI_BARANI::B,
+                CORNERS::SAFETY_DANCE::A,
+                CORNERS::SAFETY_DANCE::B,
+                CORNERS::SAFETY_DANCE::C,
+                CORNERS::SAFETY_DANCE::D,
+                CORNERS::HEADY_HEIGHTS::SHAFT_LEFT_SPIKE,
+                CORNERS::HEADY_HEIGHTS::SHAFT_ENTRY,
+                CORNERS::BERNOULLI_PRINCIPLE::START_RIGHT,
+                });
+
+            // TODO: Search space too large, can't confirm this ties TAS
+            // TODO: nearest flippable surface check?
+            const RawScenario HITTING_THE_APEX_TO_BERNOULLI(104, 119, 85, 41, 1, 0, {
+                CORNERS::HITTING_THE_APEX::ENTRY_CUT,
+                CORNERS::HITTING_THE_APEX::TURNAROUND_1,
+                CORNERS::HITTING_THE_APEX::TURNAROUND_2,
+                CORNERS::SQUARE_ROOT::DROP_DOWN,
+                CORNERS::SQUARE_ROOT::SPIKE_DOWN,
+                CORNERS::SQUARE_ROOT::FALL_UP_1,
+                CORNERS::SQUARE_ROOT::FALL_UP_2,
+                CORNERS::THORNY_EXCHANGE::GO_RIGHT,
+                CORNERS::THORNY_EXCHANGE::FALL_UP,
+                CORNERS::LETTER_G::ENTRY_LEFT,
+                CORNERS::LETTER_G::DROP_UP,
                 CORNERS::LETTER_G::GO_RIGHT,
                 CORNERS::FREE_YOUR_MIND::DROP,
                 CORNERS::IN_A_SINGLE_BOUND::A,
@@ -1251,7 +1278,6 @@ namespace Scenarios {
                 CORNERS::LIVING_DEAD_END::SECOND_LINE_DROP,
                 });
 
-            // TODO: could do hitting the apex to in a single bound
             // TODO: ideally we would check hitting the apex until entanglement generator, but that needs more optimization / a better heuristic (e.g. nearest flippable surface)
         }
     }

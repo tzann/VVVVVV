@@ -102,13 +102,13 @@ namespace Geometry {
 		}
 
 		inline IntInterval& operator+=(IntInterval rhs) {
-			min = sat_ll((long long)min + rhs.min);
-			max = sat_ll((long long)max + rhs.max);
+			min = min <= -INT_MAX ? -INT_MAX : sat_ll((long long)min + rhs.min);
+			max = max >= INT_MAX ? INT_MAX : sat_ll((long long)max + rhs.max);
 			return (*this);
 		}
 		inline IntInterval operator+=(const int val) {
-			min = sat_ll((long long)min + val);
-			max = sat_ll((long long)max + val);
+			min = min <= -INT_MAX ? -INT_MAX : sat_ll((long long)min + val);
+			max = max >= INT_MAX ? INT_MAX : sat_ll((long long)max + val);
 			return (*this);
 		}
 		inline IntInterval operator+(IntInterval other) const {
@@ -123,13 +123,13 @@ namespace Geometry {
 		}
 
 		inline IntInterval& operator-=(IntInterval rhs) {
-			min = sat_ll((long long)min - rhs.max);
-			max = sat_ll((long long)max - rhs.min);
+			min = min <= -INT_MAX ? -INT_MAX : sat_ll((long long)min - rhs.max);
+			max = max >= INT_MAX ? INT_MAX : sat_ll((long long)max - rhs.min);
 			return (*this);
 		}
 		inline IntInterval& operator-=(const int val) {
-			min = sat_ll((long long)min - val);
-			max = sat_ll((long long)max - val);
+			min = min <= -INT_MAX ? -INT_MAX : sat_ll((long long)min - val);
+			max = max >= INT_MAX ? INT_MAX : sat_ll((long long)max - val);
 			return (*this);
 		}
 		inline IntInterval operator-(IntInterval other) const {
@@ -325,23 +325,29 @@ namespace Geometry {
 		}
 		inline IntInterval& difference(IntInterval other) {
 			if (other.min <= std::max(min, -INT_MAX)) {
-				min = std::max(min, std::max(INT_MAX - 1, other.max) + 1);
+				min = std::max(min, sat_ll((long long) other.max + 1));
 			}
 			if (other.max >= std::min(max, INT_MAX)) {
-				max = std::min(max, std::min(1 - INT_MAX, other.min) - 1);
+				max = std::min(max, sat_ll((long long) other.min - 1));
 			}
 			return *this;
 		}
 		/// Essentially returns top().difference(this), i.e. an interval that contains at least everything not contained in this one
 		inline IntInterval& invert() {
-			int newmin = min;
-			if (!has_lower_bound()) {
-				newmin = sat_ll((long long) max + 1);
+			int old_min = min;
+			int old_max = max;
+			if (is_top()) {
+				make_bottom();
+			} else if (!has_lower_bound()) {
+				min = sat_ll((long long)old_max + 1);
+				max = INT_MAX;
+			} else if (!has_upper_bound()) {
+				min = -INT_MAX;
+				max = sat_ll((long long)old_min - 1);
 			}
-			if (!has_upper_bound()) {
-				max = sat_ll((long long) min - 1);
+			else {
+				make_top();
 			}
-			min = newmin;
 			return *this;
 		}
 
@@ -367,14 +373,27 @@ namespace Geometry {
 		}
 
 		inline static int min_abs_diff(IntInterval a, IntInterval b) {
-			int dmin = a.min - b.max;
-			int dmax = a.max - b.min;
+			int dmin = a.min <= -INT_MAX ? -INT_MAX : sat_ll((long long)a.min - b.max);
+			int dmax = a.max >= INT_MAX ? INT_MAX : sat_ll((long long) a.max - b.min);
 
 			if (dmin > 0) {
 				return dmin;
 			}
 			else if (dmax < 0) {
 				return -dmax;
+			}
+			return 0;
+		}
+
+		inline static int min_diff_signed(IntInterval a, IntInterval b) {
+			int dmin = a.min <= -INT_MAX ? -INT_MAX : sat_ll((long long)a.min - b.max);
+			int dmax = a.max >= INT_MAX ? INT_MAX : sat_ll((long long)a.max - b.min);
+
+			if (dmin > 0) {
+				return dmin;
+			}
+			else if (dmax < 0) {
+				return dmax;
 			}
 			return 0;
 		}

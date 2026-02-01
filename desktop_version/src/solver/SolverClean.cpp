@@ -358,8 +358,8 @@ namespace SolverClean {
             IntInterval c_y = c_r.y + (ROOM_H * c.room.ry);
 
             // Minimum absolute distance per dimension
-            int x_d = (pos.x - c_x).abs().min;
-            int y_d = (pos.y - c_y).abs().min;
+            int x_d = IntInterval::min_abs_diff(pos.x, c_x);
+            int y_d = IntInterval::min_abs_diff(pos.y, c_y);
 
             // Factor in vertical corner cuts
             bool verticalCutUp = c.dir == UP_LEFT || c.dir == UP_RIGHT;
@@ -429,7 +429,9 @@ namespace SolverClean {
         // 1 is regular gravity, -1 inverted
         IntInterval gravity3 = game.gravitycontrol ? -3 : 3;
         IntInterval gravity4 = game.gravitycontrol ? -4 : 4;
-        bool can_flip = true;
+
+        bool can_flip = canFlip(player, game);
+        bool can_double_flip = canDoubleFlip(player, game);
 
         for (int c_idx = next_corner; c_idx < scenario.corners.size(); c_idx++) {
             const CheckedCorner& c = scenario.corners[c_idx];
@@ -441,8 +443,8 @@ namespace SolverClean {
             IntInterval c_y = c_r.y + (ROOM_H * c.room.ry);
 
             // Minimum absolute distance per dimension
-            int x_d = IntInterval::min_abs_diff(pos.x, c_x);
-            int y_d = IntInterval::min_abs_diff(pos.y, c_y);
+            int x_d = IntInterval::min_diff_signed(pos.x, c_x);
+            int y_d = IntInterval::min_diff_signed(pos.y, c_y);
             // assert(x_d != 0 || y_d != 0);
             bool is_trinket_or_warp = c.isTrinketOrWarp();
             bool is_vertical_cut = c.dir == UP_LEFT || c.dir == UP_RIGHT || c.dir == DOWN_LEFT || c.dir == DOWN_RIGHT;
@@ -450,17 +452,22 @@ namespace SolverClean {
             bool is_limited_by_x_d = is_vertical_cut || is_trinket_or_warp;
             bool is_limited_by_y_d = is_horizontal_cut || is_trinket_or_warp;
 
-            bool goingLeft = pos.x > c_x;
-            bool goingRight = pos.x < c_x;
-            bool goingUp = pos.y > c_y;
-            bool goingDown = pos.y < c_y;
+            bool goingLeft = x_d > 0;
+            bool goingRight = x_d < 0;
+            bool goingUp = y_d > 0;
+            bool goingDown = y_d < 0;
 
             // Assume we can always instantly stop (since we might hit a wall)
             vx.join(0.0f);
             vy.join(0.0f);
 
             // Accelerate to full speed
-            while ((x_d > 0 || y_d > 0) && (vx.min > -MAX_VX || vx.max < MAX_VX || vy.min > -MAX_VY || vy.max < MAX_VY)) {
+            while (
+                (x_d != 0 || y_d != 0) &&
+                    ((vx.min > -MAX_VX)
+                        || (vx.max < MAX_VX)
+                        || (vy.min > -MAX_VY)
+                        || (vy.max < MAX_VY))) {
                 IntInterval ax = IntInterval(-3, 3);
                 if (can_flip) {
                     IntInterval tmp = gravity4;
@@ -469,6 +476,10 @@ namespace SolverClean {
 
                     gravity3.join(gravity3.negated());
                     gravity4.join(tmp);
+                }
+                if (can_double_flip && gravity4.max == 4) {
+                    // Doesn't change gravity, just sets speed
+                    vy.join(4);
                 }
 
                 IntInterval ay = gravity3;
@@ -502,15 +513,18 @@ namespace SolverClean {
                 pos.y += vy.toIntInterval();
 
                 // Update x_d and y_d
-                x_d = IntInterval::min_abs_diff(pos.x, c_x);
-                y_d = IntInterval::min_abs_diff(pos.y, c_y);
+                x_d = IntInterval::min_diff_signed(pos.x, c_x);
+                y_d = IntInterval::min_diff_signed(pos.y, c_y);
 
                 total_frames++;
+
+                can_flip = true;
+                can_double_flip = true;
             }
 
             // How long will it take to get past the corner?
-            int x_frames = div_ceil(x_d, MAX_VX);
-            int y_frames = div_ceil(y_d, MAX_VY);
+            int x_frames = div_ceil(SDL_abs(x_d), MAX_VX);
+            int y_frames = div_ceil(SDL_abs(y_d), MAX_VY);
             int frames = SDL_max(x_frames, y_frames);
             if (is_limited_by_x_d && is_limited_by_y_d) {
                 is_limited_by_x_d &= x_frames >= y_frames;
@@ -518,6 +532,10 @@ namespace SolverClean {
             }
 
             // How far can we move during that time?
+            if (frames > 0) {
+                vx = FULL_X_SPEED_RANGE;
+                vy = FULL_Y_SPEED_RANGE;
+            }
             IntInterval x_dist = VX_INT_RANGE * frames;
             IntInterval y_dist = VY_INT_RANGE * frames;
 
@@ -555,6 +573,9 @@ namespace SolverClean {
 
             // Update total frame count
             total_frames += frames;
+
+            can_flip = true;
+            can_double_flip = true;
         }
 
         // We are now no longer before the last corner, but we may not yet be past it

@@ -779,6 +779,15 @@ namespace SolverClean {
     static void doGameStep();
     static void render(const SolverConfig& solver);
     static void renderHUD(const SolverConfig& solver);
+
+    /// Returns true if the player is guaranteed to be able to flip on the next frame
+    inline static bool canFlip(const PlayerState& player, const GameState& game) {
+        return (!game.jumpheld || game.jumppressed > 0) && (player.onground > 0 && game.gravitycontrol == 0 || player.onroof > 0 && game.gravitycontrol == 1);
+    }
+    /// Returns true if the player is guaranteed to be able to double-flip on the next frame
+    inline static bool canDoubleFlip(const PlayerState& player, const GameState& game) {
+        return (!game.jumpheld || game.jumppressed > 0) && (player.onground > 0 && game.gravitycontrol == 0 && player.onroof > 0);
+    }
 }
 
 #endif /* SOLVER_CLEAN_H */
