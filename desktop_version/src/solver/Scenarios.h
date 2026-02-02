@@ -407,7 +407,7 @@ namespace Scenarios {
             }
             namespace SINGLE_SLIT_EXPERIMENT {
                 const RawCorner FLIP_UP(100, 118, 278, 89, UP_LEFT);
-                const RawCorner EXIT(100, 118, 70, 129, DOWN_RIGHT);
+                const RawCorner EXIT(100, 118, 70, 129, DOWN_LEFT);
             }
             namespace DONT_FLIP_OUT {
                 const RawCorner GO_RIGHT(100, 119, 70, 86, RIGHT_DOWN);
@@ -673,6 +673,7 @@ namespace Scenarios {
             namespace IM_SORRY {
                 const int rx = 101;
                 const int ry = 100;
+                const RawCorner CHECKPOINT_START(rx, ry, 258, 94, LEFT_DOWN);
                 const RawCorner CHECKPOINT_DROP(rx, ry, 222, 94, UP_LEFT);
                 const RawCorner SPIKE_RIGHT(rx, ry, 106, 57, LEFT_UP);
                 const RawCorner SPIKE_LEFT(rx, ry, 86, 57, DOWN_LEFT);
@@ -769,6 +770,70 @@ namespace Scenarios {
                 CORNERS::KEEP_GOING::GO_LEFT,
                 CORNERS::SINGLE_SLIT_EXPERIMENT::EXIT,
                 CORNERS::DONT_FLIP_OUT::GO_RIGHT,
+                });
+
+            const RawScenario IL_START_TO_LINECLIP(102, 116, 191, 33, 0, 0, {
+                CORNERS::GET_READY_TO_BOUNCE::DROP_DOWN,
+                CORNERS::ITS_PERFECTLY_SAFE::START_LEFT,
+                CORNERS::ITS_PERFECTLY_SAFE::CONTINUE_LEFT,
+                CORNERS::RASCASSE::FLIP_DOWN,
+                CORNERS::RASCASSE::GO_RIGHT,
+                CORNERS::RASCASSE::EXIT,
+                CORNERS::KEEP_GOING::ENTRY,
+                CORNERS::KEEP_GOING::GO_LEFT,
+                CORNERS::SINGLE_SLIT_EXPERIMENT::EXIT,
+                CORNERS::DONT_FLIP_OUT::GO_RIGHT,
+                CORNERS::THEY_CALL_HIM_FLIPPER::ENTRY_SPIKE_CORNER,
+                CORNERS::THEY_CALL_HIM_FLIPPER::EXIT_SPIKE_CORNER,
+                CORNERS::THREES_A_CROWD::ENTRY_DROP,
+                CORNERS::THREES_A_CROWD::LINE_CLIP_CORNER,
+                CORNERS::HITTING_THE_APEX::ENTRY_CUT,
+                });
+
+            // TODO: run this, might barely be possible
+            const RawScenario IL_START_TO_STANDING_WAVE(102, 116, 191, 33, 0, 0, {
+                CORNERS::GET_READY_TO_BOUNCE::DROP_DOWN,
+                CORNERS::ITS_PERFECTLY_SAFE::START_LEFT,
+                CORNERS::ITS_PERFECTLY_SAFE::CONTINUE_LEFT,
+                CORNERS::RASCASSE::FLIP_DOWN,
+                CORNERS::RASCASSE::GO_RIGHT,
+                CORNERS::RASCASSE::EXIT,
+                CORNERS::KEEP_GOING::ENTRY,
+                CORNERS::KEEP_GOING::GO_LEFT,
+                CORNERS::SINGLE_SLIT_EXPERIMENT::EXIT,
+                CORNERS::DONT_FLIP_OUT::GO_RIGHT,
+                CORNERS::THEY_CALL_HIM_FLIPPER::ENTRY_SPIKE_CORNER,
+                CORNERS::THEY_CALL_HIM_FLIPPER::EXIT_SPIKE_CORNER,
+                CORNERS::THREES_A_CROWD::ENTRY_DROP,
+                CORNERS::THREES_A_CROWD::LINE_CLIP_CORNER,
+                CORNERS::HITTING_THE_APEX::ENTRY_CUT,
+                CORNERS::HITTING_THE_APEX::TURNAROUND_1,
+                CORNERS::HITTING_THE_APEX::TURNAROUND_2,
+                CORNERS::SQUARE_ROOT::DROP_DOWN,
+                CORNERS::SQUARE_ROOT::SPIKE_DOWN,
+                CORNERS::SQUARE_ROOT::FALL_UP_1,
+                CORNERS::SQUARE_ROOT::FALL_UP_2,
+                CORNERS::THORNY_EXCHANGE::GO_RIGHT,
+                CORNERS::THORNY_EXCHANGE::FALL_UP,
+                CORNERS::LETTER_G::ENTRY_LEFT,
+                CORNERS::LETTER_G::DROP_UP,
+                CORNERS::LETTER_G::GO_RIGHT,
+                CORNERS::FREE_YOUR_MIND::DROP,
+                CORNERS::IN_A_SINGLE_BOUND::A,
+                CORNERS::IN_A_SINGLE_BOUND::B,
+                CORNERS::BARANI_BARANI::A,
+                CORNERS::BARANI_BARANI::B,
+                CORNERS::SAFETY_DANCE::A,
+                CORNERS::SAFETY_DANCE::B,
+                CORNERS::SAFETY_DANCE::C,
+                CORNERS::SAFETY_DANCE::D,
+                CORNERS::HEADY_HEIGHTS::SHAFT_LEFT_SPIKE,
+                CORNERS::HEADY_HEIGHTS::SHAFT_ENTRY,
+                CORNERS::BERNOULLI_PRINCIPLE::START_RIGHT,
+                CORNERS::BERNOULLI_PRINCIPLE::TURNAROUND_1,
+                CORNERS::BERNOULLI_PRINCIPLE::TURNAROUND_2,
+                CORNERS::BERNOULLI_PRINCIPLE::EXIT_DROP,
+                CORNERS::STANDING_WAVE::START_LEFT,
                 });
 
             const RawScenario RASCASSE_TO_SINGLE_SLIT(101, 117, 158, 177, 0, 0, {
@@ -899,9 +964,10 @@ namespace Scenarios {
                 CORNERS::BERNOULLI_PRINCIPLE::START_RIGHT,
                 });
 
-            // TODO: Search space too large, can't confirm this ties TAS
-            // TODO: nearest flippable surface check?
-            const RawScenario HITTING_THE_APEX_TO_BERNOULLI(104, 119, 85, 41, 1, 0, {
+            // TODO: run this (only verified to bernoulli start), should take around 22GB of RAM and a few hours
+            const RawScenario LINECLIP_TO_STANDING_WAVE(104, 119, 10, 176, 0, 1, {
+                CORNERS::THREES_A_CROWD::SPIKE_CUT,
+                CORNERS::THREES_A_CROWD::LINE_CLIP_CORNER,
                 CORNERS::HITTING_THE_APEX::ENTRY_CUT,
                 CORNERS::HITTING_THE_APEX::TURNAROUND_1,
                 CORNERS::HITTING_THE_APEX::TURNAROUND_2,
@@ -926,15 +992,19 @@ namespace Scenarios {
                 CORNERS::HEADY_HEIGHTS::SHAFT_LEFT_SPIKE,
                 CORNERS::HEADY_HEIGHTS::SHAFT_ENTRY,
                 CORNERS::BERNOULLI_PRINCIPLE::START_RIGHT,
+                CORNERS::BERNOULLI_PRINCIPLE::TURNAROUND_1,
+                CORNERS::BERNOULLI_PRINCIPLE::TURNAROUND_2,
+                CORNERS::BERNOULLI_PRINCIPLE::EXIT_DROP,
+                CORNERS::STANDING_WAVE::START_LEFT,
                 });
 
-            const RawScenario ENTANGLEMENT_GENERATOR_TO_BERNOULLI(107, 115, 233, 174, 1, 0, {
+            const RawScenario ENTANGLEMENT_GENERATOR_TO_STANDING_WAVE(107, 115, 233, 174, 1, 0, {
                 CORNERS::HEADY_HEIGHTS::SHAFT_ENTRY,
                 CORNERS::BERNOULLI_PRINCIPLE::START_RIGHT,
                 CORNERS::BERNOULLI_PRINCIPLE::TURNAROUND_1,
                 CORNERS::BERNOULLI_PRINCIPLE::TURNAROUND_2,
                 CORNERS::BERNOULLI_PRINCIPLE::EXIT_DROP,
-                // TODO: fix map/coord wrap-around problems
+                CORNERS::STANDING_WAVE::START_LEFT,
                 });
 
             const RawScenario STANDING_WAVE_TO_MERGE(107, 100, 240, 19, 0, 0, {
@@ -1267,6 +1337,39 @@ namespace Scenarios {
                 CORNERS::PUREST_UNOBTAINIUM::TRINKET,
                 });
 
+            // TODO: run this
+            const RawScenario STANDING_WAVE_TO_LDE(107, 100, 240, 19, 0, 0, {
+                CORNERS::STANDING_WAVE::START_LEFT,
+                CORNERS::IM_SORRY::CHECKPOINT_START,
+                CORNERS::IM_SORRY::CHECKPOINT_DROP,
+                CORNERS::IM_SORRY::SPIKE_RIGHT,
+                CORNERS::IM_SORRY::SPIKE_LEFT,
+                CORNERS::PLEASE_FORGIVE_ME::FIRST_SPIKE_LEFT,
+                CORNERS::PLEASE_FORGIVE_ME::LAST_SPIKE_RIGHT,
+                CORNERS::PLEASE_FORGIVE_ME::EXIT_CORNER,
+                CORNERS::PLAYING_FOOSBALL::ENTRY_DROP,
+                CORNERS::LIVING_DEAD_END::FIRST_LINE_DROP,
+                CORNERS::LIVING_DEAD_END::SECOND_LINE_DROP,
+                });
+
+            // TODO: run this
+            const RawScenario STANDING_WAVE_TO_IL_END(107, 100, 240, 19, 0, 0, {
+                CORNERS::STANDING_WAVE::START_LEFT,
+                CORNERS::IM_SORRY::CHECKPOINT_START,
+                CORNERS::IM_SORRY::CHECKPOINT_DROP,
+                CORNERS::IM_SORRY::SPIKE_RIGHT,
+                CORNERS::IM_SORRY::SPIKE_LEFT,
+                CORNERS::PLEASE_FORGIVE_ME::FIRST_SPIKE_LEFT,
+                CORNERS::PLEASE_FORGIVE_ME::LAST_SPIKE_RIGHT,
+                CORNERS::PLEASE_FORGIVE_ME::EXIT_CORNER,
+                CORNERS::PLAYING_FOOSBALL::ENTRY_DROP,
+                CORNERS::LIVING_DEAD_END::FIRST_LINE_DROP,
+                CORNERS::LIVING_DEAD_END::SECOND_LINE_DROP,
+                CORNERS::I_SMELL_OZONE::CORNER_CUT,
+                });
+
+            // TODO: finish running this if possible (perhaps block off bernoulli?)
+            // Gets under I'm Sorry edgeflip thingy after 370/540 depth, but still needs to go all the way around
             const RawScenario STANDING_WAVE_TO_LDE_IGNORE_LINES(107, 100, 240, 19, 0, 0, {
                 CORNERS::STANDING_WAVE::START_LEFT,
                 CORNERS::IM_SORRY::UNOB_LEAVE_A,

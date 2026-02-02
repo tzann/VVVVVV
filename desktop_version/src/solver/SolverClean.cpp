@@ -49,7 +49,7 @@ namespace SolverClean {
     std::hash<float> hash_float;
 
     void runSolver(void) {
-        RawScenario rs = LAB::SCENARIOS::YOUNG_MAN_ITS_WORTH_THE_CHALLENGE;
+        RawScenario rs = LAB::SCENARIOS::IL_START_TO_STANDING_WAVE;
         SolverConfig solver;
         solver.clean_inputs = true;
         solver.debug_checks = false;
@@ -342,17 +342,36 @@ namespace SolverClean {
     static uint16_t calcSimpleHeuristic(const SolverConfig& solver, const CheckedScenario& scenario, int next_corner, const PlayerState& player, const GameState& game) {
         int total_frames = 0;
 
-        const RoomPosition& room_pos = game.getRoomPos();
-        int x_pos = ROOM_W * room_pos.rx + player.x;
-        int y_pos = ROOM_H * room_pos.ry + player.y;
+        RoomPosition room_pos = game.getRoomPos();
 
-        Region pos = Region(IntVector(x_pos, y_pos));
+        Region pos = Region(IntVector(
+            ROOM_W * room_pos.rx + player.x,
+            ROOM_H * room_pos.ry + player.y
+        ));
 
         for (int c_idx = next_corner; c_idx < scenario.corners.size(); c_idx++) {
             const CheckedCorner& c = scenario.corners[c_idx];
 
             // This is the region of the corner that we must pass through to proceed
             const Region& c_r = c.region;
+            // Account for map wrap-around, take nearest distance
+            // TODO: this doesn't necessarily make sense in extreme cases
+            if (c.room.rx - room_pos.rx > 10) {
+                room_pos.rx += 20;
+                pos.x += 20 * ROOM_W;
+            }
+            else if (room_pos.rx - c.room.rx > 10) {
+                room_pos.rx -= 20;
+                pos.x -= 20 * ROOM_W;
+            }
+            if (c.room.ry - room_pos.ry > 10) {
+                room_pos.ry += 20;
+                pos.y += 20 * ROOM_H;
+            }
+            else if (room_pos.ry - c.room.ry > 10) {
+                room_pos.ry -= 20;
+                pos.y -= 20 * ROOM_H;
+            }
             // Factor in room offsets
             IntInterval c_x = c_r.x + (ROOM_W * c.room.rx);
             IntInterval c_y = c_r.y + (ROOM_H * c.room.ry);
@@ -376,6 +395,7 @@ namespace SolverClean {
             IntInterval y_dist = VY_INT_RANGE * frames; 
 
             // Update player position
+            room_pos = c.room;
             pos.x += x_dist;
             pos.y += y_dist;
 
@@ -397,6 +417,24 @@ namespace SolverClean {
             const CheckedCorner& c = scenario.corners.back();
             // This is the region of the corner that we have to reach
             Region c_r = c.getRegionAfter();
+            // Account for map wrap-around, take nearest distance
+            // TODO: this doesn't necessarily make sense in extreme cases
+            if (c.room.rx - room_pos.rx > 10) {
+                room_pos.rx += 20;
+                pos.x += 20 * ROOM_W;
+            }
+            else if (room_pos.rx - c.room.rx > 10) {
+                room_pos.rx -= 20;
+                pos.x -= 20 * ROOM_W;
+            }
+            if (c.room.ry - room_pos.ry > 10) {
+                room_pos.ry += 20;
+                pos.y += 20 * ROOM_H;
+            }
+            else if (room_pos.ry - c.room.ry > 10) {
+                room_pos.ry -= 20;
+                pos.y -= 20 * ROOM_H;
+            }
             // Factor in room offsets
             IntInterval c_x = c_r.x + (ROOM_W * c.room.rx);
             IntInterval c_y = c_r.y + (ROOM_H * c.room.ry);
@@ -419,11 +457,12 @@ namespace SolverClean {
     static uint16_t calcAccelHeuristic1(const SolverConfig& solver, const CheckedScenario& scenario, int next_corner, const PlayerState& player, const GameState& game) {
         int total_frames = 0;
 
-        const RoomPosition& room_pos = game.getRoomPos();
-        int x_pos = ROOM_W * room_pos.rx + player.x;
-        int y_pos = ROOM_H * room_pos.ry + player.y;
+        RoomPosition room_pos = game.getRoomPos();
+        Region pos = Region(IntVector(
+            ROOM_W * room_pos.rx + player.x,
+            ROOM_H * room_pos.ry + player.y
+        ));
 
-        Region pos = Region(IntVector(x_pos, y_pos));
         FloatInterval vx = FloatInterval(player.vx);
         FloatInterval vy = FloatInterval(player.vy);
         // 1 is regular gravity, -1 inverted
@@ -438,6 +477,24 @@ namespace SolverClean {
 
             // This is the region of the corner that we must pass through to proceed
             const Region& c_r = c.region;
+            // Account for map wrap-around, take nearest distance
+            // TODO: this doesn't necessarily make sense in extreme cases
+            if (c.room.rx - room_pos.rx > 10) {
+                room_pos.rx += 20;
+                pos.x += 20 * ROOM_W;
+            }
+            else if (room_pos.rx - c.room.rx > 10) {
+                room_pos.rx -= 20;
+                pos.x -= 20 * ROOM_W;
+            }
+            if (c.room.ry - room_pos.ry > 10) {
+                room_pos.ry += 20;
+                pos.y += 20 * ROOM_H;
+            }
+            else if (room_pos.ry - c.room.ry > 10) {
+                room_pos.ry -= 20;
+                pos.y -= 20 * ROOM_H;
+            }
             // Factor in room offsets
             IntInterval c_x = c_r.x + (ROOM_W * c.room.rx);
             IntInterval c_y = c_r.y + (ROOM_H * c.room.ry);
@@ -540,6 +597,7 @@ namespace SolverClean {
             IntInterval y_dist = VY_INT_RANGE * frames;
 
             // Update player position
+            room_pos = c.room;
             pos.x += x_dist;
             pos.y += y_dist;
 
@@ -583,6 +641,24 @@ namespace SolverClean {
             const CheckedCorner& c = scenario.corners.back();
             // This is the region of the corner that we have to reach
             Region c_r = c.getRegionAfter();
+            // Account for map wrap-around, take nearest distance
+            // TODO: this doesn't necessarily make sense in extreme cases
+            if (c.room.rx - room_pos.rx > 10) {
+                room_pos.rx += 20;
+                pos.x += 20 * ROOM_W;
+            }
+            else if (room_pos.rx - c.room.rx > 10) {
+                room_pos.rx -= 20;
+                pos.x -= 20 * ROOM_W;
+            }
+            if (c.room.ry - room_pos.ry > 10) {
+                room_pos.ry += 20;
+                pos.y += 20 * ROOM_H;
+            }
+            else if (room_pos.ry - c.room.ry > 10) {
+                room_pos.ry -= 20;
+                pos.y -= 20 * ROOM_H;
+            }
             // Factor in room offsets
             IntInterval c_x = c_r.x + (ROOM_W * c.room.rx);
             IntInterval c_y = c_r.y + (ROOM_H * c.room.ry);
@@ -1457,6 +1533,12 @@ namespace SolverClean {
             return a.num_l_plus_r > b.num_l_plus_r;
         }
 
+        // TODO: this is just a temporary experiment for input cleanliness, can be deleted
+        if (clean_inputs && (a.input_frame_count != b.input_frame_count || a.input_change_count != b.input_change_count)) {
+            // Prioritize input frame count, so doing nothing is better than constantly moving
+            return a.input_frame_count * 3 + a.input_change_count > b.input_frame_count * 3 + b.input_change_count;
+        }
+
         if (clean_inputs && (a.input_frame_count != b.input_frame_count)) {
             // Prioritize input frame count, so doing nothing is better than constantly moving
             return a.input_frame_count > b.input_frame_count;
@@ -1479,16 +1561,42 @@ namespace SolverClean {
         // we have already passed it. For trinkets and warp tokens, we can't
         // "really" know just based off the position, except if we're touching it
         if (this->isTrinketOrWarp()) {
-            int glob_x = ROOM_W * (room.rx - pos.room.rx) + pos.pos.x;
-            int glob_y = ROOM_H * (room.ry - pos.room.ry) + pos.pos.y;
+            int rx_delta = (pos.room.rx - room.rx);
+            int ry_delta = (pos.room.ry - room.ry);
+            if (rx_delta > 10) {
+                rx_delta -= 20;
+            }
+            else if (rx_delta < -10) {
+                rx_delta += 20;
+            }
+            if (ry_delta > 10) {
+                ry_delta -= 20;
+            }
+            else if (ry_delta < -10) {
+                ry_delta += 20;
+            }
+            int glob_x = ROOM_W * rx_delta + pos.pos.x;
+            int glob_y = ROOM_H * ry_delta + pos.pos.y;
             return region.contains(IntVector(glob_x, glob_y));
         }
         else if (this->isRegular()) {
-            int rx_delta = ROOM_W * (pos.room.rx - room.rx);
-            int ry_delta = ROOM_H * (pos.room.ry - room.ry);
+            int rx_delta = (pos.room.rx - room.rx);
+            int ry_delta = (pos.room.ry - room.ry);
+            if (rx_delta > 10) {
+                rx_delta -= 20;
+            }
+            else if (rx_delta < -10) {
+                rx_delta += 20;
+            }
+            if (ry_delta > 10) {
+                ry_delta -= 20;
+            }
+            else if (ry_delta < -10) {
+                ry_delta += 20;
+            }
             IntVector c_pos = this->getRegularPos();
-            int x_delta = rx_delta + pos.pos.x - c_pos.x;
-            int y_delta = ry_delta + pos.pos.y - c_pos.y;
+            int x_delta = ROOM_W * rx_delta + pos.pos.x - c_pos.x;
+            int y_delta = ROOM_H * ry_delta + pos.pos.y - c_pos.y;
             switch (this->dir) {
             case UP_LEFT:
                 return x_delta <= 0 && y_delta < 0;
@@ -1525,11 +1633,23 @@ namespace SolverClean {
             return false;
         }
         else if (this->isRegular()) {
-            int rx_delta = ROOM_W * (pos.room.rx - room.rx);
-            int ry_delta = ROOM_H * (pos.room.ry - room.ry);
+            int rx_delta = (pos.room.rx - room.rx);
+            int ry_delta = (pos.room.ry - room.ry);
+            if (rx_delta > 10) {
+                rx_delta -= 20;
+            }
+            else if (rx_delta < -10) {
+                rx_delta += 20;
+            }
+            if (ry_delta > 10) {
+                ry_delta -= 20;
+            }
+            else if (ry_delta < -10) {
+                ry_delta += 20;
+            }
             IntVector c_pos = this->getRegularPos();
-            int x_delta = rx_delta + pos.pos.x - c_pos.x;
-            int y_delta = ry_delta + pos.pos.y - c_pos.y;
+            int x_delta = ROOM_W * rx_delta + pos.pos.x - c_pos.x;
+            int y_delta = ROOM_H * ry_delta + pos.pos.y - c_pos.y;
             switch (this->dir) {
             case UP_LEFT:
                 return x_delta > 0 && y_delta >= 0;
@@ -1564,11 +1684,23 @@ namespace SolverClean {
         if (this->isTrinketOrWarp()) {
             return false;
         } else if (this->isRegular()) {
-            int rx_delta = ROOM_W * (pos.room.rx - room.rx);
-            int ry_delta = ROOM_H * (pos.room.ry - room.ry);
+            int rx_delta = (pos.room.rx - room.rx);
+            int ry_delta = (pos.room.ry - room.ry);
+            if (rx_delta > 10) {
+                rx_delta -= 20;
+            }
+            else if (rx_delta < -10) {
+                rx_delta += 20;
+            }
+            if (ry_delta > 10) {
+                ry_delta -= 20;
+            }
+            else if (ry_delta < -10) {
+                ry_delta += 20;
+            }
             IntVector c_pos = this->getRegularPos();
-            int x_delta = rx_delta + pos.pos.x - c_pos.x;
-            int y_delta = ry_delta + pos.pos.y - c_pos.y;
+            int x_delta = ROOM_W * rx_delta + pos.pos.x - c_pos.x;
+            int y_delta = ROOM_H * ry_delta + pos.pos.y - c_pos.y;
             switch (this->getType()) {
                 case Terrain::CornerType::BottomRight:
                     return x_delta < 0 && y_delta < 0;
@@ -1597,11 +1729,23 @@ namespace SolverClean {
             return isPosAfter(pos);
         }
         else if (this->isRegular()) {
-            int rx_delta = ROOM_W * (pos.room.rx - room.rx);
-            int ry_delta = ROOM_H * (pos.room.ry - room.ry);
+            int rx_delta = (pos.room.rx - room.rx);
+            int ry_delta = (pos.room.ry - room.ry);
+            if (rx_delta > 10) {
+                rx_delta -= 20;
+            }
+            else if (rx_delta < -10) {
+                rx_delta += 20;
+            }
+            if (ry_delta > 10) {
+                ry_delta -= 20;
+            }
+            else if (ry_delta < -10) {
+                ry_delta += 20;
+            }
             IntVector c_pos = this->getRegularPos();
-            int x_delta = rx_delta + pos.pos.x - c_pos.x;
-            int y_delta = ry_delta + pos.pos.y - c_pos.y;
+            int x_delta = ROOM_W * rx_delta + pos.pos.x - c_pos.x;
+            int y_delta = ROOM_H * ry_delta + pos.pos.y - c_pos.y;
             switch (this->dir) {
             case UP_LEFT:
             case DOWN_LEFT:
