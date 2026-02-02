@@ -180,7 +180,7 @@ namespace SolverClean {
                 }
 
                 // Cache the new state that we've reached (this already updates all counter variables and the heuristic)
-                CachedSolverState new_state = cacheCurrentStateWithDeltaFromPrev(solver, scenario, state);
+                CachedSolverState new_state = cacheCurrentStateWithDeltaFromPrev(solver, scenario, state, state_hash);
                 if (solver.debug_checks) {
                     assert(new_state.inputs == input);
                 }
@@ -189,7 +189,7 @@ namespace SolverClean {
                 // That would imply the heuristic is INADMISSIBLE, which means we are not guaranteed to find the optimal solution!
                 if (new_state.heuristic < state.heuristic) {
                     render(solver);
-                    cacheCurrentStateWithDeltaFromPrev(solver, scenario, state);
+                    cacheCurrentStateWithDeltaFromPrev(solver, scenario, state, state_hash);
                     updateHeuristic(solver, scenario, new_state);
                     Exceptions::inadmissible_heuristic();
                 }
@@ -351,107 +351,158 @@ namespace SolverClean {
 
         for (int c_idx = next_corner; c_idx < scenario.corners.size(); c_idx++) {
             const CheckedCorner& c = scenario.corners[c_idx];
-
-            // This is the region of the corner that we must pass through to proceed
-            const Region& c_r = c.region;
-            // Account for map wrap-around, take nearest distance
-            // TODO: this doesn't necessarily make sense in extreme cases
-            if (c.room.rx - room_pos.rx > 10) {
-                room_pos.rx += 20;
-                pos.x += 20 * ROOM_W;
-            }
-            else if (room_pos.rx - c.room.rx > 10) {
-                room_pos.rx -= 20;
-                pos.x -= 20 * ROOM_W;
-            }
-            if (c.room.ry - room_pos.ry > 10) {
-                room_pos.ry += 20;
-                pos.y += 20 * ROOM_H;
-            }
-            else if (room_pos.ry - c.room.ry > 10) {
-                room_pos.ry -= 20;
-                pos.y -= 20 * ROOM_H;
-            }
-            // Factor in room offsets
-            IntInterval c_x = c_r.x + (ROOM_W * c.room.rx);
-            IntInterval c_y = c_r.y + (ROOM_H * c.room.ry);
-
-            // Minimum absolute distance per dimension
-            int x_d = IntInterval::min_abs_diff(pos.x, c_x);
-            int y_d = IntInterval::min_abs_diff(pos.y, c_y);
-
-            // Factor in vertical corner cuts
-            bool verticalCutUp = c.dir == UP_LEFT || c.dir == UP_RIGHT;
-            bool verticalCutDown = c.dir == DOWN_LEFT || c.dir == DOWN_RIGHT;
-            IntInterval verticalCornerCutDist = IntInterval(verticalCutUp ? -MAX_VY : 0, verticalCutDown ? MAX_VY : 0);
-
-            // How long will it take to get past the corner?
-            int x_frames = div_ceil(x_d, MAX_VX);
-            int y_frames = div_ceil(y_d, MAX_VY);
-            int frames = SDL_max(x_frames, y_frames);
-
-            // How far can we move during that time?
-            IntInterval x_dist = VX_INT_RANGE * frames;
-            IntInterval y_dist = VY_INT_RANGE * frames; 
-
-            // Update player position
-            room_pos = c.room;
-            pos.x += x_dist;
-            pos.y += y_dist;
-
-            // The space of reachable positions one frame after passing the corner
-            Region postCornerRegion = Region(c_x, c_y + verticalCornerCutDist);
-
-            // Restrict player position to post-corner region
-            pos.intersect(postCornerRegion);
+            int frames = calcSimpleHeuristicCorner(room_pos, pos, c);
+            total_frames += frames;
 
             // Sanity checks
             assert(!pos.is_bottom() && pos.is_bounded());
-
-            // Update total frame count
-            total_frames += frames;
         }
 
         // We are now no longer before the last corner, but we may not yet be past it
         if (scenario.corners.back().isRegular()) {
             const CheckedCorner& c = scenario.corners.back();
-            // This is the region of the corner that we have to reach
-            Region c_r = c.getRegionAfter();
-            // Account for map wrap-around, take nearest distance
-            // TODO: this doesn't necessarily make sense in extreme cases
-            if (c.room.rx - room_pos.rx > 10) {
-                room_pos.rx += 20;
-                pos.x += 20 * ROOM_W;
-            }
-            else if (room_pos.rx - c.room.rx > 10) {
-                room_pos.rx -= 20;
-                pos.x -= 20 * ROOM_W;
-            }
-            if (c.room.ry - room_pos.ry > 10) {
-                room_pos.ry += 20;
-                pos.y += 20 * ROOM_H;
-            }
-            else if (room_pos.ry - c.room.ry > 10) {
-                room_pos.ry -= 20;
-                pos.y -= 20 * ROOM_H;
-            }
-            // Factor in room offsets
-            IntInterval c_x = c_r.x + (ROOM_W * c.room.rx);
-            IntInterval c_y = c_r.y + (ROOM_H * c.room.ry);
-
-            // Minimum absolute distance per dimension
-            int x_d = (pos.x - c_x).abs().min;
-            int y_d = (pos.y - c_y).abs().min;
-
-            // How long will it take to get past the corner?
-            int x_frames = div_ceil(x_d, MAX_VX);
-            int y_frames = div_ceil(y_d, MAX_VY);
-            int frames = SDL_max(x_frames, y_frames);
-
+            int frames = calcSimpleHeuristicFinalCorner(room_pos, pos, c);
             total_frames += frames;
         }
 
         return total_frames;
+    }
+
+    static uint16_t calcSimpleHeuristicCorner(RoomPosition& room_pos, Region& pos, const CheckedCorner& c) {
+        // This is the region of the corner that we must pass through to proceed
+        const Region& c_r = c.region;
+        // Account for map wrap-around, take nearest distance
+        // TODO: this doesn't necessarily make sense in extreme cases
+        if (c.room.rx - room_pos.rx > 10) {
+            room_pos.rx += 20;
+            pos.x += 20 * ROOM_W;
+        }
+        else if (room_pos.rx - c.room.rx > 10) {
+            room_pos.rx -= 20;
+            pos.x -= 20 * ROOM_W;
+        }
+        if (c.room.ry - room_pos.ry > 10) {
+            room_pos.ry += 20;
+            pos.y += 20 * ROOM_H;
+        }
+        else if (room_pos.ry - c.room.ry > 10) {
+            room_pos.ry -= 20;
+            pos.y -= 20 * ROOM_H;
+        }
+        // Factor in room offsets
+        IntInterval c_x = c_r.x + (ROOM_W * c.room.rx);
+        IntInterval c_y = c_r.y + (ROOM_H * c.room.ry);
+
+        // Minimum absolute distance per dimension
+        int x_d = IntInterval::min_diff_signed(pos.x, c_x);
+        int y_d = IntInterval::min_diff_signed(pos.y, c_y);
+
+        const RoomData& r1 = Terrain::GetRoomData(room_pos);
+        const RoomData& r2 = Terrain::GetRoomData(c.room);
+
+        // Factor in room warping
+        if (r1.warpx || r1.warpy || r2.warpx || r2.warpy) {
+            if (room_pos == c.room) {
+                // Same room is special case, since we have to deal with X and Y warping simultaneously, but no screen edge turnarounds
+                if (r1.warpx) {
+                    for (int offset = -ROOM_W; offset <= ROOM_W; offset += 2 * ROOM_W) {
+                        IntInterval c_x_off = c_x + offset;
+                        int x_d_off = IntInterval::min_diff_signed(pos.x, c_x);
+                        if (std::abs(x_d_off) < std::abs(x_d)) {
+                            x_d = x_d_off;
+                        }
+                    }
+                }
+                if (r1.warpy) {
+                    for (int offset = -ROOM_H; offset <= ROOM_H; offset += 2 * ROOM_H) {
+                        IntInterval c_y_off = c_y + offset;
+                        int y_d_off = IntInterval::min_diff_signed(pos.x, c_x);
+                        if (std::abs(x_d_off) < std::abs(x_d)) {
+                            x_d = x_d_off;
+                        }
+                    }
+                }
+            }
+            else if (room_pos.ry == c.room.ry) {
+                // Can't handle more than 1 room offset for now - otherwise we have to deal with intermediate warping rooms...
+                assert(std::abs(room_pos.rx - c.room.rx) <= 1);
+            }
+            else if (room_pos.rx == c.room.rx) {
+                // Can't handle more than 1 room offset for now - otherwise we have to deal with intermediate warping rooms...
+                assert(std::abs(room_pos.ry - c.room.ry) <= 1);
+            }
+            else {
+                Exceptions::todo();
+            }
+        }
+
+        // Factor in vertical corner cuts
+        bool verticalCutUp = c.dir == UP_LEFT || c.dir == UP_RIGHT;
+        bool verticalCutDown = c.dir == DOWN_LEFT || c.dir == DOWN_RIGHT;
+        IntInterval verticalCornerCutDist = IntInterval(verticalCutUp ? -MAX_VY : 0, verticalCutDown ? MAX_VY : 0);
+
+        // How long will it take to get past the corner?
+        int x_frames = div_ceil(x_d, MAX_VX);
+        int y_frames = div_ceil(y_d, MAX_VY);
+        int frames = SDL_max(x_frames, y_frames);
+
+        // How far can we move during that time?
+        IntInterval x_dist = VX_INT_RANGE * frames;
+        IntInterval y_dist = VY_INT_RANGE * frames;
+
+        // Update player position
+        room_pos = c.room;
+        pos.x += x_dist;
+        pos.y += y_dist;
+
+        // The space of reachable positions one frame after passing the corner
+        Region postCornerRegion = Region(c_x, c_y + verticalCornerCutDist);
+
+        // Restrict player position to post-corner region
+        pos.intersect(postCornerRegion);
+
+        // Sanity checks
+        assert(!pos.is_bottom() && pos.is_bounded());
+
+        // Update total frame count
+        return frames;
+    }
+
+    static uint16_t calcSimpleHeuristicFinalCorner(RoomPosition& room_pos, Region& pos, const CheckedCorner& c) {
+        // This is the region of the corner that we have to reach
+        Region c_r = c.getRegionAfter();
+        // Account for map wrap-around, take nearest distance
+        // TODO: this doesn't necessarily make sense in extreme cases
+        if (c.room.rx - room_pos.rx > 10) {
+            room_pos.rx += 20;
+            pos.x += 20 * ROOM_W;
+        }
+        else if (room_pos.rx - c.room.rx > 10) {
+            room_pos.rx -= 20;
+            pos.x -= 20 * ROOM_W;
+        }
+        if (c.room.ry - room_pos.ry > 10) {
+            room_pos.ry += 20;
+            pos.y += 20 * ROOM_H;
+        }
+        else if (room_pos.ry - c.room.ry > 10) {
+            room_pos.ry -= 20;
+            pos.y -= 20 * ROOM_H;
+        }
+        // Factor in room offsets
+        IntInterval c_x = c_r.x + (ROOM_W * c.room.rx);
+        IntInterval c_y = c_r.y + (ROOM_H * c.room.ry);
+
+        // Minimum absolute distance per dimension
+        int x_d = (pos.x - c_x).abs().min;
+        int y_d = (pos.y - c_y).abs().min;
+
+        // How long will it take to get past the corner?
+        int x_frames = div_ceil(x_d, MAX_VX);
+        int y_frames = div_ceil(y_d, MAX_VY);
+        int frames = SDL_max(x_frames, y_frames);
+
+        return frames;
     }
 
     static uint16_t calcAccelHeuristic1(const SolverConfig& solver, const CheckedScenario& scenario, int next_corner, const PlayerState& player, const GameState& game) {
@@ -684,7 +735,15 @@ namespace SolverClean {
         std::vector<CheckedCorner> checked_corners;
         checked_corners.reserve(raw_scenario.corners.size());
 
+        // Initialize first and last rooms (to bound connected rooms in-between)
+        RoomPosition first_room = RoomPosition::FromNativeRoomCoords(raw_scenario.init_rx, raw_scenario.init_ry);
+        const RawCorner& last_c = raw_scenario.corners.back();
+        RoomPosition last_room = RoomPosition::FromNativeRoomCoords(last_c.rx, last_c.ry);
+        Terrain::InitializeBasicRoomData(first_room);
+        Terrain::InitializeBasicRoomData(last_room);
+
         // TODO: we could also check for ill-formed corner sequences here
+        // Although that gets tricky in the presence of warps
 
         RoomPosition current_room = RoomPosition(-1, -1);
         for (int c_idx = 0; c_idx < raw_scenario.corners.size(); c_idx++) {
@@ -694,8 +753,8 @@ namespace SolverClean {
             RoomPosition c_room = RoomPosition::FromNativeRoomCoords(c.rx, c.ry);;
             if (c_room != current_room) {
                 current_room = c_room;
-                // Load the next room
-                Terrain::LoadRoom(current_room);
+                // Load the next room, initialize data
+                Terrain::InitializeConnectedRoomsBasic(current_room);
             }
 
             // Does the room warp?
@@ -943,7 +1002,7 @@ namespace SolverClean {
         key.clearKeys();
     }
 
-    static CachedSolverState cacheCurrentStateWithDeltaFromPrev(SolverConfig& solver, const CheckedScenario& scenario, const CachedSolverState& prev) {
+    static CachedSolverState cacheCurrentStateWithDeltaFromPrev(SolverConfig& solver, const CheckedScenario& scenario, const CachedSolverState& prev, uint64_t prevHash) {
         CachedSolverState state = cacheCurrentState(solver);
         // The global coordinates of the player
         const GlobalPosition pos = state.getGlobalPos();
@@ -1007,8 +1066,7 @@ namespace SolverClean {
         state.inputs = inputs;
 
         // Store hash of previous state for reconstruction
-        // TODO: don't recalculate it
-        state.prevHash = prev.hash();
+        state.prevHash = prevHash == 0 ? prev.hash() : prevHash;
 
         // Finally, recalculate the heuristic for this new 
         // Calling this already sets `state.heuristic`

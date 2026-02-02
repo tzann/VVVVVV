@@ -1411,7 +1411,7 @@ namespace Terrain {
 			RoomPosition room = queue.back();
 			queue.pop_back();
 
-			if (GetRoomData(room).initialized) {
+			if (GetRoomData(room).initialized && room != startingRoom) {
 				// Already initialized, skip
 				continue;
 			}
@@ -1444,7 +1444,39 @@ namespace Terrain {
 		LoadRoom(startingRoom);
 	}
 
-	void InitializeRoomData(RoomPosition room_pos) {
+	void InitializeConnectedRoomsBasic(RoomPosition startingRoom) {
+		std::vector<RoomPosition> queue;
+		queue.push_back(startingRoom);
+
+		while (queue.size() > 0) {
+			RoomPosition room = queue.back();
+			queue.pop_back();
+
+			if (GetRoomData(room).initialized && room != startingRoom) {
+				// Already initialized, skip
+				continue;
+			}
+
+			InitializeBasicRoomData(room);
+			RoomData& roomData = GetRoomData(room);
+			if (roomData.up) {
+				queue.push_back(room.NextRoomUp());
+			}
+			if (roomData.down) {
+				queue.push_back(room.NextRoomDown());
+			}
+			if (roomData.left) {
+				queue.push_back(room.NextRoomLeft());
+			}
+			if (roomData.right) {
+				queue.push_back(room.NextRoomRight());
+			}
+		}
+		// Reload the starting room before returning for convenience
+		LoadRoom(startingRoom);
+	}
+
+	void InitializeBasicRoomData(RoomPosition room_pos) {
 		// Can't handle towers (yet)
 		if (room_pos.IsTower()) {
 			VVV_exit(-1);
@@ -1489,8 +1521,29 @@ namespace Terrain {
 				result.right = true;
 			}
 		}
+	}
 
-		// Now, let's find the walls and corners
+	void InitializeRoomData(RoomPosition room_pos) {
+		// Can't handle towers (yet)
+		if (room_pos.IsTower()) {
+			VVV_exit(-1);
+			return;
+		}
+
+		RoomData& result = GetRoomData(room_pos);
+		if (result.initialized) {
+			// Room has already been initialized
+			return;
+		}
+		InitializeBasicRoomData(room_pos);
+		result.initialized = true;
+
+		// Let's find the walls and corners
+		IntVector min = IntVector(result.GetMinXPos() - 1, result.GetMinYPos() - 1);
+		IntVector max = IntVector(result.GetMaxXPos() + 1, result.GetMaxYPos() + 1);
+
+		uint8_t* collision_bitmap = GetCurrentRoomPlayerCollisionBitmap(min, max);
+		int bitmap_width = max.x - min.x + 1;
 		
 		// First, vertical walls
 		for (int x = min.x + 1; x <= max.x; x++) {

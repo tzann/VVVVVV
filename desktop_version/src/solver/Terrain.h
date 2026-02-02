@@ -936,6 +936,8 @@ namespace Terrain {
 	void RemoveElement(std::vector<int>& v, int index);
 	void LoadRoom(RoomPosition room_pos);
 	void InitializeConnectedRooms(RoomPosition startingRoom);
+	void InitializeConnectedRoomsBasic(RoomPosition startingRoom);
+	void InitializeBasicRoomData(RoomPosition room_pos);
 	void InitializeRoomData(RoomPosition room_pos);
 	void CrossRoomInitialization(RoomPosition room_pos);
 	bool CanConnectRooms(RoomPosition r1, RoomPosition r2);
