@@ -190,6 +190,7 @@ namespace SolverClean {
                 if (new_state.heuristic < state.heuristic) {
                     render(solver);
                     cacheCurrentStateWithDeltaFromPrev(solver, scenario, state, state_hash);
+                    updateHeuristic(solver, scenario, state);
                     updateHeuristic(solver, scenario, new_state);
                     Exceptions::inadmissible_heuristic();
                 }
