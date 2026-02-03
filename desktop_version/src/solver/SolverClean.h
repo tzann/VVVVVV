@@ -766,6 +766,7 @@ namespace SolverClean {
     static uint16_t calcHeuristic(const SolverConfig& solver, const CheckedScenario& scenario, int next_corner, const PlayerState& player, const GameState& game);
     static uint16_t calcSimpleHeuristic(const SolverConfig& solver, const CheckedScenario& scenario, int next_corner, const PlayerState& player, const GameState& game);
     static uint16_t calcSimpleHeuristicCorner(RoomPosition& room_pos, Region& pos, const CheckedCorner& c);
+    static uint16_t calcSimpleHeuristicWarpCorner(RoomPosition& room_pos, Region& pos, const CheckedCorner& c);
     static uint16_t calcSimpleHeuristicFinalCorner(RoomPosition& room_pos, Region& pos, const CheckedCorner& c);
     static uint16_t calcAccelHeuristic1(const SolverConfig& solver, const CheckedScenario& scenario, int next_corner, const PlayerState& player, const GameState& game);
 
@@ -773,7 +774,7 @@ namespace SolverClean {
     static CachedSolverState cacheCurrentState(SolverConfig& solver);
     static CacheEntry createCacheEntry(SolverConfig& solver);
 
-    static CachedSolverState cacheCurrentStateWithDeltaFromPrev(SolverConfig& solver, const CheckedScenario& scenario, const CachedSolverState& prev);
+    static CachedSolverState cacheCurrentStateWithDeltaFromPrev(SolverConfig& solver, const CheckedScenario& scenario, const CachedSolverState& prev, uint64_t prevHash);
 
     static void loadState(const SolverConfig& solver, const CachedSolverState& state);
     static void loadCacheEntry(const SolverConfig& solver, const CacheEntry& entry);

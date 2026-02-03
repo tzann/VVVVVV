@@ -352,13 +352,92 @@ namespace Scenarios {
     namespace WZ {
         namespace CORNERS {
             namespace THIS_IS_HOW_IT_IS {
-                const RawCorner FLIP_UP(114, 101, 122, 46, UP_RIGHT);
-                const RawCorner GO_RIGHT(114, 101, 174, 161, RIGHT_UP);
+                const int rx = 114;
+                const int ry = 101;
+                const RawCorner FLIP_UP(rx, ry, 122, 46, UP_RIGHT);
+                const RawCorner GO_RIGHT(rx, ry, 174, 161, RIGHT_UP);
                 // const corner SCREEN_EDGE(114, 101, 308, ??, X_ONLY);
             }
 
             namespace BISECTED_SPIRAL {
-                const RawCorner FLIP_UP(115, 101, 222, 158, UP_LEFT);
+                const int rx = 115;
+                const int ry = 101;
+                const RawCorner FLIP_UP(rx, ry, 222, 158, UP_LEFT);
+                const RawCorner FALL_UP(rx, ry, 166, 134, UP_LEFT);
+                const RawCorner GO_RIGHT(rx, ry, 166, 33, RIGHT_UP);
+                const RawCorner FALL_DOWN(rx, ry, 90, 33, DOWN_RIGHT);
+                const RawCorner EXIT_LEFT(rx, ry, 90, 182, LEFT_DOWN);
+                const RawCorner EXIT_DOWN(rx, ry, 62, 193, DOWN_LEFT);
+            }
+
+            namespace RED_PILL {
+                const int rx = 115;
+                const int ry = 102;
+                const RawCorner GO_RIGHT(rx, ry, 78, 174, RIGHT_DOWN);
+                const RawCorner DROP_DOWN(rx, ry, 138, 185, DOWN_RIGHT);
+                const RawCorner GO_RIGHT_2(rx, ry, 174, 118, RIGHT_DOWN);
+                const RawCorner DROP_DOWN_2(rx, ry, 218, 129, DOWN_RIGHT);
+                const RawCorner EXIT_RIGHT(rx, ry, 270, 62, RIGHT_DOWN);
+            }
+
+            namespace SHORT_CIRCUIT {
+                const int rx = 116;
+                const int ry = 102;
+
+                const RawCorner ENTRY_DROP(rx, ry, 174, 73, DOWN_LEFT);
+                const RawCorner CUT_LEFT(rx, ry, 154, 174, LEFT_DOWN);
+                const RawCorner FLIP_UP(rx, ry, 118, 174, UP_LEFT);
+                const RawCorner CUT_LEFT_2(rx, ry, 98, 25, LEFT_UP);
+                const RawCorner EXIT(rx, ry, 62, 14, UP_LEFT);
+            }
+
+            namespace AS_YOU_LIKE_IT {
+                const int rx = 116;
+                const int ry = 101;
+
+                const RawCorner ENTRY_SPIKE(rx, ry, 78, 129, RIGHT_UP);
+                const RawCorner EXIT(rx, ry, 270, 113, RIGHT_UP);
+            }
+
+            namespace MAZE_WITH_NO_ENTRANCE {
+                const int rx = 117;
+                const int ry = 101;
+
+                const RawCorner ENTRY_DROP(rx, ry, 246, 113, DOWN_LEFT);
+                const RawCorner B(rx, ry, 234, 198, LEFT_DOWN);
+                const RawCorner C(rx, ry, 142, 198, UP_LEFT);
+                const RawCorner D(rx, ry, 130,  97, LEFT_UP);
+                const RawCorner E(rx, ry, 102,  97, DOWN_LEFT);
+                const RawCorner F(rx, ry,  90, 198, LEFT_DOWN);
+
+                const RawCorner G(rx, ry, 286, 198, UP_LEFT);
+                const RawCorner H(rx, ry, 286, 161, RIGHT_UP);
+                const RawCorner I(rx, ry,  50, 158, UP_RIGHT);
+                const RawCorner J(rx, ry,  50,  49, LEFT_UP);
+                const RawCorner K(rx, ry, 206,  49, DOWN_LEFT);
+                const RawCorner L(rx, ry, 202, 158, LEFT_DOWN);
+
+                const RawCorner M(rx, ry, 174, 158, UP_LEFT);
+                const RawCorner N(rx, ry, 170,  49, LEFT_UP);
+                const RawCorner O(rx, ry, 102,  46, UP_LEFT);
+                const RawCorner P(rx, ry, 102,   9, RIGHT_UP);
+                const RawCorner EXIT(rx, ry, 50, 6, UP_RIGHT);
+            }
+
+            namespace AS_WE_GO_UP_WE_GO_DOWN {
+                const int rx = 117;
+                const int ry = 100;
+
+                const RawCorner ENTRY(rx, ry, 62, 193, RIGHT_UP);
+                const RawCorner PILLAR(rx, ry, 174, 190, RIGHT_DOWN);
+                const RawCorner EXIT(rx, ry, 286, 193, RIGHT_UP);
+            }
+
+            namespace OBEY {
+                const int rx = 118;
+                const int ry = 100;
+
+                const RawCorner CHUTE_DROP(rx, ry, 42, 150, UP_RIGHT);
             }
 
             // TODO more corners
@@ -373,6 +452,76 @@ namespace Scenarios {
             }
         }
         namespace SCENARIOS {
+            const RawScenario IL_START(114, 101, 60, 60, 0, 10, {
+                    CORNERS::THIS_IS_HOW_IT_IS::FLIP_UP,
+                    CORNERS::THIS_IS_HOW_IT_IS::GO_RIGHT,
+                    CORNERS::BISECTED_SPIRAL::FLIP_UP,
+                    CORNERS::BISECTED_SPIRAL::FALL_UP,
+                    CORNERS::BISECTED_SPIRAL::GO_RIGHT,
+                    CORNERS::BISECTED_SPIRAL::FALL_DOWN,
+                    CORNERS::BISECTED_SPIRAL::EXIT_LEFT,
+                    CORNERS::BISECTED_SPIRAL::EXIT_DOWN,
+                    CORNERS::RED_PILL::GO_RIGHT,
+                    CORNERS::RED_PILL::DROP_DOWN,
+                    CORNERS::RED_PILL::GO_RIGHT_2,
+                    CORNERS::RED_PILL::DROP_DOWN_2,
+                    CORNERS::RED_PILL::EXIT_RIGHT,
+                });
+            const RawScenario RED_PILL(115, 101, 60, 33, 0, 0, {
+                    CORNERS::BISECTED_SPIRAL::FALL_DOWN,
+                    CORNERS::BISECTED_SPIRAL::EXIT_LEFT,
+                    CORNERS::BISECTED_SPIRAL::EXIT_DOWN,
+                    CORNERS::RED_PILL::GO_RIGHT,
+                    CORNERS::RED_PILL::DROP_DOWN,
+                    CORNERS::RED_PILL::GO_RIGHT_2,
+                    CORNERS::RED_PILL::DROP_DOWN_2,
+                    CORNERS::RED_PILL::EXIT_RIGHT,
+                });
+            const RawScenario SHORT_CIRCUIT(115, 102, 270, 62, 0, 0, {
+                    CORNERS::RED_PILL::EXIT_RIGHT,
+                    CORNERS::SHORT_CIRCUIT::ENTRY_DROP,
+                    CORNERS::SHORT_CIRCUIT::CUT_LEFT,
+                    CORNERS::SHORT_CIRCUIT::FLIP_UP,
+                    CORNERS::SHORT_CIRCUIT::CUT_LEFT_2,
+                    CORNERS::SHORT_CIRCUIT::EXIT,
+                });
+            const RawScenario SHORT_CIRCUIT_TO_MAZE(116, 102, 98, 45, 0, 85, {
+                    CORNERS::SHORT_CIRCUIT::CUT_LEFT_2,
+                    CORNERS::SHORT_CIRCUIT::EXIT,
+                    CORNERS::AS_YOU_LIKE_IT::ENTRY_SPIKE,
+                    CORNERS::AS_YOU_LIKE_IT::EXIT,
+                    CORNERS::MAZE_WITH_NO_ENTRANCE::ENTRY_DROP,
+                });
+            const RawScenario MAZE_WITH_NO_ENTRANCE(116, 101, 261, 173, 1, 0, {
+                    CORNERS::AS_YOU_LIKE_IT::EXIT,
+                    CORNERS::MAZE_WITH_NO_ENTRANCE::ENTRY_DROP,
+                    CORNERS::MAZE_WITH_NO_ENTRANCE::B,
+                    CORNERS::MAZE_WITH_NO_ENTRANCE::C,
+                    CORNERS::MAZE_WITH_NO_ENTRANCE::D,
+                    CORNERS::MAZE_WITH_NO_ENTRANCE::E,
+                    CORNERS::MAZE_WITH_NO_ENTRANCE::F,
+                    CORNERS::MAZE_WITH_NO_ENTRANCE::G,
+                    CORNERS::MAZE_WITH_NO_ENTRANCE::H,
+                    CORNERS::MAZE_WITH_NO_ENTRANCE::I,
+                    CORNERS::MAZE_WITH_NO_ENTRANCE::J,
+                    CORNERS::MAZE_WITH_NO_ENTRANCE::K,
+                    CORNERS::MAZE_WITH_NO_ENTRANCE::L,
+                    CORNERS::MAZE_WITH_NO_ENTRANCE::M,
+                    CORNERS::MAZE_WITH_NO_ENTRANCE::N,
+                    CORNERS::MAZE_WITH_NO_ENTRANCE::O,
+                    CORNERS::MAZE_WITH_NO_ENTRANCE::P,
+                    CORNERS::MAZE_WITH_NO_ENTRANCE::EXIT,
+                });
+            const RawScenario MAZE_EXIT_TO_OBEY(117, 101, 50, 6, 1, 2, {
+                    CORNERS::MAZE_WITH_NO_ENTRANCE::EXIT,
+                    CORNERS::AS_WE_GO_UP_WE_GO_DOWN::ENTRY,
+                    CORNERS::AS_WE_GO_UP_WE_GO_DOWN::PILLAR,
+                    CORNERS::AS_WE_GO_UP_WE_GO_DOWN::EXIT,
+                    CORNERS::OBEY::CHUTE_DROP,
+                });
+
+
+
             const RawScenario TWIHTKY_STUPID_GLITCHLESS(116, 100, 40, 102, 1, 97, {
                 CORNERS::I_LOVE_YOU::WARP_TOKEN,
                 CORNERS::THATS_WHY_I_HAVE_TO_KILL_YOU::WARP_TOKEN,

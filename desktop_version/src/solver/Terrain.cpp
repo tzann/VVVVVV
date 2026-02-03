@@ -1452,7 +1452,7 @@ namespace Terrain {
 			RoomPosition room = queue.back();
 			queue.pop_back();
 
-			if (GetRoomData(room).initialized && room != startingRoom) {
+			if (GetRoomData(room).initialized) {
 				// Already initialized, skip
 				continue;
 			}

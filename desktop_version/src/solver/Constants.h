@@ -7,6 +7,7 @@
 
 #define ROOM_W (320)
 #define ROOM_H (240)
+#define WARP_ROOM_H (232)
 
 #define VIRIDIAN_CX (6)
 #define VIRIDIAN_CY (2)

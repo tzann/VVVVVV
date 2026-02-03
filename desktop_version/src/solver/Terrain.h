@@ -609,7 +609,7 @@ namespace Terrain {
 			corners.clear(); walls.clear(); nodes.clear(); lines.clear();
 		}
 
-		int GetMinXPos() {
+		int GetMinXPos() const {
 			if (warpx) {
 				return -9;
 			}
@@ -617,7 +617,7 @@ namespace Terrain {
 				return -14;
 			}
 		}
-		int GetMaxXPos() {
+		int GetMaxXPos() const {
 			if (warpx) {
 				return 310;
 			}
@@ -625,7 +625,7 @@ namespace Terrain {
 				return 307;
 			}
 		}
-		int GetMinYPos() {
+		int GetMinYPos() const {
 			if (warpy) {
 				return -11;
 			}
@@ -633,7 +633,7 @@ namespace Terrain {
 				return -2;
 			}
 		}
-		int GetMaxYPos() {
+		int GetMaxYPos() const {
 			if (warpy) {
 				return 226;
 			}

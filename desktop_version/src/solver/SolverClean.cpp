@@ -49,13 +49,13 @@ namespace SolverClean {
     std::hash<float> hash_float;
 
     void runSolver(void) {
-        RawScenario rs = LAB::SCENARIOS::IL_START_TO_STANDING_WAVE;
+        RawScenario rs = WZ::SCENARIOS::MAZE_EXIT_TO_OBEY;
         SolverConfig solver;
         solver.clean_inputs = true;
         solver.debug_checks = false;
         solver.render_delay = 340;
         solver.max_solutions = 1;
-        solver.mode = SolverMode::ACCEL_BASED_1;
+        solver.mode = SolverMode::SIMPLE;
 
         CheckedScenario scenario = checkScenario(rs);
 
@@ -84,6 +84,7 @@ namespace SolverClean {
         solver.debug_info.clear();
         solver.solution_info.clear();
         render(solver);
+        SDL_Delay(340);
 
         int solution_measure = INT_MAX;
 
@@ -117,7 +118,7 @@ namespace SolverClean {
                 
                 // Occasionally render debug info
                 uint64_t millis_since_last_render = std::chrono::duration_cast<std::chrono::milliseconds>(now_time - last_render_time).count();
-                uint64_t rng = std::rand() % solver.render_delay;
+                uint64_t rng = solver.render_delay <= 0 ? 0 : std::rand() % solver.render_delay;
                 if (millis_since_last_render >= solver.render_delay / 2 + rng) {
                     should_render = true;
                     last_render_time = now_time;
@@ -178,7 +179,6 @@ namespace SolverClean {
                     render(solver);
                     should_render = false;
                 }
-
                 // Cache the new state that we've reached (this already updates all counter variables and the heuristic)
                 CachedSolverState new_state = cacheCurrentStateWithDeltaFromPrev(solver, scenario, state, state_hash);
                 if (solver.debug_checks) {
@@ -263,7 +263,7 @@ namespace SolverClean {
                 SDL_Delay(10 * REGULAR_FRAME_DELAY);
 
                 for (int f = 0; f < inputs.size(); f++) {
-                    const uint8_t& i = inputs[f];
+                    const uint8_t& i = f < inputs.size() ? inputs[f] : inputs.back();
                     bool left = i & 1;
                     bool right = i & 2;
                     bool flip = i & 4;
@@ -324,7 +324,13 @@ namespace SolverClean {
 
         // Advance to the next corner that we are strictly before
         int c_start_idx = next_corner;
+        // TODO: handle warp cases more rigorously here
         while (c_start_idx < scenario.corners.size() && scenario.corners[c_start_idx].isPosNotStrictlyBefore(pos)) {
+            const RoomData& pr = GetRoomData(game.getRoomPos());
+            const RoomData& cr = GetRoomData(scenario.corners[c_start_idx].room);
+            if (pr.warpx || pr.warpy || cr.warpx || cr.warpy) {
+                break;
+            }
             c_start_idx++;
         }
 
@@ -351,7 +357,7 @@ namespace SolverClean {
 
         for (int c_idx = next_corner; c_idx < scenario.corners.size(); c_idx++) {
             const CheckedCorner& c = scenario.corners[c_idx];
-            int frames = calcSimpleHeuristicCorner(room_pos, pos, c);
+            int frames = calcSimpleHeuristicWarpCorner(room_pos, pos, c);
             total_frames += frames;
 
             // Sanity checks
@@ -400,25 +406,135 @@ namespace SolverClean {
         const RoomData& r1 = Terrain::GetRoomData(room_pos);
         const RoomData& r2 = Terrain::GetRoomData(c.room);
 
+        // Factor in vertical corner cuts
+        bool verticalCutUp = c.dir == UP_LEFT || c.dir == UP_RIGHT;
+        bool verticalCutDown = c.dir == DOWN_LEFT || c.dir == DOWN_RIGHT;
+        IntInterval verticalCornerCutDist = IntInterval(verticalCutUp ? -MAX_VY : 0, verticalCutDown ? MAX_VY : 0);
+
+        // How long will it take to get past the corner?
+        int x_frames = div_ceil(std::abs(x_d), MAX_VX);
+        int y_frames = div_ceil(std::abs(y_d), MAX_VY);
+        int frames = SDL_max(x_frames, y_frames);
+
+        // How far can we move during that time?
+        IntInterval x_dist = VX_INT_RANGE * frames;
+        IntInterval y_dist = VY_INT_RANGE * frames;
+
+        // Update player position
+        room_pos = c.room;
+        pos.x += x_dist;
+        pos.y += y_dist;
+
+        // The space of reachable positions one frame after passing the corner
+        Region postCornerRegion = Region(c_x, c_y + verticalCornerCutDist);
+
+        // Restrict player position to post-corner region
+        pos.intersect(postCornerRegion);
+
+        // Sanity checks
+        assert(!pos.is_bottom() && pos.is_bounded());
+
+        // Update total frame count
+        return frames;
+    }
+
+    static uint16_t calcSimpleHeuristicWarpCorner(RoomPosition& room_pos, Region& pos, const CheckedCorner& c) {
+        // This is the region of the corner that we must pass through to proceed
+        const Region& c_r = c.region;
+        // Account for map wrap-around, take nearest distance
+        // TODO: this doesn't necessarily make sense in extreme cases
+        if (c.room.rx - room_pos.rx > 10) {
+            room_pos.rx += 20;
+            pos.x += 20 * ROOM_W;
+        }
+        else if (room_pos.rx - c.room.rx > 10) {
+            room_pos.rx -= 20;
+            pos.x -= 20 * ROOM_W;
+        }
+        if (c.room.ry - room_pos.ry > 10) {
+            room_pos.ry += 20;
+            pos.y += 20 * ROOM_H;
+        }
+        else if (room_pos.ry - c.room.ry > 10) {
+            room_pos.ry -= 20;
+            pos.y -= 20 * ROOM_H;
+        }
+        // Factor in room offsets
+        IntInterval c_x = c_r.x + (ROOM_W * c.room.rx);
+        IntInterval c_y = c_r.y + (ROOM_H * c.room.ry);
+
+        // Minimum absolute distance per dimension
+        int x_d = IntInterval::min_diff_signed(pos.x, c_x);
+        int x_d2 = 0;
+        int y_d = IntInterval::min_diff_signed(pos.y, c_y);
+        int y_d2 = 0;
+
+        if (x_d == 0 && y_d == 0) {
+            // Factor in vertical corner cuts
+            bool verticalCutUp = c.dir == UP_LEFT || c.dir == UP_RIGHT;
+            bool verticalCutDown = c.dir == DOWN_LEFT || c.dir == DOWN_RIGHT;
+            IntInterval verticalCornerCutDist = IntInterval(verticalCutUp ? -MAX_VY : 0, verticalCutDown ? MAX_VY : 0);
+
+            room_pos = c.room;
+            // The space of reachable positions one frame after passing the corner
+            Region postCornerRegion = Region(c_x, c_y + verticalCornerCutDist);
+
+            // Restrict player position to post-corner region
+            pos.intersect(postCornerRegion);
+
+            // Sanity checks
+            assert(!pos.is_bottom() && pos.is_bounded());
+
+            // Update total frame count
+            return 0;
+        }
+
+        const RoomData& r1 = Terrain::GetRoomData(room_pos);
+        const RoomData& r2 = Terrain::GetRoomData(c.room);
+
+        bool notFromUp = c.dir == UP_LEFT || c.dir == UP_RIGHT || c.dir == LEFT_UP || c.dir == RIGHT_UP;
+        bool notFromDown = c.dir == DOWN_LEFT || c.dir == DOWN_RIGHT || c.dir == LEFT_DOWN || c.dir == RIGHT_DOWN;
+        bool notFromLeft = c.dir == LEFT_UP || c.dir == LEFT_DOWN || c.dir == UP_LEFT || c.dir == DOWN_LEFT;
+        bool notFromRight = c.dir == RIGHT_UP || c.dir == RIGHT_DOWN || c.dir == UP_RIGHT || c.dir == DOWN_RIGHT;
+        bool is_vertical_cut = c.dir == UP_LEFT || c.dir == UP_RIGHT || c.dir == DOWN_LEFT || c.dir == DOWN_RIGHT;
+        bool is_horizontal_cut = c.dir == LEFT_UP || c.dir == LEFT_DOWN || c.dir == RIGHT_UP || c.dir == RIGHT_DOWN;
+        
         // Factor in room warping
         if (r1.warpx || r1.warpy || r2.warpx || r2.warpy) {
             if (room_pos == c.room) {
                 // Same room is special case, since we have to deal with X and Y warping simultaneously, but no screen edge turnarounds
                 if (r1.warpx) {
-                    for (int offset = -ROOM_W; offset <= ROOM_W; offset += 2 * ROOM_W) {
-                        IntInterval c_x_off = c_x + offset;
-                        int x_d_off = IntInterval::min_diff_signed(pos.x, c_x);
-                        if (std::abs(x_d_off) < std::abs(x_d)) {
+                    if (!notFromLeft && x_d > 0) {
+                        IntInterval c_x_off = c_x + ROOM_W;
+                        int x_d_off = IntInterval::min_diff_signed(pos.x, c_x_off);
+                        if ((is_vertical_cut && notFromRight) || std::abs(x_d_off) < std::abs(x_d)) {
                             x_d = x_d_off;
+                            pos.x -= ROOM_W;
+                        }
+                    } else if (!notFromRight && x_d < 0) {
+                        IntInterval c_x_off = c_x - ROOM_W;
+                        int x_d_off = IntInterval::min_diff_signed(pos.x, c_x_off);
+                        if ((is_vertical_cut && notFromLeft) || std::abs(x_d_off) < std::abs(x_d)) {
+                            x_d = x_d_off;
+                            pos.x += ROOM_W;
                         }
                     }
                 }
                 if (r1.warpy) {
-                    for (int offset = -ROOM_H; offset <= ROOM_H; offset += 2 * ROOM_H) {
-                        IntInterval c_y_off = c_y + offset;
-                        int y_d_off = IntInterval::min_diff_signed(pos.x, c_x);
-                        if (std::abs(x_d_off) < std::abs(x_d)) {
-                            x_d = x_d_off;
+                    if (!notFromUp && y_d > 0) {
+                        IntInterval c_y_off = c_y + WARP_ROOM_H;
+                        int y_d_off = IntInterval::min_diff_signed(pos.y, c_y_off);
+                        if ((is_horizontal_cut && notFromDown) || std::abs(y_d_off) < std::abs(y_d)) {
+                            y_d = y_d_off;
+                            pos.y -= WARP_ROOM_H;
+                        }
+                    }
+                    else if (!notFromDown && y_d < 0) {
+                        IntInterval c_y_off = c_y - WARP_ROOM_H;
+                        int y_d_off = IntInterval::min_diff_signed(pos.y, c_y_off);
+                        if ((is_horizontal_cut && notFromUp) || std::abs(y_d_off) < std::abs(y_d)) {
+                            y_d = y_d_off;
+                            pos.y += WARP_ROOM_H;
                         }
                     }
                 }
@@ -426,10 +542,106 @@ namespace SolverClean {
             else if (room_pos.ry == c.room.ry) {
                 // Can't handle more than 1 room offset for now - otherwise we have to deal with intermediate warping rooms...
                 assert(std::abs(room_pos.rx - c.room.rx) <= 1);
+                assert(room_pos.rx != c.room.rx);
+                assert(!r1.warpx);
+                if (!r1.warpx && r2.warpx) {
+                    // Screen edge turnaround
+                    if (room_pos.rx > c.room.rx && !notFromLeft) {
+                        int screen_transition_x = ROOM_W * room_pos.rx + r1.GetMinXPos() - 1;
+                        int turnaround_x = screen_transition_x - ROOM_W;
+                        int x_d_1 = IntInterval::min_diff_signed(pos.x, screen_transition_x);
+                        int x_d_2 = IntInterval::min_diff_signed(turnaround_x, c_x);
+                        if ((is_vertical_cut && notFromRight) || std::abs(x_d_1) + std::abs(x_d_2) < std::abs(x_d)) {
+                            x_d = x_d_1;
+                            x_d2 = x_d_2;
+                        }
+                    }
+                    else if (room_pos.rx < c.room.rx && !notFromRight) {
+                        int screen_transition_x = ROOM_W * room_pos.rx + r1.GetMaxXPos() + 1;
+                        int turnaround_x = screen_transition_x + ROOM_W;
+                        int x_d_1 = IntInterval::min_diff_signed(pos.x, screen_transition_x);
+                        int x_d_2 = IntInterval::min_diff_signed(turnaround_x, c_x);
+                        if ((is_vertical_cut && notFromLeft) || std::abs(x_d_1) + std::abs(x_d_2) < std::abs(x_d)) {
+                            x_d = x_d_1;
+                            x_d2 = x_d_2;
+                        }
+                    }
+                    else {
+                        // Handle normally?
+                        // Exceptions::unreachable();
+                    }
+                }
+                // Handle y warps normally
+                if (r1.warpy || r2.warpy) {
+                    if (!notFromUp && y_d > 0) {
+                        IntInterval c_y_off = c_y + WARP_ROOM_H;
+                        int y_d_off = IntInterval::min_diff_signed(pos.y, c_y_off);
+                        if ((is_horizontal_cut && notFromDown) || std::abs(y_d_off) < std::abs(y_d)) {
+                            y_d = y_d_off;
+                            pos.y -= WARP_ROOM_H;
+                        }
+                    }
+                    else if (!notFromDown && y_d < 0) {
+                        IntInterval c_y_off = c_y - WARP_ROOM_H;
+                        int y_d_off = IntInterval::min_diff_signed(pos.y, c_y_off);
+                        if ((is_horizontal_cut && notFromUp) || std::abs(y_d_off) < std::abs(y_d)) {
+                            y_d = y_d_off;
+                            pos.y += WARP_ROOM_H;
+                        }
+                    }
+                }
             }
             else if (room_pos.rx == c.room.rx) {
                 // Can't handle more than 1 room offset for now - otherwise we have to deal with intermediate warping rooms...
                 assert(std::abs(room_pos.ry - c.room.ry) <= 1);
+                assert(room_pos.ry != c.room.ry);
+                assert(!r1.warpy);
+                if (!r1.warpy && r2.warpy) {
+                    // Screen edge turnaround
+                    if (room_pos.ry > c.room.ry && !notFromUp) {
+                        int screen_transition_y = ROOM_H * room_pos.ry + r1.GetMinYPos() - 1;
+                        int turnaround_y = screen_transition_y - WARP_ROOM_H;
+                        int y_d_1 = IntInterval::min_diff_signed(pos.y, screen_transition_y);
+                        int y_d_2 = IntInterval::min_diff_signed(turnaround_y, c_y);
+                        if ((is_horizontal_cut && notFromDown) || std::abs(y_d_1) + std::abs(y_d_2) < std::abs(y_d)) {
+                            y_d = y_d_1;
+                            y_d2 = y_d_2;
+                        }
+                    }
+                    else if (room_pos.ry < c.room.ry && !notFromDown) {
+                        int screen_transition_y = ROOM_H * room_pos.ry + r1.GetMaxYPos() + 1;
+                        int turnaround_y = screen_transition_y + WARP_ROOM_H;
+                        int y_d_1 = IntInterval::min_diff_signed(pos.y, screen_transition_y);
+                        int y_d_2 = IntInterval::min_diff_signed(turnaround_y, c_y);
+                        if ((is_horizontal_cut && notFromUp) || std::abs(y_d_1) + std::abs(y_d_2) < std::abs(y_d)) {
+                            y_d = y_d_1;
+                            y_d2 = y_d_2;
+                        }
+                    }
+                    else {
+                        // Handle normally?
+                        // Exceptions::unreachable();
+                    }
+                }
+                // Handle x warps normally
+                if (r1.warpx) {
+                    if (!notFromLeft && x_d > 0) {
+                        IntInterval c_x_off = c_x + ROOM_W;
+                        int x_d_off = IntInterval::min_diff_signed(pos.x, c_x_off);
+                        if ((is_vertical_cut && notFromRight) || std::abs(x_d_off) < std::abs(x_d)) {
+                            x_d = x_d_off;
+                            pos.x -= ROOM_W;
+                        }
+                    }
+                    else if (!notFromRight && x_d < 0) {
+                        IntInterval c_x_off = c_x - ROOM_W;
+                        int x_d_off = IntInterval::min_diff_signed(pos.x, c_x_off);
+                        if ((is_vertical_cut && notFromLeft) || std::abs(x_d_off) < std::abs(x_d)) {
+                            x_d = x_d_off;
+                            pos.x += ROOM_W;
+                        }
+                    }
+                }
             }
             else {
                 Exceptions::todo();
@@ -442,19 +654,68 @@ namespace SolverClean {
         IntInterval verticalCornerCutDist = IntInterval(verticalCutUp ? -MAX_VY : 0, verticalCutDown ? MAX_VY : 0);
 
         // How long will it take to get past the corner?
-        int x_frames = div_ceil(x_d, MAX_VX);
-        int y_frames = div_ceil(y_d, MAX_VY);
-        int frames = SDL_max(x_frames, y_frames);
-
+        int x_frames = div_ceil(std::abs(x_d), MAX_VX);
+        int y_frames = div_ceil(std::abs(y_d), MAX_VY);
+        
         // How far can we move during that time?
-        IntInterval x_dist = VX_INT_RANGE * frames;
-        IntInterval y_dist = VY_INT_RANGE * frames;
+        IntInterval x_dist = VX_INT_RANGE * x_frames;
+        IntInterval y_dist = VY_INT_RANGE * y_frames;
+
+        // Update player position
+        pos.x += x_dist;
+        pos.y += y_dist;
+
+        if (x_d2 != 0) {
+            if (x_d2 < 0) {
+                // transition left, then go right
+                int screen_transition_x = ROOM_W * room_pos.rx + r1.GetMinXPos() - 1;
+                pos.x.addUpperBound(screen_transition_x);
+                pos.x -= ROOM_W;
+            }
+            else {
+                // transition right, then go left
+                int screen_transition_x = ROOM_W * room_pos.rx + r1.GetMaxXPos() + 1;
+                pos.x.addLowerBound(screen_transition_x);
+                pos.x += ROOM_W;
+            }
+
+            int x_frames2 = div_ceil(std::abs(x_d2), MAX_VX);
+            IntInterval x_dist2 = VX_INT_RANGE * x_frames2;
+            x_frames += x_frames2;
+            pos.x += x_dist2;
+        }
+        if (y_d2 != 0) {
+            if (y_d2 < 0) {
+                // transition up, then go down
+                int screen_transition_y = ROOM_H * room_pos.ry + r1.GetMaxYPos() + 1;
+                pos.y.addLowerBound(screen_transition_y);
+                pos.y -= WARP_ROOM_H;
+            }
+            else {
+                // transition down, then go up
+                int screen_transition_y = ROOM_H * room_pos.ry + r1.GetMinYPos() - 1;
+                pos.y.addUpperBound(screen_transition_y);
+                pos.y += WARP_ROOM_H;
+            }
+
+            int y_frames2 = div_ceil(std::abs(y_d2), MAX_VY);
+            IntInterval y_dist2 = VY_INT_RANGE * y_frames2;
+            y_frames += y_frames2;
+            pos.y += y_dist2;
+        }
+
+        int frames = SDL_max(x_frames, y_frames);
+        int x_frames_left = frames - x_frames;
+        int y_frames_left = frames - y_frames;
+
+        x_dist = VX_INT_RANGE * x_frames_left;
+        y_dist = VY_INT_RANGE * y_frames_left;
 
         // Update player position
         room_pos = c.room;
         pos.x += x_dist;
         pos.y += y_dist;
-
+         
         // The space of reachable positions one frame after passing the corner
         Region postCornerRegion = Region(c_x, c_y + verticalCornerCutDist);
 
@@ -754,7 +1015,8 @@ namespace SolverClean {
             if (c_room != current_room) {
                 current_room = c_room;
                 // Load the next room, initialize data
-                Terrain::InitializeConnectedRoomsBasic(current_room);
+                Terrain::LoadRoom(current_room);
+                Terrain::InitializeBasicRoomData(current_room);
             }
 
             // Does the room warp?
@@ -1042,7 +1304,9 @@ namespace SolverClean {
         // Update input counters
         uint8_t changed_inputs = prev.inputs ^ inputs;
         uint16_t num_changed_inputs = std::_Popcount(changed_inputs);
+        assert(0 <= num_changed_inputs && num_changed_inputs <= 3);
         uint16_t num_input_frames = std::_Popcount(inputs);
+        assert(0 <= num_input_frames && num_input_frames <= 3);
         state.input_change_count += num_changed_inputs;
         state.input_frame_count += num_input_frames;
 
@@ -1591,20 +1855,17 @@ namespace SolverClean {
             return a.num_l_plus_r > b.num_l_plus_r;
         }
 
-        // TODO: this is just a temporary experiment for input cleanliness, can be deleted
-        if (clean_inputs && (a.input_frame_count != b.input_frame_count || a.input_change_count != b.input_change_count)) {
-            // Prioritize input frame count, so doing nothing is better than constantly moving
-            return a.input_frame_count * 3 + a.input_change_count > b.input_frame_count * 3 + b.input_change_count;
+        if (clean_inputs && a.flip_count != b.flip_count) {
+            // Prioritize low L+R input count, we only want it to occur if absolutely necessary
+            return a.flip_count > b.flip_count;
         }
-
-        if (clean_inputs && (a.input_frame_count != b.input_frame_count)) {
-            // Prioritize input frame count, so doing nothing is better than constantly moving
-            return a.input_frame_count > b.input_frame_count;
-        }
-
         if (clean_inputs && (a.input_change_count != b.input_change_count)) {
             // Prioritize low changes in inputs, so the resulting solution is more human-viable
             return a.input_change_count > b.input_change_count;
+        }
+        if (clean_inputs && (a.input_frame_count != b.input_frame_count)) {
+            // Prioritize input frame count, so doing nothing is better than constantly moving
+            return a.input_frame_count > b.input_frame_count;
         }
 
         return true;
@@ -1652,29 +1913,39 @@ namespace SolverClean {
             else if (ry_delta < -10) {
                 ry_delta += 20;
             }
-            IntVector c_pos = this->getRegularPos();
-            int x_delta = ROOM_W * rx_delta + pos.pos.x - c_pos.x;
-            int y_delta = ROOM_H * ry_delta + pos.pos.y - c_pos.y;
+            int x_delta = ROOM_W * rx_delta + pos.pos.x;
+            int y_delta = ROOM_H * ry_delta + pos.pos.y;
+            IntVector delta(x_delta, y_delta);
+            Region region = this->region;
             switch (this->dir) {
             case UP_LEFT:
-                return x_delta <= 0 && y_delta < 0;
             case UP_RIGHT:
-                return x_delta >= 0 && y_delta < 0;
+                // Keep X range the same, modify Y range
+                region.y = region.y.getIntervalBelow();
+                break;
             case DOWN_LEFT:
-                return x_delta <= 0 && y_delta > 0;
             case DOWN_RIGHT:
-                return x_delta >= 0 && y_delta > 0;
+                // Keep X range the same, modify Y range
+                region.y = region.y.getIntervalAbove();
+                break;
             case LEFT_UP:
-                return x_delta < 0 && y_delta <= 0;
             case LEFT_DOWN:
-                return x_delta < 0 && y_delta >= 0;
+                // Keep Y range the same, modify X range
+                region.x = region.x.getIntervalBelow();
+                break;
             case RIGHT_UP:
-                return x_delta > 0 && y_delta <= 0;
             case RIGHT_DOWN:
-                return x_delta > 0 && y_delta >= 0;
+                // Keep Y range the same, modify X range
+                region.x = region.x.getIntervalAbove();
+                break;
+            case TRINKET:
+            case WARP_TOKEN:
+                // Do nothing
+                break;
             default:
                 Exceptions::unreachable();
             }
+            return region.contains(delta);
         }
 
         Exceptions::todo();
@@ -1857,20 +2128,26 @@ namespace SolverClean {
         // In this context, being "after" the corner means being sure that
         // we have already passed it. For trinkets and warp tokens, we can't
         // "really" know just based off the position, except if we're touching it
-        Region region = this->getUnboundedRegion();
+        Region region = this->region;
         switch (this->dir) {
         case UP_LEFT:
         case UP_RIGHT:
+            // Keep X range the same, modify Y range
+            region.y.invert();
+            break;
         case DOWN_LEFT:
         case DOWN_RIGHT:
-            // Keep X range the same, invert Y range
+            // Keep X range the same, modify Y range
             region.y.invert();
             break;
         case LEFT_UP:
         case LEFT_DOWN:
+            // Keep Y range the same, modify X range
+            region.x.invert();
+            break;
         case RIGHT_UP:
         case RIGHT_DOWN:
-            // Keep Y range the same, invert X range
+            // Keep Y range the same, modify X range
             region.x.invert();
             break;
         case TRINKET:
