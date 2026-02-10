@@ -42,6 +42,8 @@ namespace SolverClean {
     using Terrain::RoomPosition;
     using Terrain::GlobalPosition;
 
+    using Interval = IntInterval<int16_t>;
+
     // Hash functions for various data types
     std::hash<bool> hash_bool;
     std::hash<int> hash_int;
@@ -49,7 +51,7 @@ namespace SolverClean {
     std::hash<float> hash_float;
 
     void runSolver(void) {
-        RawScenario rs = WZ::SCENARIOS::MAZE_EXIT_TO_OBEY;
+        RawScenario rs = WZ::SCENARIOS::IL_START;
         SolverConfig solver;
         solver.clean_inputs = true;
         solver.debug_checks = false;
@@ -334,6 +336,9 @@ namespace SolverClean {
             }
             c_start_idx++;
         }
+        if (c_start_idx > 0 && scenario.corners[c_start_idx - 1].room == game.getRoomPos() && !scenario.corners[c_start_idx - 1].isPosNotStrictlyBefore(pos)) {
+            c_start_idx--;
+        }
 
         // Call the appropriate heuristic function for the solver mode
         switch (solver.mode) {
@@ -377,7 +382,7 @@ namespace SolverClean {
 
     static uint16_t calcSimpleHeuristicCorner(RoomPosition& room_pos, Region& pos, const CheckedCorner& c) {
         // This is the region of the corner that we must pass through to proceed
-        const Region& c_r = c.region;
+        Region c_r(c.region);
         // Account for map wrap-around, take nearest distance
         // TODO: this doesn't necessarily make sense in extreme cases
         if (c.room.rx - room_pos.rx > 10) {
@@ -397,51 +402,23 @@ namespace SolverClean {
             pos.y -= 20 * ROOM_H;
         }
         // Factor in room offsets
-        IntInterval c_x = c_r.x + (ROOM_W * c.room.rx);
-        IntInterval c_y = c_r.y + (ROOM_H * c.room.ry);
-
-        // Minimum absolute distance per dimension
-        int x_d = IntInterval::min_diff_signed(pos.x, c_x);
-        int y_d = IntInterval::min_diff_signed(pos.y, c_y);
-
-        const RoomData& r1 = Terrain::GetRoomData(room_pos);
-        const RoomData& r2 = Terrain::GetRoomData(c.room);
+        c_r.x += (ROOM_W * c.room.rx);
+        c_r.y += (ROOM_H * c.room.ry);
 
         // Factor in vertical corner cuts
         bool verticalCutUp = c.dir == UP_LEFT || c.dir == UP_RIGHT;
         bool verticalCutDown = c.dir == DOWN_LEFT || c.dir == DOWN_RIGHT;
-        IntInterval verticalCornerCutDist = IntInterval(verticalCutUp ? -MAX_VY : 0, verticalCutDown ? MAX_VY : 0);
-
-        // How long will it take to get past the corner?
-        int x_frames = div_ceil(std::abs(x_d), MAX_VX);
-        int y_frames = div_ceil(std::abs(y_d), MAX_VY);
-        int frames = SDL_max(x_frames, y_frames);
-
-        // How far can we move during that time?
-        IntInterval x_dist = VX_INT_RANGE * frames;
-        IntInterval y_dist = VY_INT_RANGE * frames;
-
-        // Update player position
-        room_pos = c.room;
-        pos.x += x_dist;
-        pos.y += y_dist;
+        Interval verticalCornerCutDist = Interval(verticalCutUp ? -MAX_VY : 0, verticalCutDown ? MAX_VY : 0);
 
         // The space of reachable positions one frame after passing the corner
-        Region postCornerRegion = Region(c_x, c_y + verticalCornerCutDist);
+        c_r.y += verticalCornerCutDist;
 
-        // Restrict player position to post-corner region
-        pos.intersect(postCornerRegion);
-
-        // Sanity checks
-        assert(!pos.is_bottom() && pos.is_bounded());
-
-        // Update total frame count
-        return frames;
+        return calcSimpleHeuristicSegment(pos, c_r);
     }
 
     static uint16_t calcSimpleHeuristicWarpCorner(RoomPosition& room_pos, Region& pos, const CheckedCorner& c) {
         // This is the region of the corner that we must pass through to proceed
-        const Region& c_r = c.region;
+        Region c_r(c.region);
         // Account for map wrap-around, take nearest distance
         // TODO: this doesn't necessarily make sense in extreme cases
         if (c.room.rx - room_pos.rx > 10) {
@@ -461,34 +438,16 @@ namespace SolverClean {
             pos.y -= 20 * ROOM_H;
         }
         // Factor in room offsets
-        IntInterval c_x = c_r.x + (ROOM_W * c.room.rx);
-        IntInterval c_y = c_r.y + (ROOM_H * c.room.ry);
+        c_r.x += (ROOM_W * c.room.rx);
+        c_r.y += (ROOM_H * c.room.ry);
 
-        // Minimum absolute distance per dimension
-        int x_d = IntInterval::min_diff_signed(pos.x, c_x);
-        int x_d2 = 0;
-        int y_d = IntInterval::min_diff_signed(pos.y, c_y);
-        int y_d2 = 0;
+        // Factor in vertical corner cuts
+        bool verticalCutUp = c.dir == UP_LEFT || c.dir == UP_RIGHT;
+        bool verticalCutDown = c.dir == DOWN_LEFT || c.dir == DOWN_RIGHT;
+        Interval verticalCornerCutDist = Interval(verticalCutUp ? -MAX_VY : 0, verticalCutDown ? MAX_VY : 0);
 
-        if (x_d == 0 && y_d == 0) {
-            // Factor in vertical corner cuts
-            bool verticalCutUp = c.dir == UP_LEFT || c.dir == UP_RIGHT;
-            bool verticalCutDown = c.dir == DOWN_LEFT || c.dir == DOWN_RIGHT;
-            IntInterval verticalCornerCutDist = IntInterval(verticalCutUp ? -MAX_VY : 0, verticalCutDown ? MAX_VY : 0);
-
-            room_pos = c.room;
-            // The space of reachable positions one frame after passing the corner
-            Region postCornerRegion = Region(c_x, c_y + verticalCornerCutDist);
-
-            // Restrict player position to post-corner region
-            pos.intersect(postCornerRegion);
-
-            // Sanity checks
-            assert(!pos.is_bottom() && pos.is_bounded());
-
-            // Update total frame count
-            return 0;
-        }
+        // The space of reachable positions one frame after passing the corner
+        c_r.y += verticalCornerCutDist;
 
         const RoomData& r1 = Terrain::GetRoomData(room_pos);
         const RoomData& r2 = Terrain::GetRoomData(c.room);
@@ -499,235 +458,187 @@ namespace SolverClean {
         bool notFromRight = c.dir == RIGHT_UP || c.dir == RIGHT_DOWN || c.dir == UP_RIGHT || c.dir == DOWN_RIGHT;
         bool is_vertical_cut = c.dir == UP_LEFT || c.dir == UP_RIGHT || c.dir == DOWN_LEFT || c.dir == DOWN_RIGHT;
         bool is_horizontal_cut = c.dir == LEFT_UP || c.dir == LEFT_DOWN || c.dir == RIGHT_UP || c.dir == RIGHT_DOWN;
-        
-        // Factor in room warping
-        if (r1.warpx || r1.warpy || r2.warpx || r2.warpy) {
-            if (room_pos == c.room) {
-                // Same room is special case, since we have to deal with X and Y warping simultaneously, but no screen edge turnarounds
-                if (r1.warpx) {
-                    if (!notFromLeft && x_d > 0) {
-                        IntInterval c_x_off = c_x + ROOM_W;
-                        int x_d_off = IntInterval::min_diff_signed(pos.x, c_x_off);
-                        if ((is_vertical_cut && notFromRight) || std::abs(x_d_off) < std::abs(x_d)) {
-                            x_d = x_d_off;
-                            pos.x -= ROOM_W;
-                        }
-                    } else if (!notFromRight && x_d < 0) {
-                        IntInterval c_x_off = c_x - ROOM_W;
-                        int x_d_off = IntInterval::min_diff_signed(pos.x, c_x_off);
-                        if ((is_vertical_cut && notFromLeft) || std::abs(x_d_off) < std::abs(x_d)) {
-                            x_d = x_d_off;
-                            pos.x += ROOM_W;
-                        }
-                    }
+
+        // We will have at most 2 possibilities for each dimension, each of which could be independently solved
+        struct Segment {
+            Region region;
+            int8_t warpx;
+            int8_t warpy;
+
+            Segment(Region r, int8_t wx, int8_t wy) : region(r), warpx(wx), warpy(wy) {}
+        };
+        std::vector<std::vector<Segment>> paths;
+
+        int warpx_min = 1;
+        int warpx_max = -1;
+        if (room_pos.rx == c.room.rx) {
+            // Screen wraps possible, but no screen edge turnarounds
+            if (pos.x.max < c_r.x.min) {
+                // x_d guaranteed negative, so the corner is to our right (we come from the left)
+                assert(Interval::min_diff_signed(pos.x, c_r.x) < 0);
+                assert(!notFromLeft || r1.warpx);
+                if (!notFromLeft) {
+                    // We can walk right to reach the corner normally
+                    warpx_min = 0;
+                    warpx_max = 0;
                 }
-                if (r1.warpy) {
-                    if (!notFromUp && y_d > 0) {
-                        IntInterval c_y_off = c_y + WARP_ROOM_H;
-                        int y_d_off = IntInterval::min_diff_signed(pos.y, c_y_off);
-                        if ((is_horizontal_cut && notFromDown) || std::abs(y_d_off) < std::abs(y_d)) {
-                            y_d = y_d_off;
-                            pos.y -= WARP_ROOM_H;
-                        }
-                    }
-                    else if (!notFromDown && y_d < 0) {
-                        IntInterval c_y_off = c_y - WARP_ROOM_H;
-                        int y_d_off = IntInterval::min_diff_signed(pos.y, c_y_off);
-                        if ((is_horizontal_cut && notFromUp) || std::abs(y_d_off) < std::abs(y_d)) {
-                            y_d = y_d_off;
-                            pos.y += WARP_ROOM_H;
-                        }
-                    }
+                if (!notFromRight && r1.warpx) {
+                    // We can walk left to reach the corner from the right after wrapping
+                    // Warp x forward once
+                    warpx_max = 1;
                 }
             }
-            else if (room_pos.ry == c.room.ry) {
-                // Can't handle more than 1 room offset for now - otherwise we have to deal with intermediate warping rooms...
-                assert(std::abs(room_pos.rx - c.room.rx) <= 1);
-                assert(room_pos.rx != c.room.rx);
-                assert(!r1.warpx);
-                if (!r1.warpx && r2.warpx) {
-                    // Screen edge turnaround
-                    if (room_pos.rx > c.room.rx && !notFromLeft) {
-                        int screen_transition_x = ROOM_W * room_pos.rx + r1.GetMinXPos() - 1;
-                        int turnaround_x = screen_transition_x - ROOM_W;
-                        int x_d_1 = IntInterval::min_diff_signed(pos.x, screen_transition_x);
-                        int x_d_2 = IntInterval::min_diff_signed(turnaround_x, c_x);
-                        if ((is_vertical_cut && notFromRight) || std::abs(x_d_1) + std::abs(x_d_2) < std::abs(x_d)) {
-                            x_d = x_d_1;
-                            x_d2 = x_d_2;
-                        }
-                    }
-                    else if (room_pos.rx < c.room.rx && !notFromRight) {
-                        int screen_transition_x = ROOM_W * room_pos.rx + r1.GetMaxXPos() + 1;
-                        int turnaround_x = screen_transition_x + ROOM_W;
-                        int x_d_1 = IntInterval::min_diff_signed(pos.x, screen_transition_x);
-                        int x_d_2 = IntInterval::min_diff_signed(turnaround_x, c_x);
-                        if ((is_vertical_cut && notFromLeft) || std::abs(x_d_1) + std::abs(x_d_2) < std::abs(x_d)) {
-                            x_d = x_d_1;
-                            x_d2 = x_d_2;
-                        }
-                    }
-                    else {
-                        // Handle normally?
-                        // Exceptions::unreachable();
-                    }
+            else if (pos.x.min > c_r.x.max) {
+                // x_d guaranteed positive, so the corner is to our left (we come from the right)
+                assert(Interval::min_diff_signed(pos.x, c_r.x) > 0);
+                assert(!notFromRight || r1.warpx);
+                if (!notFromRight) {
+                    // We can walk left to reach the corner normally
+                    warpx_min = 0;
+                    warpx_max = 0;
                 }
-                // Handle y warps normally
-                if (r1.warpy || r2.warpy) {
-                    if (!notFromUp && y_d > 0) {
-                        IntInterval c_y_off = c_y + WARP_ROOM_H;
-                        int y_d_off = IntInterval::min_diff_signed(pos.y, c_y_off);
-                        if ((is_horizontal_cut && notFromDown) || std::abs(y_d_off) < std::abs(y_d)) {
-                            y_d = y_d_off;
-                            pos.y -= WARP_ROOM_H;
-                        }
-                    }
-                    else if (!notFromDown && y_d < 0) {
-                        IntInterval c_y_off = c_y - WARP_ROOM_H;
-                        int y_d_off = IntInterval::min_diff_signed(pos.y, c_y_off);
-                        if ((is_horizontal_cut && notFromUp) || std::abs(y_d_off) < std::abs(y_d)) {
-                            y_d = y_d_off;
-                            pos.y += WARP_ROOM_H;
-                        }
-                    }
-                }
-            }
-            else if (room_pos.rx == c.room.rx) {
-                // Can't handle more than 1 room offset for now - otherwise we have to deal with intermediate warping rooms...
-                assert(std::abs(room_pos.ry - c.room.ry) <= 1);
-                assert(room_pos.ry != c.room.ry);
-                assert(!r1.warpy);
-                if (!r1.warpy && r2.warpy) {
-                    // Screen edge turnaround
-                    if (room_pos.ry > c.room.ry && !notFromUp) {
-                        int screen_transition_y = ROOM_H * room_pos.ry + r1.GetMinYPos() - 1;
-                        int turnaround_y = screen_transition_y - WARP_ROOM_H;
-                        int y_d_1 = IntInterval::min_diff_signed(pos.y, screen_transition_y);
-                        int y_d_2 = IntInterval::min_diff_signed(turnaround_y, c_y);
-                        if ((is_horizontal_cut && notFromDown) || std::abs(y_d_1) + std::abs(y_d_2) < std::abs(y_d)) {
-                            y_d = y_d_1;
-                            y_d2 = y_d_2;
-                        }
-                    }
-                    else if (room_pos.ry < c.room.ry && !notFromDown) {
-                        int screen_transition_y = ROOM_H * room_pos.ry + r1.GetMaxYPos() + 1;
-                        int turnaround_y = screen_transition_y + WARP_ROOM_H;
-                        int y_d_1 = IntInterval::min_diff_signed(pos.y, screen_transition_y);
-                        int y_d_2 = IntInterval::min_diff_signed(turnaround_y, c_y);
-                        if ((is_horizontal_cut && notFromUp) || std::abs(y_d_1) + std::abs(y_d_2) < std::abs(y_d)) {
-                            y_d = y_d_1;
-                            y_d2 = y_d_2;
-                        }
-                    }
-                    else {
-                        // Handle normally?
-                        // Exceptions::unreachable();
-                    }
-                }
-                // Handle x warps normally
-                if (r1.warpx) {
-                    if (!notFromLeft && x_d > 0) {
-                        IntInterval c_x_off = c_x + ROOM_W;
-                        int x_d_off = IntInterval::min_diff_signed(pos.x, c_x_off);
-                        if ((is_vertical_cut && notFromRight) || std::abs(x_d_off) < std::abs(x_d)) {
-                            x_d = x_d_off;
-                            pos.x -= ROOM_W;
-                        }
-                    }
-                    else if (!notFromRight && x_d < 0) {
-                        IntInterval c_x_off = c_x - ROOM_W;
-                        int x_d_off = IntInterval::min_diff_signed(pos.x, c_x_off);
-                        if ((is_vertical_cut && notFromLeft) || std::abs(x_d_off) < std::abs(x_d)) {
-                            x_d = x_d_off;
-                            pos.x += ROOM_W;
-                        }
-                    }
+                if (!notFromLeft && r1.warpx) {
+                    // We can walk right to reach the corner from the left after wrapping
+                    // Warp x backward once
+                    warpx_min = -1;
                 }
             }
             else {
-                Exceptions::todo();
+                // x_d guaranteed 0, don't have to walk at all
+                assert(Interval::min_diff_signed(pos.x, c_r.x) == 0);
+                warpx_min = 0;
+                warpx_max = 0;
             }
+            assert(warpx_min <= warpx_max && warpx_min + 1 >= warpx_max);
         }
 
-        // Factor in vertical corner cuts
-        bool verticalCutUp = c.dir == UP_LEFT || c.dir == UP_RIGHT;
-        bool verticalCutDown = c.dir == DOWN_LEFT || c.dir == DOWN_RIGHT;
-        IntInterval verticalCornerCutDist = IntInterval(verticalCutUp ? -MAX_VY : 0, verticalCutDown ? MAX_VY : 0);
-
-        // How long will it take to get past the corner?
-        int x_frames = div_ceil(std::abs(x_d), MAX_VX);
-        int y_frames = div_ceil(std::abs(y_d), MAX_VY);
-        
-        // How far can we move during that time?
-        IntInterval x_dist = VX_INT_RANGE * x_frames;
-        IntInterval y_dist = VY_INT_RANGE * y_frames;
-
-        // Update player position
-        pos.x += x_dist;
-        pos.y += y_dist;
-
-        if (x_d2 != 0) {
-            if (x_d2 < 0) {
-                // transition left, then go right
-                int screen_transition_x = ROOM_W * room_pos.rx + r1.GetMinXPos() - 1;
-                pos.x.addUpperBound(screen_transition_x);
-                pos.x -= ROOM_W;
+        int warpy_min = 1;
+        int warpy_max = -1;
+        if (room_pos.ry == c.room.ry) {
+            // Screen wraps possible, but no screen edge turnarounds
+            if (pos.y.max < c_r.y.min) {
+                // y_d guaranteed negative, so the corner is below (we come from above)
+                assert(Interval::min_diff_signed(pos.y, c_r.y) < 0);
+                assert(!notFromUp || r1.warpy);
+                if (!notFromUp) {
+                    // We can move down to reach the corner normally
+                    warpy_min = 0;
+                    warpy_max = 0;
+                }
+                if (!notFromDown && r1.warpy) {
+                    // We can move up to reach the corner from below after wrapping
+                    // Warp y down once
+                    warpy_max = 1;
+                }
+            }
+            else if (pos.y.min > c_r.y.max) {
+                // y_d guaranteed positive, so the corner is above (we come from below)
+                assert(Interval::min_diff_signed(pos.y, c_r.y) > 0);
+                assert(!notFromDown || r1.warpy);
+                if (!notFromDown) {
+                    // We can move up to reach the corner normally
+                    warpy_min = 0;
+                    warpy_max = 0;
+                }
+                if (!notFromUp && r1.warpy) {
+                    // We can move down to reach the corner from above after wrapping
+                    // Warp y uponce
+                    warpy_min = -1;
+                }
             }
             else {
-                // transition right, then go left
-                int screen_transition_x = ROOM_W * room_pos.rx + r1.GetMaxXPos() + 1;
-                pos.x.addLowerBound(screen_transition_x);
-                pos.x += ROOM_W;
+                // y_d guaranteed 0, don't have to move at all
+                assert(Interval::min_diff_signed(pos.y, c_r.y) == 0);
+                warpy_min = 0;
+                warpy_max = 0;
             }
-
-            int x_frames2 = div_ceil(std::abs(x_d2), MAX_VX);
-            IntInterval x_dist2 = VX_INT_RANGE * x_frames2;
-            x_frames += x_frames2;
-            pos.x += x_dist2;
-        }
-        if (y_d2 != 0) {
-            if (y_d2 < 0) {
-                // transition up, then go down
-                int screen_transition_y = ROOM_H * room_pos.ry + r1.GetMaxYPos() + 1;
-                pos.y.addLowerBound(screen_transition_y);
-                pos.y -= WARP_ROOM_H;
-            }
-            else {
-                // transition down, then go up
-                int screen_transition_y = ROOM_H * room_pos.ry + r1.GetMinYPos() - 1;
-                pos.y.addUpperBound(screen_transition_y);
-                pos.y += WARP_ROOM_H;
-            }
-
-            int y_frames2 = div_ceil(std::abs(y_d2), MAX_VY);
-            IntInterval y_dist2 = VY_INT_RANGE * y_frames2;
-            y_frames += y_frames2;
-            pos.y += y_dist2;
+            assert(warpy_min <= warpy_max && warpy_min + 1 >= warpy_max);
         }
 
-        int frames = SDL_max(x_frames, y_frames);
-        int x_frames_left = frames - x_frames;
-        int y_frames_left = frames - y_frames;
+        if (room_pos.rx != c.room.rx) {
+            bool from_left = room_pos.rx < c.room.rx;
+            for (int warpy = warpy_min; warpy <= warpy_max; warpy++) {
+                if (!(from_left ? notFromLeft : notFromRight)) {
+                    // We can walk right to reach the corner normally
+                    paths.emplace_back();
+                    paths.back().emplace_back(pos, 0, warpy);
+                }
+                if (!(from_left ? notFromRight : notFromLeft)) {
+                    // Screen edge turnaround possible
+                    // We can walk right to reach the screen transition, then left to reach the corner after wrapping
+                    int16_t screen_transition_x = room_pos.rx * ROOM_W + (from_left ? (r1.GetMaxXPos() + 1) : (r1.GetMinXPos() - 1));
+                    Interval x_ival = from_left ? Interval::fromLowerBound(screen_transition_x) : Interval::fromUpperBound(screen_transition_x);
+                    Region screen_transition_region(x_ival, Interval());
 
-        x_dist = VX_INT_RANGE * x_frames_left;
-        y_dist = VY_INT_RANGE * y_frames_left;
+                    paths.emplace_back();
+                    paths.back().emplace_back(pos, 0, warpy);
+                    // Warp to the right after reaching screen transition
+                    paths.back().emplace_back(screen_transition_region, from_left ? 1 : -1, 0);
+                }
+            }
+        }
+        else if (room_pos.ry != c.room.ry) {
+            bool from_up = room_pos.ry < c.room.ry;
+            for (int warpx = warpx_min; warpx <= warpx_max; warpx++) {
+                if (!(from_up ? notFromUp : notFromDown)) {
+                    // We can reach the corner normally
+                    paths.emplace_back();
+                    paths.back().emplace_back(pos, warpx, 0);
+                }
+                if (!(from_up ? notFromDown : notFromUp)) {
+                    // Screen edge turnaround possible
+                    int16_t screen_transition_y = room_pos.ry * ROOM_H + (from_up ? (r1.GetMaxYPos() + 1) : (r1.GetMinYPos() - 1));
+                    Interval y_ival = from_up ? Interval::fromLowerBound(screen_transition_y) : Interval::fromUpperBound(screen_transition_y);
+                    Region screen_transition_region(Interval(), y_ival);
 
-        // Update player position
+                    paths.emplace_back();
+                    paths.back().emplace_back(pos, warpx, 0);
+                    // Warp after reaching the screen transition
+                    paths.back().emplace_back(screen_transition_region, 0, from_up ? 1 : -1);
+                }
+            }
+        }
+        else {
+            for (int warpx = warpx_min; warpx <= warpx_max; warpx++) {
+                for (int warpy = warpy_min; warpy <= warpy_max; warpy++) {
+                    paths.emplace_back();
+                    paths.back().emplace_back(pos, warpx, warpy);
+                }
+            }
+        }
+
+        Region best_pos;
+        uint16_t best_frames = 0xffff;
+        assert(!paths.empty());
+        for (const std::vector<Segment>& path : paths) {
+            Region tmp_pos(path[0].region);
+            tmp_pos.x += path[0].warpx * WARP_ROOM_W;
+            tmp_pos.y += path[0].warpy * WARP_ROOM_H;
+            uint16_t tmp_frames = 0;
+
+            for (int i = 1; i <= path.size(); i++) {
+                const Region& next_pos = i == path.size() ? c_r : path[i].region;
+
+                tmp_frames += calcSimpleHeuristicSegment(tmp_pos, next_pos);
+
+                if (i < path.size()) {
+                    tmp_pos.x += path[i].warpx * WARP_ROOM_W;
+                    tmp_pos.y += path[i].warpy * WARP_ROOM_H;
+                }
+            }
+
+            if (tmp_frames < best_frames) {
+                best_pos = tmp_pos;
+                best_frames = tmp_frames;
+            }
+            else if (tmp_frames == best_frames) {
+                best_pos.join(tmp_pos);
+            }
+        }
+
+        pos = best_pos;
         room_pos = c.room;
-        pos.x += x_dist;
-        pos.y += y_dist;
-         
-        // The space of reachable positions one frame after passing the corner
-        Region postCornerRegion = Region(c_x, c_y + verticalCornerCutDist);
-
-        // Restrict player position to post-corner region
-        pos.intersect(postCornerRegion);
-
-        // Sanity checks
-        assert(!pos.is_bottom() && pos.is_bounded());
-
-        // Update total frame count
-        return frames;
+        return best_frames;
     }
 
     static uint16_t calcSimpleHeuristicFinalCorner(RoomPosition& room_pos, Region& pos, const CheckedCorner& c) {
@@ -736,33 +647,46 @@ namespace SolverClean {
         // Account for map wrap-around, take nearest distance
         // TODO: this doesn't necessarily make sense in extreme cases
         if (c.room.rx - room_pos.rx > 10) {
-            room_pos.rx += 20;
             pos.x += 20 * ROOM_W;
         }
         else if (room_pos.rx - c.room.rx > 10) {
-            room_pos.rx -= 20;
             pos.x -= 20 * ROOM_W;
         }
         if (c.room.ry - room_pos.ry > 10) {
-            room_pos.ry += 20;
             pos.y += 20 * ROOM_H;
         }
         else if (room_pos.ry - c.room.ry > 10) {
-            room_pos.ry -= 20;
             pos.y -= 20 * ROOM_H;
         }
         // Factor in room offsets
-        IntInterval c_x = c_r.x + (ROOM_W * c.room.rx);
-        IntInterval c_y = c_r.y + (ROOM_H * c.room.ry);
+        c_r.x += (ROOM_W * c.room.rx);
+        c_r.y += (ROOM_H * c.room.ry);
 
+        return calcSimpleHeuristicSegment(pos, c_r);
+    }
+
+    static uint16_t calcSimpleHeuristicSegment(Region& pos, const Region& targetPos) {
         // Minimum absolute distance per dimension
-        int x_d = (pos.x - c_x).abs().min;
-        int y_d = (pos.y - c_y).abs().min;
+        int x_d = Interval::min_abs_diff(pos.x, targetPos.x);
+        int y_d = Interval::min_abs_diff(pos.y, targetPos.y);
 
         // How long will it take to get past the corner?
         int x_frames = div_ceil(x_d, MAX_VX);
         int y_frames = div_ceil(y_d, MAX_VY);
         int frames = SDL_max(x_frames, y_frames);
+
+        // How far can we move in that time?
+        Interval x_dist = VX_INT_RANGE * frames;
+        Interval y_dist = VY_INT_RANGE * frames;
+
+        // Update player position
+        pos.x += x_dist;
+        pos.y += y_dist;
+
+        // Restrict to target position range
+        pos.intersect(targetPos);
+        // Sanity checks
+        assert(!pos.is_bottom() && pos.is_bounded());
 
         return frames;
     }
@@ -779,8 +703,8 @@ namespace SolverClean {
         FloatInterval vx = FloatInterval(player.vx);
         FloatInterval vy = FloatInterval(player.vy);
         // 1 is regular gravity, -1 inverted
-        IntInterval gravity3 = game.gravitycontrol ? -3 : 3;
-        IntInterval gravity4 = game.gravitycontrol ? -4 : 4;
+        Interval gravity3 = game.gravitycontrol ? -3 : 3;
+        Interval gravity4 = game.gravitycontrol ? -4 : 4;
 
         bool can_flip = canFlip(player, game);
         bool can_double_flip = canDoubleFlip(player, game);
@@ -809,12 +733,12 @@ namespace SolverClean {
                 pos.y -= 20 * ROOM_H;
             }
             // Factor in room offsets
-            IntInterval c_x = c_r.x + (ROOM_W * c.room.rx);
-            IntInterval c_y = c_r.y + (ROOM_H * c.room.ry);
+            Interval c_x = c_r.x + (ROOM_W * c.room.rx);
+            Interval c_y = c_r.y + (ROOM_H * c.room.ry);
 
             // Minimum absolute distance per dimension
-            int x_d = IntInterval::min_diff_signed(pos.x, c_x);
-            int y_d = IntInterval::min_diff_signed(pos.y, c_y);
+            int x_d = Interval::min_diff_signed(pos.x, c_x);
+            int y_d = Interval::min_diff_signed(pos.y, c_y);
             // assert(x_d != 0 || y_d != 0);
             bool is_trinket_or_warp = c.isTrinketOrWarp();
             bool is_vertical_cut = c.dir == UP_LEFT || c.dir == UP_RIGHT || c.dir == DOWN_LEFT || c.dir == DOWN_RIGHT;
@@ -838,9 +762,9 @@ namespace SolverClean {
                         || (vx.max < MAX_VX)
                         || (vy.min > -MAX_VY)
                         || (vy.max < MAX_VY))) {
-                IntInterval ax = IntInterval(-3, 3);
+                Interval ax = Interval(-3, 3);
                 if (can_flip) {
-                    IntInterval tmp = gravity4;
+                    Interval tmp = gravity4;
                     gravity4.negate();
                     vy.join(gravity4);
 
@@ -852,7 +776,7 @@ namespace SolverClean {
                     vy.join(4);
                 }
 
-                IntInterval ay = gravity3;
+                Interval ay = gravity3;
 
                 // Update velocities
                 vx += ax;
@@ -883,8 +807,8 @@ namespace SolverClean {
                 pos.y += vy.toIntInterval();
 
                 // Update x_d and y_d
-                x_d = IntInterval::min_diff_signed(pos.x, c_x);
-                y_d = IntInterval::min_diff_signed(pos.y, c_y);
+                x_d = Interval::min_diff_signed(pos.x, c_x);
+                y_d = Interval::min_diff_signed(pos.y, c_y);
 
                 total_frames++;
 
@@ -906,8 +830,8 @@ namespace SolverClean {
                 vx = FULL_X_SPEED_RANGE;
                 vy = FULL_Y_SPEED_RANGE;
             }
-            IntInterval x_dist = VX_INT_RANGE * frames;
-            IntInterval y_dist = VY_INT_RANGE * frames;
+            Interval x_dist = VX_INT_RANGE * frames;
+            Interval y_dist = VY_INT_RANGE * frames;
 
             // Update player position
             room_pos = c.room;
@@ -931,7 +855,7 @@ namespace SolverClean {
             // Factor in vertical corner cuts
             bool verticalCutUp = c.dir == UP_LEFT || c.dir == UP_RIGHT;
             bool verticalCutDown = c.dir == DOWN_LEFT || c.dir == DOWN_RIGHT;
-            IntInterval verticalCornerCutDist = IntInterval(verticalCutUp ? -MAX_VY : 0, verticalCutDown ? MAX_VY : 0);
+            Interval verticalCornerCutDist = Interval(verticalCutUp ? -MAX_VY : 0, verticalCutDown ? MAX_VY : 0);
 
             // The space of reachable positions one frame after passing the corner
             Region postCornerRegion = Region(c_x, c_y + verticalCornerCutDist);
@@ -973,8 +897,8 @@ namespace SolverClean {
                 pos.y -= 20 * ROOM_H;
             }
             // Factor in room offsets
-            IntInterval c_x = c_r.x + (ROOM_W * c.room.rx);
-            IntInterval c_y = c_r.y + (ROOM_H * c.room.ry);
+            Interval c_x = c_r.x + (ROOM_W * c.room.rx);
+            Interval c_y = c_r.y + (ROOM_H * c.room.ry);
 
             // Minimum absolute distance per dimension
             int x_d = (pos.x - c_x).abs().min;
@@ -1113,7 +1037,7 @@ namespace SolverClean {
                         break;
                     }
                 }
-                IntInterval x_ival = IntInterval(SDL_min(c.x, x_gap), SDL_max(c.x, x_gap));
+                Interval x_ival = Interval(SDL_min(c.x, x_gap), SDL_max(c.x, x_gap));
                 if (x_gap <= min.x) {
                     x_ival.removeLowerBound();
                 }
@@ -1128,7 +1052,7 @@ namespace SolverClean {
                         break;
                     }
                 }
-                IntInterval y_ival = IntInterval(SDL_min(c.y, y_gap), SDL_max(c.y, y_gap));
+                Interval y_ival = Interval(SDL_min(c.y, y_gap), SDL_max(c.y, y_gap));
                 if (y_gap <= min.y) {
                     y_ival.removeLowerBound();
                 }

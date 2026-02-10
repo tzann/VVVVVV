@@ -851,7 +851,7 @@ namespace Terrain {
 	struct ElementRegion {
 		GenericID element_id;
 		Region region;
-		ElementRegion(void) : element_id(GenericID::invalid()), region(IntInterval::bottom(), IntInterval::bottom()) { }
+		ElementRegion(void) : element_id(GenericID::invalid()), region(IntInterval<int16_t>::bottom(), IntInterval<int16_t>::bottom()) { }
 		ElementRegion(GenericID element_id, Region region) : element_id(element_id), region(region) { }
 
 		bool is_bottom(void) const {
@@ -978,7 +978,7 @@ namespace Terrain {
 
 	void FindConnectingSurfaces(CornerID from_id, CornerID to_id);
 
-	void DoIntervalPhysicsStep(const FloatInterval& a_x, const FloatInterval& a_y, FloatInterval& v_x, FloatInterval& v_y, IntInterval& xp, IntInterval& yp);
+	void DoIntervalPhysicsStep(const FloatInterval& a_x, const FloatInterval& a_y, FloatInterval& v_x, FloatInterval& v_y, IntInterval<int16_t>& xp, IntInterval<int16_t>& yp);
 
 	bool ReduceRangesByConnectivity(PlayerStateRange& from, PlayerStateRange& to, const LocalFrame& frame, const WallID& wall_id);
 
@@ -998,9 +998,9 @@ namespace Terrain {
 
 	int GetMinXFrames(int d_x);
 	int GetMaxXFrames(int d_x);
-	IntInterval GetYFrames(IntInterval& d_y, bool inverseGravity);
-	IntInterval GetYDist(int y_frames, bool inverseGravity);
-	IntInterval GetYDist(IntInterval & y_frames, bool inverseGravity);
+	IntInterval<int16_t> GetYFrames(IntInterval<int16_t>& d_y, bool inverseGravity);
+	IntInterval<int16_t> GetYDist(int y_frames, bool inverseGravity);
+	IntInterval<int16_t> GetYDist(IntInterval<int16_t> & y_frames, bool inverseGravity);
 	int GetMinYFrames(int d_y);
 	int GetMaxYFrames(int d_y);
 

@@ -362,6 +362,7 @@ namespace Scenarios {
             namespace BISECTED_SPIRAL {
                 const int rx = 115;
                 const int ry = 101;
+                const RawCorner HELPER(rx, ry, 258, 158, LEFT_DOWN);
                 const RawCorner FLIP_UP(rx, ry, 222, 158, UP_LEFT);
                 const RawCorner FALL_UP(rx, ry, 166, 134, UP_LEFT);
                 const RawCorner GO_RIGHT(rx, ry, 166, 33, RIGHT_UP);
@@ -455,17 +456,13 @@ namespace Scenarios {
             const RawScenario IL_START(114, 101, 60, 60, 0, 10, {
                     CORNERS::THIS_IS_HOW_IT_IS::FLIP_UP,
                     CORNERS::THIS_IS_HOW_IT_IS::GO_RIGHT,
+                    CORNERS::BISECTED_SPIRAL::HELPER,
                     CORNERS::BISECTED_SPIRAL::FLIP_UP,
                     CORNERS::BISECTED_SPIRAL::FALL_UP,
                     CORNERS::BISECTED_SPIRAL::GO_RIGHT,
                     CORNERS::BISECTED_SPIRAL::FALL_DOWN,
                     CORNERS::BISECTED_SPIRAL::EXIT_LEFT,
                     CORNERS::BISECTED_SPIRAL::EXIT_DOWN,
-                    CORNERS::RED_PILL::GO_RIGHT,
-                    CORNERS::RED_PILL::DROP_DOWN,
-                    CORNERS::RED_PILL::GO_RIGHT_2,
-                    CORNERS::RED_PILL::DROP_DOWN_2,
-                    CORNERS::RED_PILL::EXIT_RIGHT,
                 });
             const RawScenario RED_PILL(115, 101, 60, 33, 0, 0, {
                     CORNERS::BISECTED_SPIRAL::FALL_DOWN,

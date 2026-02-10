@@ -11,54 +11,68 @@
 #include "solver/Numerics.h"
 
 namespace Geometry {
-	constexpr long long INT_MIN_LL = (long long)-INT_MAX;
-	constexpr long long INT_MAX_LL = (long long)INT_MAX;
-	inline static int sat_ll(long long val) {
-		return (int) std::max(INT_MIN_LL, std::min(INT_MAX_LL, val));
-	}
-
-	inline static int div_ceil(int x, int y) {
+	template <typename T>
+	inline static int div_ceil(T x, T y) {
+		static_assert(std::is_integral<T>::value, "Interval type must be an integer!");
 		return (x + y - 1) / y;
 	}
-	inline static int div_floor(int x, int y) {
+	template <typename T>
+	inline static int div_floor(T x, T y) {
+		static_assert(std::is_integral<T>::value, "Interval type must be an integer!");
 		return (x - 1) / y;
 	}
 
+	template <typename T>
 	struct IntInterval {
-		int min, max;
+		// Only types smaller than int should be allowed here
+		static_assert(sizeof(T) <= sizeof(int), "Interval type must be 32-bit or smaller!");
+		static_assert(std::is_integral<T>::value && std::is_signed<T>::value, "Interval type must be a signed integer!");
+
+		// Symmetric limits to ensure safe negation
+		static constexpr T POS_INF = std::numeric_limits<T>::max();
+		static constexpr T NEG_INF = -POS_INF;
+
+		// Helper function: Saturate 64-bit arithmetic back to T
+		static inline T sat(int64_t val) {
+			if (val >= (int64_t)POS_INF) return POS_INF;
+			if (val <= (int64_t)NEG_INF) return NEG_INF;
+			return static_cast<T>(val);
+		}
+
+		T min, max;
 
 		IntInterval& make_bottom(void) {
-			min = INT_MAX;
-			max = -INT_MAX;
+			min = POS_INF;
+			max = NEG_INF;
 			return *this;
 		}
 		IntInterval& make_top(void) {
-			min = -INT_MAX;
-			max = INT_MAX;
+			min = NEG_INF;
+			max = POS_INF;
 			return *this;
 		}
 
-		// Default constructor returns top
-		IntInterval() {
-			make_top();
-		}
-		IntInterval(int val) : min(val), max(val) {}
-		IntInterval(int min, int max) : min(min), max(max) {}
+		/// Creates an interval spanning the range [min, max] (inclusive)
+		IntInterval(T min, T max) : min(min), max(max) {}
+		/// Creates an interval containing only the specified value
+		IntInterval(T val) : IntInterval(val, val) {}
+		/// Default constructor returns top
+		IntInterval() { make_top(); }
 
 		inline bool is_bottom(void) const {
 			return max < min;
 		}
 		inline bool is_top(void) const {
-			return min <= -INT_MAX && max >= INT_MAX;
+			return min <= NEG_INF && max >= POS_INF;
 		}
 		inline bool has_lower_bound(void) const {
-			return min > -INT_MAX;
+			return min > NEG_INF;
 		}
 		inline bool has_upper_bound(void) const {
-			return max < INT_MAX;
+			return max < POS_INF;
 		}
 		inline bool is_exact(void) const {
-			return min == max && min > -INT_MAX && max < INT_MAX;
+			return min == max && min > NEG_INF && max < POS_INF;
 		}
 		inline bool is_positive(void) const {
 			return min >= 0 && max >= min;
@@ -79,7 +93,7 @@ namespace Geometry {
 			return std::max(min, other.min) <= std::min(max, other.max);
 		}
 
-		inline bool contains(int val) const {
+		inline bool contains(T val) const {
 			return min <= val && val <= max;
 		}
 		inline bool contains(IntInterval other) const {
@@ -87,9 +101,9 @@ namespace Geometry {
 		}
 
 		inline IntInterval& negate(void) {
-			int oldMax = max;
-			max = min <= -INT_MAX ? INT_MAX : -min;
-			min = max >= INT_MAX ? -INT_MAX : -oldMax;
+			T oldMax = max;
+			max = min <= NEG_INF ? POS_INF : -min;
+			min = max >= POS_INF ? NEG_INF : -oldMax;
 			return *this;
 		}
 		inline IntInterval operator-(void) const {
@@ -102,13 +116,13 @@ namespace Geometry {
 		}
 
 		inline IntInterval& operator+=(IntInterval rhs) {
-			min = min <= -INT_MAX ? -INT_MAX : sat_ll((long long)min + rhs.min);
-			max = max >= INT_MAX ? INT_MAX : sat_ll((long long)max + rhs.max);
+			min = min <= NEG_INF ? NEG_INF : sat((int64_t)min + (int64_t)rhs.min);
+			max = max >= POS_INF ? POS_INF : sat((int64_t)max + (int64_t)rhs.max);
 			return (*this);
 		}
-		inline IntInterval operator+=(const int val) {
-			min = min <= -INT_MAX ? -INT_MAX : sat_ll((long long)min + val);
-			max = max >= INT_MAX ? INT_MAX : sat_ll((long long)max + val);
+		inline IntInterval operator+=(const T val) {
+			min = min <= NEG_INF ? NEG_INF : sat((int64_t)min + (int64_t)val);
+			max = max >= POS_INF ? POS_INF : sat((int64_t)max + (int64_t)val);
 			return (*this);
 		}
 		inline IntInterval operator+(IntInterval other) const {
@@ -116,20 +130,20 @@ namespace Geometry {
 			result += other;
 			return result;
 		}
-		inline IntInterval operator+(const int val) const {
+		inline IntInterval operator+(const T val) const {
 			IntInterval result(*this);
 			result += val;
 			return result;
 		}
 
 		inline IntInterval& operator-=(IntInterval rhs) {
-			min = min <= -INT_MAX ? -INT_MAX : sat_ll((long long)min - rhs.max);
-			max = max >= INT_MAX ? INT_MAX : sat_ll((long long)max - rhs.min);
+			min = min <= NEG_INF ? NEG_INF : sat((int64_t)min - (int64_t)rhs.max);
+			max = max >= POS_INF ? POS_INF : sat((int64_t)max - (int64_t)rhs.min);
 			return (*this);
 		}
-		inline IntInterval& operator-=(const int val) {
-			min = min <= -INT_MAX ? -INT_MAX : sat_ll((long long)min - val);
-			max = max >= INT_MAX ? INT_MAX : sat_ll((long long)max - val);
+		inline IntInterval& operator-=(const T val) {
+			min = min <= NEG_INF ? NEG_INF : sat((int64_t)min - (int64_t)val);
+			max = max >= POS_INF ? POS_INF : sat((int64_t)max - (int64_t)val);
 			return (*this);
 		}
 		inline IntInterval operator-(IntInterval other) const {
@@ -137,34 +151,34 @@ namespace Geometry {
 			result -= other;
 			return result;
 		}
-		inline IntInterval operator-(const int val) const {
+		inline IntInterval operator-(const T val) const {
 			IntInterval result(*this);
 			result -= val;
 			return result;
 		}
 
-		inline IntInterval& operator*=(int val) {
-			long long p1 = (long long)min * val;
-			long long p2 = (long long)max * val;
+		inline IntInterval& operator*=(const T val) {
+			int64_t p1 = (int64_t)min * (int64_t)val;
+			int64_t p2 = (int64_t)max * (int64_t)val;
 
-			min = sat_ll(std::min(p1, p2));
-			max = sat_ll(std::max(p1, p2));
+			min = sat(std::min(p1, p2));
+			max = sat(std::max(p1, p2));
 			
 			return (*this);
 		}
-		inline IntInterval operator*(const int val) const {
+		inline IntInterval operator*(const T val) const {
 			IntInterval result(*this);
 			result *= val;
 			return result;
 		}
 		inline IntInterval& operator*=(IntInterval rhs) {
-			long long p1 = (long long)min * rhs.min;
-			long long p2 = (long long)min * rhs.max;
-			long long p3 = (long long)max * rhs.min;
-			long long p4 = (long long)max * rhs.max;
+			int64_t p1 = (int64_t)min * rhs.min;
+			int64_t p2 = (int64_t)min * rhs.max;
+			int64_t p3 = (int64_t)max * rhs.min;
+			int64_t p4 = (int64_t)max * rhs.max;
 
-			min = sat_ll(std::min({ p1, p2, p3, p4 }));
-			max = sat_ll(std::max({ p1, p2, p3, p4 }));
+			min = sat(std::min({ p1, p2, p3, p4 }));
+			max = sat(std::max({ p1, p2, p3, p4 }));
 			return (*this);
 		}
 		inline IntInterval operator*(IntInterval other) const {
@@ -173,16 +187,16 @@ namespace Geometry {
 			return result;
 		}
 
-		inline bool operator>(const int val) const {
+		inline bool operator>(const T val) const {
 			return val < min && min <= max;
 		}
-		inline bool operator>=(const int val) const {
+		inline bool operator>=(const T val) const {
 			return val <= min && min <= max;
 		}
-		inline bool operator<(const int val) const {
+		inline bool operator<(const T val) const {
 			return min <= max && max < val;
 		}
-		inline bool operator<=(const int val) const {
+		inline bool operator<=(const T val) const {
 			return min <= max && max <= val;
 		}
 
@@ -201,16 +215,16 @@ namespace Geometry {
 
 		inline IntInterval abs(void) const {
 			if (min > 0 || is_bottom()) {
-				return IntInterval(*this);
+				return IntInterval::bottom();
 			}
 			else if (max < 0) {
 				return -(*this);
 			}
 			else {
-				return IntInterval(0, std::max((int)std::abs((long long)min), max));
+				return IntInterval(0, std::max(sat(std::abs((int64_t) min)), max));
 			}
 		}
-		inline IntInterval& clamp(int cmin, int cmax) {
+		inline IntInterval& clamp(T cmin, T cmax) {
 			if (this->is_bottom() || cmin > cmax) {
 				make_bottom();
 			} else {
@@ -236,23 +250,23 @@ namespace Geometry {
 			return *this;
 		}
 
-		inline IntInterval& addUpperBound(int limit) {
+		inline IntInterval& addUpperBound(T limit) {
 			max = std::min(max, limit);
 			return (*this);
 		}
-		inline IntInterval& addLowerBound(int limit) {
+		inline IntInterval& addLowerBound(T limit) {
 			min = std::max(min, limit);
 			return (*this);
 		}
 		inline IntInterval& removeUpperBound(void) {
 			if (!is_bottom()) {
-				max = INT_MAX;
+				max = POS_INF;
 			}
 			return (*this);
 		}
 		inline IntInterval& removeLowerBound(void) {
 			if (!is_bottom()) {
-				min = INT_MIN;
+				min = NEG_INF;
 			}
 			return (*this);
 		}
@@ -261,7 +275,7 @@ namespace Geometry {
 			if (is_bottom()) {
 				return IntInterval::top();
 			}
-			else if (max >= INT_MAX - 1) {
+			else if (max >= POS_INF - 1) {
 				return IntInterval::bottom();
 			}
 			else {
@@ -271,7 +285,7 @@ namespace Geometry {
 		inline IntInterval getIntervalBelow(void) const {
 			if (is_bottom()) {
 				return IntInterval::top();
-			} else if (min <= 1 - INT_MAX) {
+			} else if (min <= 1 - POS_INF) {
 				return IntInterval::bottom();
 			} else {
 				return IntInterval::fromUpperBound(min - 1);
@@ -279,16 +293,16 @@ namespace Geometry {
 		}
 
 		inline static IntInterval bottom(void) {
-			return IntInterval(INT_MAX, INT_MIN);
+			return IntInterval(POS_INF, NEG_INF);
 		}
 		inline static IntInterval top(void) {
-			return IntInterval(INT_MIN, INT_MAX);
+			return IntInterval(NEG_INF, POS_INF);
 		}
-		inline static IntInterval fromLowerBound(int min) {
-			return IntInterval(min, INT_MAX);
+		inline static IntInterval fromLowerBound(T min) {
+			return IntInterval(min, POS_INF);
 		}
-		inline static IntInterval fromUpperBound(int max) {
-			return IntInterval(INT_MIN, max);
+		inline static IntInterval fromUpperBound(T max) {
+			return IntInterval(NEG_INF, max);
 		}
 		inline static IntInterval positive(void) {
 			return fromLowerBound(0);
@@ -324,26 +338,26 @@ namespace Geometry {
 			return *this;
 		}
 		inline IntInterval& difference(IntInterval other) {
-			if (other.min <= std::max(min, -INT_MAX)) {
-				min = std::max(min, sat_ll((long long) other.max + 1));
+			if (other.min <= std::max(min, NEG_INF)) {
+				min = std::max(min, sat((int64_t)other.max + 1));
 			}
-			if (other.max >= std::min(max, INT_MAX)) {
-				max = std::min(max, sat_ll((long long) other.min - 1));
+			if (other.max >= std::min(max, POS_INF)) {
+				max = std::min(max, sat((int64_t)other.min - 1));
 			}
 			return *this;
 		}
 		/// Essentially returns top().difference(this), i.e. an interval that contains at least everything not contained in this one
 		inline IntInterval& invert() {
-			int old_min = min;
-			int old_max = max;
+			T old_min = min;
+			T old_max = max;
 			if (is_top()) {
 				make_bottom();
 			} else if (!has_lower_bound()) {
-				min = sat_ll((long long)old_max + 1);
-				max = INT_MAX;
+				min = sat((int64_t)old_max + 1);
+				max = POS_INF;
 			} else if (!has_upper_bound()) {
-				min = -INT_MAX;
-				max = sat_ll((long long)old_min - 1);
+				min = NEG_INF;
+				max = sat((int64_t)old_min - 1);
 			}
 			else {
 				make_top();
@@ -372,9 +386,9 @@ namespace Geometry {
 			return res;
 		}
 
-		inline static int min_abs_diff(IntInterval a, IntInterval b) {
-			int dmin = a.min <= -INT_MAX ? -INT_MAX : sat_ll((long long)a.min - b.max);
-			int dmax = a.max >= INT_MAX ? INT_MAX : sat_ll((long long) a.max - b.min);
+		inline static T min_abs_diff(IntInterval a, IntInterval b) {
+			T dmin = a.min <= NEG_INF ? NEG_INF : sat((int64_t)a.min - (int64_t)b.max);
+			T dmax = a.max >= POS_INF ? POS_INF : sat((int64_t)a.max - (int64_t)b.min);
 
 			if (dmin > 0) {
 				return dmin;
@@ -385,9 +399,9 @@ namespace Geometry {
 			return 0;
 		}
 
-		inline static int min_diff_signed(IntInterval a, IntInterval b) {
-			int dmin = a.min <= -INT_MAX ? -INT_MAX : sat_ll((long long)a.min - b.max);
-			int dmax = a.max >= INT_MAX ? INT_MAX : sat_ll((long long)a.max - b.min);
+		inline static T min_diff_signed(IntInterval a, IntInterval b) {
+			T dmin = a.min <= NEG_INF ? NEG_INF : sat((int64_t)a.min - (int64_t)b.max);
+			T dmax = a.max >= POS_INF ? POS_INF : sat((int64_t)a.max - (int64_t)b.min);
 
 			if (dmin > 0) {
 				return dmin;
@@ -505,8 +519,8 @@ namespace Geometry {
 	};
 
 	struct Region {
-		IntInterval x;
-		IntInterval y;
+		IntInterval<int16_t> x;
+		IntInterval<int16_t> y;
 
 		inline Region& make_bottom(void) {
 			x.make_bottom();
@@ -521,7 +535,7 @@ namespace Geometry {
 
 		// Default constructor returns top
 		Region() : x(), y() {}
-		Region(IntInterval x, IntInterval y) : x(x), y(y) {}
+		Region(IntInterval<int16_t> x, IntInterval<int16_t> y) : x(x), y(y) {}
 		Region(IntVector point) : x(point.x), y(point.y) {}
 		Region(IntVector from, IntVector to): x(SDL_min(from.x, to.x), SDL_max(from.x, to.x)), y(SDL_min(from.y, to.y), SDL_max(from.y, to.y)) {}
 
@@ -537,11 +551,11 @@ namespace Geometry {
 		inline bool is_bounded(void) const {
 			return x.has_lower_bound() && x.has_upper_bound() && y.has_lower_bound() && y.has_upper_bound();
 		}
-		inline bool intersects(const Region& other) const {
+		inline bool intersects(Region other) const {
 			return x.intersects(other.x) && y.intersects(other.y);
 		}
 
-		inline bool contains(const Region& other) const {
+		inline bool contains(Region other) const {
 			return x.contains(other.x) && y.contains(other.y);
 		}
 		inline bool contains(IntVector val) const {
@@ -551,7 +565,7 @@ namespace Geometry {
 			return this->x.contains(x) && this->y.contains(y);
 		}
 
-		inline bool exactly_equals(const Region& other) const {
+		inline bool exactly_equals(Region other) const {
 			if (is_bottom() || other.is_bottom()) {
 				return false;
 			}
@@ -565,19 +579,19 @@ namespace Geometry {
 			return IntVector(x.max, y.max);
 		}
 
-		inline Region& addXUpperBound(int limit) {
+		inline Region& addXUpperBound(int16_t limit) {
 			x.addUpperBound(limit);
 			return *this;
 		}
-		inline Region& addXLowerBound(int limit) {
+		inline Region& addXLowerBound(int16_t limit) {
 			x.addLowerBound(limit);
 			return *this;
 		}
-		inline Region& addYUpperBound(int limit) {
+		inline Region& addYUpperBound(int16_t limit) {
 			y.addUpperBound(limit);
 			return *this;
 		}
-		inline Region& addYLowerBound(int limit) {
+		inline Region& addYLowerBound(int16_t limit) {
 			y.addLowerBound(limit);
 			return *this;
 		}
@@ -599,41 +613,41 @@ namespace Geometry {
 		}
 
 		inline static Region bottom(void) {
-			return Region(IntInterval::bottom(), IntInterval::bottom());
+			return Region(IntInterval<int16_t>::bottom(), IntInterval<int16_t>::bottom());
 		}
 		inline static Region top(void) {
-			return Region(IntInterval::top(), IntInterval::top());
+			return Region(IntInterval<int16_t>::top(), IntInterval<int16_t>::top());
 		}
-		inline static Region fromXInterval(IntInterval x) {
-			return Region(x, IntInterval::top());
+		inline static Region fromXInterval(IntInterval<int16_t> x) {
+			return Region(x, IntInterval<int16_t>::top());
 		}
-		inline static Region fromYInterval(IntInterval y) {
-			return Region(IntInterval::top(), y);
+		inline static Region fromYInterval(IntInterval<int16_t> y) {
+			return Region(IntInterval<int16_t>::top(), y);
 		}
 		inline static Region fromXLowerBound(int x_min) {
-			return Region::fromXInterval(IntInterval::fromLowerBound(x_min));
+			return Region::fromXInterval(IntInterval<int16_t>::fromLowerBound(x_min));
 		}
 		inline static Region fromXUpperBound(int x_max) {
-			return Region::fromXInterval(IntInterval::fromUpperBound(x_max));
+			return Region::fromXInterval(IntInterval<int16_t>::fromUpperBound(x_max));
 		}
 		inline static Region fromYLowerBound(int y_min) {
-			return Region::fromYInterval(IntInterval::fromLowerBound(y_min));
+			return Region::fromYInterval(IntInterval<int16_t>::fromLowerBound(y_min));
 		}
 		inline static Region fromYUpperBound(int y_max) {
-			return Region::fromYInterval(IntInterval::fromUpperBound(y_max));
+			return Region::fromYInterval(IntInterval<int16_t>::fromUpperBound(y_max));
 		}
 		
-		inline Region& join(const Region& other) {
+		inline Region& join(Region other) {
 			x.join(other.x);
 			y.join(other.y);
 			return *this;
 		}
-		inline Region& intersect(const Region& other) {
+		inline Region& intersect(Region other) {
 			x.intersect(other.x);
 			y.intersect(other.y);
 			return *this;
 		}
-		inline Region& difference(const Region& other) {
+		inline Region& difference(Region other) {
 			if (!is_bottom()) {
 				if (other.y.contains(y)) {
 					x.difference(other.x);
@@ -645,12 +659,30 @@ namespace Geometry {
 			return *this;
 		}
 
-		inline static Region join(const Region& a, const Region& b) {
+		// TODO pass by value or ref here? maybe we can make regions use int16_t to fit in a register?
+		inline Region operator-(Region rhs) const {
+			return Region(x - rhs.x, y - rhs.y);
+		}
+		inline Region operator-(IntVector val) const {
+			return Region(x - val.x, y - val.y);
+		}
+		inline Region& operator-=(Region rhs) {
+			x -= rhs.x;
+			y -= rhs.y;
+			return (*this);
+		}
+		inline Region& operator-=(IntVector val) {
+			x -= val.x;
+			y -= val.y;
+			return (*this);
+		}
+
+		inline static Region join(Region a, Region b) {
 			Region res(a);
 			res.join(b);
 			return res;
 		}
-		inline static Region intersect(const Region& a, const Region& b) {
+		inline static Region intersect(Region a, Region b) {
 			Region res(a);
 			res.intersect(b);
 			return res;
@@ -680,11 +712,11 @@ namespace Geometry {
 		FloatInterval(float val) : min(val), max(val) {}
 		FloatInterval(float min, float max) : min(min), max(max) {}
 
-		inline IntInterval toIntInterval(void) const {
-			if (is_bottom()) return IntInterval::bottom();
+		inline IntInterval<int16_t> toIntInterval(void) const {
+			if (is_bottom()) return IntInterval<int16_t>::bottom();
 
-			static constexpr float MAX_F = (float)(INT_MAX - 1);
-			static constexpr float MIN_F = (float)(1 - INT_MAX);
+			static constexpr float MAX_F = (float) (IntInterval<int16_t>::POS_INF - 1);
+			static constexpr float MIN_F = (float) (IntInterval<int16_t>::NEG_INF + 1);
 
 			// Most conservative rounding
 			float f_min = SDL_max(min, MIN_F);
@@ -697,7 +729,7 @@ namespace Geometry {
 			// If we truncated, add 1 to correct for it
 			i_max += (f_max > i_max);
 
-			return IntInterval(i_min, i_max);
+			return IntInterval<int16_t>(i_min, i_max);
 		}
 
 		inline bool is_bottom(void) const {
@@ -768,13 +800,15 @@ namespace Geometry {
 			return (*this);
 		}
 
-		inline FloatInterval operator+(IntInterval rhs) const {
+		template <typename T>
+		inline FloatInterval operator+(IntInterval<T> rhs) const {
 			return FloatInterval(min + rhs.min, max + rhs.max);
 		}
 		inline FloatInterval operator+(const int val) const {
 			return FloatInterval(min + val, max + val);
 		}
-		inline FloatInterval& operator+=(IntInterval rhs) {
+		template <typename T>
+		inline FloatInterval& operator+=(IntInterval<T> rhs) {
 			min += rhs.min;
 			max += rhs.max;
 			return (*this);
@@ -784,13 +818,15 @@ namespace Geometry {
 			max += val;
 			return (*this);
 		}
-		inline FloatInterval operator-(IntInterval rhs) const {
+		template <typename T>
+		inline FloatInterval operator-(IntInterval<T> rhs) const {
 			return FloatInterval(min - rhs.max, max - rhs.min);
 		}
 		inline FloatInterval operator-(const int val) const {
 			return FloatInterval(min - val, max - val);
 		}
-		inline FloatInterval& operator-=(IntInterval rhs) {
+		template <typename T>
+		inline FloatInterval& operator-=(IntInterval<T> rhs) {
 			min -= rhs.min;
 			max -= rhs.max;
 			return (*this);
@@ -954,7 +990,8 @@ namespace Geometry {
 			}
 			return *this;
 		}
-		inline FloatInterval& join(IntInterval other) {
+		template <typename T>
+		inline FloatInterval& join(IntInterval<T> other) {
 			if (other.is_bottom()) {
 				return *this;
 			}
@@ -974,7 +1011,8 @@ namespace Geometry {
 			max = SDL_min(max, other.max);
 			return *this;
 		}
-		inline FloatInterval& intersect(IntInterval other) {
+		template <typename T>
+		inline FloatInterval& intersect(IntInterval<T> other) {
 			min = SDL_max(min, (float)other.min);
 			max = SDL_min(max, (float)other.max);
 			return *this;
@@ -991,7 +1029,8 @@ namespace Geometry {
 			return res;
 		}
 
-		inline static FloatInterval fromIntInterval(IntInterval a) {
+		template <typename T>
+		inline static FloatInterval fromIntInterval(IntInterval<T> a) {
 			if (a.is_bottom()) {
 				return FloatInterval::bottom();
 			}

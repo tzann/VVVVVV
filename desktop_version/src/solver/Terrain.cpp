@@ -1,6 +1,8 @@
 #include "Terrain.h"
 
 namespace Terrain {
+	using Interval = IntInterval<int16_t>;
+
 	// Lab IL start
 	// RoomPosition start_room = RoomPosition(2, 16);
 	// int start_x = 191;
@@ -353,7 +355,7 @@ namespace Terrain {
 			return;
 		}
 
-		Region screenBounds(IntInterval(0, 319) - VIRIDIAN_CX, IntInterval(0, 239) - VIRIDIAN_CY);
+		Region screenBounds(Interval(0, 319) - VIRIDIAN_CX, Interval(0, 239) - VIRIDIAN_CY);
 		screenBounds.intersect(region);
 		if (screenBounds.is_bottom() || !screenBounds.is_bounded()) {
 			return;
@@ -3473,16 +3475,16 @@ namespace Terrain {
 
 		IntVector boundingPos = pos - primaryDir;
 
-		IntInterval x_interval = IntInterval::negative() * overallDir.x + boundingPos.x;
-		IntInterval y_interval = IntInterval::negative() * overallDir.y + boundingPos.y;
+		Interval x_interval = Interval::negative() * overallDir.x + boundingPos.x;
+		Interval y_interval = Interval::negative() * overallDir.y + boundingPos.y;
 
 		return Region(x_interval, y_interval);
 	}
 	Region Corner::GetIntermediateRegion(void) const {
 		IntVector perpDir = GetPrimaryDir(true) + GetPrimaryDir(false);
 
-		IntInterval x_interval = IntInterval::positive() * perpDir.x + pos.x;
-		IntInterval y_interval = IntInterval::positive() * perpDir.y + pos.y;
+		Interval x_interval = Interval::positive() * perpDir.x + pos.x;
+		Interval y_interval = Interval::positive() * perpDir.y + pos.y;
 
 		return Region(x_interval, y_interval);
 	}
@@ -3493,8 +3495,8 @@ namespace Terrain {
 
 		IntVector boundingPos = pos + secondaryDir;
 
-		IntInterval x_interval = IntInterval::positive() * overallDir.x + boundingPos.x;
-		IntInterval y_interval = IntInterval::positive() * overallDir.y + boundingPos.y;
+		Interval x_interval = Interval::positive() * overallDir.x + boundingPos.x;
+		Interval y_interval = Interval::positive() * overallDir.y + boundingPos.y;
 
 		return Region(x_interval, y_interval);
 	}
@@ -3518,10 +3520,10 @@ namespace Terrain {
 				return Region::bottom();
 			case Ceiling:
 			case Floor:
-				return Region(IntInterval(min + 1, max - 1), IntInterval(plane));
+				return Region(Interval(min + 1, max - 1), Interval(plane));
 			case LeftWall:
 			case RightWall:
-				return Region(IntInterval(plane), IntInterval(min + 1, max - 1));
+				return Region(Interval(plane), Interval(min + 1, max - 1));
 		}
 	}
 
@@ -3544,13 +3546,13 @@ namespace Terrain {
 			default:
 				return Region::bottom();
 			case Ceiling:
-				return Region(IntInterval(min + 1, max - 1), IntInterval::fromUpperBound(plane - 1));
+				return Region(Interval(min + 1, max - 1), Interval::fromUpperBound(plane - 1));
 			case Floor:
-				return Region(IntInterval(min + 1, max - 1), IntInterval::fromLowerBound(plane + 1));
+				return Region(Interval(min + 1, max - 1), Interval::fromLowerBound(plane + 1));
 			case LeftWall:
-				return Region(IntInterval::fromUpperBound(plane - 1), IntInterval(min + 1, max - 1));
+				return Region(Interval::fromUpperBound(plane - 1), Interval(min + 1, max - 1));
 			case RightWall:
-				return Region(IntInterval::fromLowerBound(plane + 1), IntInterval(min + 1, max - 1));
+				return Region(Interval::fromLowerBound(plane + 1), Interval(min + 1, max - 1));
 		}
 	}
 
@@ -4497,12 +4499,12 @@ namespace Terrain {
 
 			// Collect all ranges for this element
 			int firstUncoveredX = INT_MIN;
-			std::vector<IntInterval> ordered_disjoint_ranges;
-			std::vector<IntInterval> uncovered_disjoint_ranges;
+			std::vector<Interval> ordered_disjoint_ranges;
+			std::vector<Interval> uncovered_disjoint_ranges;
 			bool done = false;
 			while (!done) {
 				int min_lower_bound = INT_MAX;
-				IntInterval lowestXInterval = IntInterval::bottom();
+				Interval lowestXInterval = Interval::bottom();
 				for (std::vector<ElementRegion>::const_iterator range_it = coveredRanges.cbegin(); range_it != coveredRanges.cend(); range_it++) {
 					const ElementRegion& range = *range_it;
 					if (range.element_id != el_id || range.region.is_bottom()) {
@@ -4514,7 +4516,7 @@ namespace Terrain {
 					} 
 
 					min_lower_bound = xLowerBound;
-					lowestXInterval = IntInterval(range.region.x);
+					lowestXInterval = Interval(range.region.x);
 				}
 
 				// No more intervals found
@@ -4529,7 +4531,7 @@ namespace Terrain {
 							if (range.element_id != el_id || range.region.is_bottom()) {
 								continue;
 							}
-							const IntInterval& thisXInterval = range.region.x;
+							const Interval& thisXInterval = range.region.x;
 							if (lowestXInterval.contains(thisXInterval) || !lowestXInterval.intersects(thisXInterval)) {
 								continue;
 							}
@@ -4542,7 +4544,7 @@ namespace Terrain {
 
 				// TODO: make this work for (vertical) lines
 				// Create the next uncovered region
-				IntInterval uncoveredRange = lowestXInterval.getIntervalBelow().addLowerBound(firstUncoveredX);
+				Interval uncoveredRange = lowestXInterval.getIntervalBelow().addLowerBound(firstUncoveredX);
 				firstUncoveredX = lowestXInterval.getIntervalAbove().min;
 
 				if (uncoveredRange.is_bottom()) {
@@ -4553,7 +4555,7 @@ namespace Terrain {
 				}
 
 				// Can the element we're coming from connect to this new region?
-				Region uncoveredRegion(uncoveredRange, IntInterval::top());
+				Region uncoveredRegion(uncoveredRange, Interval::top());
 				uncoveredRegion.intersect(elConnRegion);
 				// Special case for corners
 				if (el_id.isCorner()) {
@@ -4650,8 +4652,8 @@ namespace Terrain {
 						// Exceptions::assert(!fromStateOut.pos.intersects(range.region));
 						if (fromStateOut.pos.intersects(range.region)) {
 							// TODO: In this case do we want to duplicate? or is there always a way to pick the better option?
-							IntInterval left = range.region.x.getIntervalBelow().intersect(fromStateOut.pos.x);
-							IntInterval right = range.region.x.getIntervalAbove().intersect(fromStateOut.pos.x);
+							Interval left = range.region.x.getIntervalBelow().intersect(fromStateOut.pos.x);
+							Interval right = range.region.x.getIntervalAbove().intersect(fromStateOut.pos.x);
 							
 							// Pick the closer one if the in-region is not between them
 							if (fromStateIn.pos.x.max <= left.max) {
@@ -4786,8 +4788,8 @@ namespace Terrain {
 					// Exceptions::assert(!fromStateOut.pos.intersects(range.region));
 					if (toStateIn.pos.intersects(range.region)) {
 						// TODO: In this case do we want to duplicate? or is there always a way to pick the better option?
-						IntInterval left = range.region.x.getIntervalBelow().intersect(toStateIn.pos.x);
-						IntInterval right = range.region.x.getIntervalAbove().intersect(toStateIn.pos.x);
+						Interval left = range.region.x.getIntervalBelow().intersect(toStateIn.pos.x);
+						Interval right = range.region.x.getIntervalAbove().intersect(toStateIn.pos.x);
 
 						// Pick the closer one if the in-region is not between them
 						if (toStateOut.pos.x.max <= left.max) {
@@ -4830,7 +4832,7 @@ namespace Terrain {
 			newMustState.vy = FULL_Y_SPEED_RANGE;
 			ReduceByFliplessConnectivity(mustStateFwd.pos, newMustState.pos, mustStateFwd.vx, mustStateFwd.vy, mustStateFwd.inverseGravity, wp.id.isWall());
 			if (!toStateIn.is_bottom() && !toStateOut.is_bottom() && !toStateIn.pos.x.intersects(toStateOut.pos.x)) {
-				IntInterval betweenInterval = IntInterval(toStateOut.pos.x).join(toStateIn.pos.x).difference(toStateOut.pos.x).difference(toStateIn.pos.x);
+				Interval betweenInterval = Interval(toStateOut.pos.x).join(toStateIn.pos.x).difference(toStateOut.pos.x).difference(toStateIn.pos.x);
 				newMustState.pos.x.join(betweenInterval);
 			}
 			if (toStateOut.inverseGravity != toStateIn.inverseGravity) {
@@ -5139,7 +5141,7 @@ namespace Terrain {
 				// Must state remains the same
 				PlayerStateRange newMustState(mustState);
 				newMustState.inverseGravity = toState.inverseGravity;
-				// newMustState.pos.x += IntInterval(-MAX_X_SPEED, MAX_X_SPEED);
+				// newMustState.pos.x += Interval(-MAX_X_SPEED, MAX_X_SPEED);
 
 				// May state encompasses entire platform
 				PlayerStateRange newMayState(toState);
@@ -5219,11 +5221,11 @@ namespace Terrain {
 					continue;
 				}
 
-				const IntInterval& coveredXRange = el_reg.region.x;
+				const Interval& coveredXRange = el_reg.region.x;
 				int lastUncoveredX = coveredXRange.getIntervalBelow().max;
 				int newFirstUncoveredX = coveredXRange.getIntervalAbove().min;
 
-				IntInterval uncoveredXRange(firstUncoveredX, lastUncoveredX);
+				Interval uncoveredXRange(firstUncoveredX, lastUncoveredX);
 				firstUncoveredX = newFirstUncoveredX;
 
 				if (!uncoveredXRange.is_bottom()) {
@@ -5232,7 +5234,7 @@ namespace Terrain {
 			}
 
 			int finalUncoveredX = connectingRegion.x.max;
-			IntInterval finalUncoveredXRange(firstUncoveredX, finalUncoveredX);
+			Interval finalUncoveredXRange(firstUncoveredX, finalUncoveredX);
 			if (!finalUncoveredXRange.is_bottom()) {
 				uncoveredParts.emplace_back(el_id, Region(finalUncoveredXRange, connectingRegion.y));
 			}
@@ -5414,8 +5416,8 @@ namespace Terrain {
 		}
 		
 		// Round to int interval
-		IntInterval d_x = IntInterval::bottom();
-		IntInterval d_y = IntInterval::bottom();
+		Interval d_x = Interval::bottom();
+		Interval d_y = Interval::bottom();
 		FloatInterval acc_v_x = FloatInterval::bottom();
 		FloatInterval acc_v_y = FloatInterval::bottom();
 		for (std::vector<FloatInterval>::const_iterator it = v_x_final.cbegin(); it != v_x_final.cend(); it++) {
@@ -5439,11 +5441,11 @@ namespace Terrain {
 
 		// Wall collisions
 		const Region leftSide = Region::fromXUpperBound(blockedRegion.getMin().x - 1);
-		const Region middleSide = Region::fromXInterval(IntInterval(blockedRegion.getMin().x, blockedRegion.getMax().x));
+		const Region middleSide = Region::fromXInterval(Interval(blockedRegion.getMin().x, blockedRegion.getMax().x));
 		const Region rightSide = Region::fromXLowerBound(blockedRegion.getMax().x + 1);
 
 		const Region above = Region::fromYUpperBound(blockedRegion.getMin().y - 1);
-		const Region beside = Region::fromYInterval(IntInterval(blockedRegion.getMin().y, blockedRegion.getMax().y));
+		const Region beside = Region::fromYInterval(Interval(blockedRegion.getMin().y, blockedRegion.getMax().y));
 		const Region below = Region::fromYLowerBound(blockedRegion.getMax().y + 1);
 
 		Region posAbove = Region(state.pos).intersect(above);
@@ -5451,8 +5453,8 @@ namespace Terrain {
 		Region posBesideLeft = Region(state.pos).intersect(beside).intersect(leftSide);
 		Region posBesideRight = Region(state.pos).intersect(beside).intersect(rightSide);
 
-		IntInterval v_x_lim_positive = -posBesideLeft.x + blockedRegion.getMin().x - 1;
-		IntInterval v_x_lim_negative = -posBesideRight.x + blockedRegion.getMax().x + 1;
+		Interval v_x_lim_positive = -posBesideLeft.x + blockedRegion.getMin().x - 1;
+		Interval v_x_lim_negative = -posBesideRight.x + blockedRegion.getMax().x + 1;
 
 		posAbove.x += d_x;
 		posBelow.x += d_x;
@@ -5471,8 +5473,8 @@ namespace Terrain {
 		Region posBelowMiddle = Region(posBelow).intersect(middleSide);
 		Region posBelowRight = Region(posBelow).intersect(rightSide);
 
-		IntInterval v_y_lim_positive = -posAboveMiddle.y + blockedRegion.getMin().y - 1;
-		IntInterval v_y_lim_negative = -posBelowMiddle.y + blockedRegion.getMax().y + 1;
+		Interval v_y_lim_positive = -posAboveMiddle.y + blockedRegion.getMin().y - 1;
+		Interval v_y_lim_negative = -posBelowMiddle.y + blockedRegion.getMax().y + 1;
 
 		posAboveLeft.y += d_y;
 		posAboveMiddle.y += d_y;
@@ -5550,8 +5552,8 @@ namespace Terrain {
 		// TODO: this is very imprecise
 		Exceptions::require(from.is_bounded() && to.is_bounded());
 		
-		const IntInterval delta_x = to.x - from.x;
-		const IntInterval delta_y = to.y - from.y;
+		const Interval delta_x = to.x - from.x;
+		const Interval delta_y = to.y - from.y;
 
 		if (delta_y.is_bottom() || delta_x.is_bottom()) {
 			from.make_bottom();
@@ -5562,8 +5564,8 @@ namespace Terrain {
 		const FloatInterval a_x(-3.0f, 3.0f);
 		const float a_y = inverseGravity ? -3.0f : 3.0f;
 
-		IntInterval d_x = 0;
-		IntInterval d_y = 0;
+		Interval d_x = 0;
+		Interval d_y = 0;
 
 		int frames_elapsed = 0;
 		bool definitelyLanded = false;
@@ -5579,8 +5581,8 @@ namespace Terrain {
 				return false;
 			}
 
-			IntInterval prev_dx(d_x);
-			IntInterval prev_dy(d_y);
+			Interval prev_dx(d_x);
+			Interval prev_dy(d_y);
 			DoIntervalPhysicsStep(a_x, a_y, v_x, v_y, d_x, d_y);
 
 			if (toSurface) {
@@ -5591,10 +5593,10 @@ namespace Terrain {
 					}
 					if (delta_x.contains(d_x) && prev_dy < surfaceY) {
 						// Don't allow moving past the surface
-						d_y.clampToInterval(IntInterval::fromUpperBound(surfaceY));
+						d_y.clampToInterval(Interval::fromUpperBound(surfaceY));
 					} else if (d_x.intersects(delta_x)) {
 						// Account for landing on the surface
-						if (IntInterval::join(prev_dy, d_y).intersects(surfaceY)) {
+						if (Interval::join(prev_dy, d_y).intersects(surfaceY)) {
 							d_y.join(surfaceY);
 						}
 					}
@@ -5605,10 +5607,10 @@ namespace Terrain {
 					}
 					if (delta_x.contains(d_x) && prev_dy > surfaceY) {
 						// Don't allow moving past the surface
-						d_y.clampToInterval(IntInterval::fromLowerBound(surfaceY));
+						d_y.clampToInterval(Interval::fromLowerBound(surfaceY));
 					} else if (d_x.intersects(delta_x)) {
 						// Account for landing on the surface
-						if (IntInterval::join(prev_dy, d_y).intersects(surfaceY)) {
+						if (Interval::join(prev_dy, d_y).intersects(surfaceY)) {
 							d_y.join(surfaceY);
 						}
 					}
@@ -5628,8 +5630,8 @@ namespace Terrain {
 			reachableToRegion.join(reachableThisFrame);
 			startableFromRegion.join(startableThisFrame);
 
-			IntInterval prev_dx(d_x);
-			IntInterval prev_dy(d_y);
+			Interval prev_dx(d_x);
+			Interval prev_dy(d_y);
 			DoIntervalPhysicsStep(a_x, a_y, v_x, v_y, d_x, d_y);
 
 			if (toSurface && !definitelyLanded) {
@@ -5640,10 +5642,10 @@ namespace Terrain {
 					}
 					if (delta_x.contains(d_x) && prev_dy < surfaceY) {
 						// Don't allow moving past the surface
-						d_y.clampToInterval(IntInterval::fromUpperBound(surfaceY));
+						d_y.clampToInterval(Interval::fromUpperBound(surfaceY));
 					} else if (d_x.intersects(delta_x)) {
 						// Account for landing on the surface
-						if (IntInterval::join(prev_dy, d_y).intersects(surfaceY)) {
+						if (Interval::join(prev_dy, d_y).intersects(surfaceY)) {
 							d_y.join(surfaceY);
 						}
 					}
@@ -5654,10 +5656,10 @@ namespace Terrain {
 					}
 					if (delta_x.contains(d_x) && prev_dy > surfaceY) {
 						// Don't allow moving past the surface
-						d_y.clampToInterval(IntInterval::fromLowerBound(surfaceY));
+						d_y.clampToInterval(Interval::fromLowerBound(surfaceY));
 					} else if (d_x.intersects(delta_x)) {
 						// Account for landing on the surface
-						if (IntInterval::join(prev_dy, d_y).intersects(surfaceY)) {
+						if (Interval::join(prev_dy, d_y).intersects(surfaceY)) {
 							d_y.join(surfaceY);
 						}
 					}
@@ -5671,7 +5673,7 @@ namespace Terrain {
 		from.intersect(startableFromRegion);
 	}
 
-	void DoIntervalPhysicsStep(const FloatInterval& a_x, const FloatInterval& a_y, FloatInterval& v_x, FloatInterval& v_y, IntInterval& xp, IntInterval& yp) {
+	void DoIntervalPhysicsStep(const FloatInterval& a_x, const FloatInterval& a_y, FloatInterval& v_x, FloatInterval& v_y, Interval& xp, Interval& yp) {
 		const float x_rate = X_RATE;
 		const float y_rate = Y_RATE;
 
@@ -5694,8 +5696,8 @@ namespace Terrain {
 			v_y.join(0.0f);
 		}
 
-		IntInterval x_step = v_x.toIntInterval();
-		IntInterval y_step = v_y.toIntInterval();
+		Interval x_step = v_x.toIntInterval();
+		Interval y_step = v_y.toIntInterval();
 
 		xp += x_step;
 		yp += y_step;
@@ -6294,20 +6296,20 @@ namespace Terrain {
 		}
 	}
 
-	IntInterval GetYFrames(IntInterval& d_y, bool inverseGravity) {
+	Interval GetYFrames(Interval& d_y, bool inverseGravity) {
 		if (d_y.is_bottom()) {
-			return IntInterval::bottom();
+			return Interval::bottom();
 		}
-		IntInterval distance(d_y);
+		Interval distance(d_y);
 		if (inverseGravity) {
 			distance.negate();
 		}
 
 		if (distance.is_negative()) {
 			if (distance.contains(0)) {
-				return IntInterval(0);
+				return Interval(0);
 			} else {
-				return IntInterval::bottom();
+				return Interval::bottom();
 			}
 		}
 		
@@ -6323,11 +6325,11 @@ namespace Terrain {
 				y_speed.min = SDL_min(MAX_Y_SPEED, y_speed.min);
 				y_speed.max = SDL_min(MAX_Y_SPEED, y_speed.max);
 			}
-			IntInterval d_y = y_speed.toIntInterval();
+			Interval d_y = y_speed.toIntInterval();
 			distance -= d_y;
 		}
 		if (distance > 0) {
-			IntInterval d_y = y_speed.toIntInterval();
+			Interval d_y = y_speed.toIntInterval();
 			if (!d_y.is_exact()) {
 				VVV_exit(-1);
 			}
@@ -6339,7 +6341,7 @@ namespace Terrain {
 		}
 
 		if (!distance.has_upper_bound()) {
-			return IntInterval::fromLowerBound(min_frames);
+			return Interval::fromLowerBound(min_frames);
 		}
 
 		int max_frames = min_frames;
@@ -6351,11 +6353,11 @@ namespace Terrain {
 				y_speed.min = SDL_min(MAX_Y_SPEED, y_speed.min);
 				y_speed.max = SDL_min(MAX_Y_SPEED, y_speed.max);
 			}
-			IntInterval d_y = y_speed.toIntInterval();
+			Interval d_y = y_speed.toIntInterval();
 			distance -= d_y;
 		}
 		if (!(distance < 0)) {
-			IntInterval d_y = y_speed.toIntInterval();
+			Interval d_y = y_speed.toIntInterval();
 			if (!d_y.is_exact()) {
 				VVV_exit(-1);
 			}
@@ -6368,13 +6370,13 @@ namespace Terrain {
 			max_frames -= 1;
 		}
 
-		return IntInterval(min_frames, max_frames);
+		return Interval(min_frames, max_frames);
 	}
 
-	IntInterval GetYDist(int y_frames, bool inverseGravity) {
+	Interval GetYDist(int y_frames, bool inverseGravity) {
 		float y_accel = 2.75f;
 		FloatInterval y_speed(0.0f, MAX_Y_SPEED);
-		IntInterval d_y(0);
+		Interval d_y(0);
 
 		while (y_frames > 0 && !y_speed.is_exact()) {
 			y_speed += y_accel;
@@ -6391,18 +6393,18 @@ namespace Terrain {
 		}
 		return inverseGravity ? -d_y : d_y;
 	}
-	IntInterval GetYDist(IntInterval& y_frames, bool inverseGravity) {
+	Interval GetYDist(Interval& y_frames, bool inverseGravity) {
 		if (y_frames.is_bottom() || y_frames.min < 0) {
-			return IntInterval::bottom();
+			return Interval::bottom();
 		}
 
-		IntInterval minFramesResult = GetYDist(y_frames.min, inverseGravity);
+		Interval minFramesResult = GetYDist(y_frames.min, inverseGravity);
 		if (!y_frames.has_upper_bound()) {
 			minFramesResult.max = INT_MAX;
 			return minFramesResult;
 		} else {
-			IntInterval maxFramesResult = GetYDist(y_frames.max, inverseGravity);
-			return IntInterval::join(minFramesResult, maxFramesResult);
+			Interval maxFramesResult = GetYDist(y_frames.max, inverseGravity);
+			return Interval::join(minFramesResult, maxFramesResult);
 		}
 	}
 

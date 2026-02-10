@@ -7,6 +7,7 @@
 
 #define ROOM_W (320)
 #define ROOM_H (240)
+#define WARP_ROOM_W (320)
 #define WARP_ROOM_H (232)
 
 #define VIRIDIAN_CX (6)
@@ -21,12 +22,12 @@
 #define MAX_VX (6)
 #define MAX_VY (10)
 
-#define VX_INT_RANGE (IntInterval(-MAX_VX, MAX_VX))
+#define VX_INT_RANGE (IntInterval<int16_t>(-MAX_VX, MAX_VX))
 #define FULL_X_SPEED_RANGE (FloatInterval(-MAX_X_SPEED, MAX_X_SPEED))
 #define POS_X_SPEED_RANGE (FloatInterval(0.0f, MAX_X_SPEED))
 #define NEG_X_SPEED_RANGE (FloatInterval(-MAX_X_SPEED, 0.0f))
 
-#define VY_INT_RANGE (IntInterval(-MAX_VY, MAX_VY))
+#define VY_INT_RANGE (IntInterval<int16_t>(-MAX_VY, MAX_VY))
 #define FULL_Y_SPEED_RANGE (FloatInterval(-MAX_Y_SPEED, MAX_Y_SPEED))
 #define POS_Y_SPEED_RANGE (FloatInterval(0.0f, MAX_Y_SPEED))
 #define NEG_Y_SPEED_RANGE (FloatInterval(-MAX_Y_SPEED, 0.0f))

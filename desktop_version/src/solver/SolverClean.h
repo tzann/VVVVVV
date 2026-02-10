@@ -764,10 +764,13 @@ namespace SolverClean {
     
     static uint16_t updateHeuristic(const SolverConfig& solver, const CheckedScenario& scenario, CachedSolverState& state);
     static uint16_t calcHeuristic(const SolverConfig& solver, const CheckedScenario& scenario, int next_corner, const PlayerState& player, const GameState& game);
+    
     static uint16_t calcSimpleHeuristic(const SolverConfig& solver, const CheckedScenario& scenario, int next_corner, const PlayerState& player, const GameState& game);
     static uint16_t calcSimpleHeuristicCorner(RoomPosition& room_pos, Region& pos, const CheckedCorner& c);
     static uint16_t calcSimpleHeuristicWarpCorner(RoomPosition& room_pos, Region& pos, const CheckedCorner& c);
     static uint16_t calcSimpleHeuristicFinalCorner(RoomPosition& room_pos, Region& pos, const CheckedCorner& c);
+    static uint16_t calcSimpleHeuristicSegment(Region& fromPos, const Region& toPos);
+
     static uint16_t calcAccelHeuristic1(const SolverConfig& solver, const CheckedScenario& scenario, int next_corner, const PlayerState& player, const GameState& game);
 
     /// Creates an instance which contains the current game state
