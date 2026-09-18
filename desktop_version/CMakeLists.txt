@@ -132,6 +132,21 @@ endif()
 
 set(VVV_SRC ${VVV_CXX_SRC} ${VVV_C_SRC})
 
+# SCENARIO: reference scenario harness (src/scenario/). Kept out of VVV_CXX_SRC
+# so it can be compiled as C++17 without touching the game's own sources.
+set(SCENARIO_CXX_SRC
+    src/scenario/Scenario.cpp
+    src/scenario/ScenarioFile.cpp
+    src/scenario/ScenarioProbes.cpp
+    src/scenario/ScenarioToml.cpp
+    src/scenario/ScenarioTrace.cpp
+)
+set(SCENARIO_C_SRC
+    src/scenario/ScenarioRand.c
+    src/scenario/ScenarioRandCheck.c
+)
+list(APPEND VVV_SRC ${SCENARIO_CXX_SRC} ${SCENARIO_C_SRC})
+
 # Executable information
 if(WIN32)
     add_executable(VVVVVV WIN32 ${VVV_SRC} icon.rc)
@@ -315,6 +330,14 @@ else()
     # Dependencies (as needed)
     set_source_files_properties(${FAUDIO_SRC} PROPERTIES COMPILE_FLAGS -std=c99)
     set_source_files_properties(${CHM_SRC} PROPERTIES COMPILE_FLAGS -std=c99)
+endif()
+
+# SCENARIO: compile flags for the scenario harness.
+if(MSVC)
+    set_source_files_properties(${SCENARIO_CXX_SRC} PROPERTIES COMPILE_FLAGS "/std:c++17 /EHsc")
+else()
+    set_source_files_properties(${SCENARIO_CXX_SRC} PROPERTIES COMPILE_FLAGS -std=c++17)
+    set_source_files_properties(${SCENARIO_C_SRC} PROPERTIES COMPILE_FLAGS -std=c99)
 endif()
 
 # Unfortunately, it doesn't seem like distros package LodePNG

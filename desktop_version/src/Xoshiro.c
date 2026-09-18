@@ -66,3 +66,13 @@ float xoshiro_rand(void)
 {
     return ((float) xoshiro_next()) / ((float) UINT32_MAX);
 }
+
+/* SCENARIO: read-only access to the generator state for the scenario harness
+ * (see src/scenario/ScenarioRand.h). */
+void xoshiro_get_state(uint32_t out[4])
+{
+    out[0] = s[0];
+    out[1] = s[1];
+    out[2] = s[2];
+    out[3] = s[3];
+}

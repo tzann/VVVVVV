@@ -35,6 +35,7 @@
 #include "Script.h"
 #include "UtilityClass.h"
 #include "Vlogging.h"
+#include "scenario/Scenario.h" /* SCENARIO */
 
 scriptclass script;
 
@@ -354,6 +355,23 @@ static void inline deltaloop(void);
 
 static void cleanup(void);
 
+/* SCENARIO: advance the game by exactly one fixed timestep, using a virtual
+ * clock instead of SDL_GetTicks64(). Only used by the scenario harness. */
+static void scenario_step(void)
+{
+    timePrev = time_;
+    time_ += game.get_timestep();
+    deltaloop();
+}
+
+/* SCENARIO: report the loop bookkeeping to the scenario harness. */
+static void scenario_loop_state(int* func_index, int* num_funcs, int* meta_index)
+{
+    *func_index = gamestate_func_index;
+    *num_funcs = num_gamestate_funcs;
+    *meta_index = meta_func_index;
+}
+
 #ifdef __EMSCRIPTEN__
 static void emscriptenloop(void)
 {
@@ -394,6 +412,9 @@ int main(int argc, char *argv[])
     int invalid_partial_arg = 0;
 
     vlog_init();
+
+    /* SCENARIO: strip the scenario harness' arguments. */
+    SCENARIO_parse_args(&argc, &argv);
 
     for (int i = 1; i < argc; ++i)
     {
@@ -851,6 +872,9 @@ int main(int argc, char *argv[])
         graphics.fademode = FADE_NONE;
     }
 
+    /* SCENARIO: apply the scenario's settings and start state, if any. */
+    SCENARIO_setup();
+
     /* Only create the window after we have loaded all the assets. */
     SDL_ShowWindow(gameScreen.m_window);
 
@@ -858,6 +882,12 @@ int main(int argc, char *argv[])
 
     gamestate_funcs = get_gamestate_funcs(game.gamestate, &num_gamestate_funcs);
     loop_assign_active_funcs();
+
+    /* SCENARIO: run a reference scenario instead of the normal game loop. */
+    if (SCENARIO_active())
+    {
+        VVV_exit(SCENARIO_run(scenario_step, scenario_loop_state));
+    }
 
 #ifdef __EMSCRIPTEN__
     emscripten_set_main_loop(emscriptenloop, 0, 0);
